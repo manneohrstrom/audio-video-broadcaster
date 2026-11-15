@@ -38,6 +38,21 @@
   .bad { color:var(--bad); } .good { color:var(--ok); }
   .controls.small button { font-size:14px; padding:8px 14px; min-width:0; background:#333; }
   .step { font-size:12px; color:var(--dim); }
+  #ingest-status { margin-bottom:8px; } #ingest-status b { font-weight:600; }
+  .take { background:var(--card); border-radius:10px; padding:10px 12px; margin-bottom:8px; max-width:720px; border-left:5px solid #333; }
+  .take.active { border-color:var(--live); } .take.done { border-color:var(--ok); } .take.error { border-color:var(--bad); }
+  .take h4 { margin:0 0 6px; font-size:14px; display:flex; justify-content:space-between; gap:4px 12px; flex-wrap:wrap; }
+  .take h4 small { color:var(--dim); font-weight:normal; }
+  .camrow { display:grid; grid-template-columns:44px 1fr; gap:6px; align-items:start; margin:6px 0 2px; }
+  .camname { font-weight:600; font-size:13px; padding-top:3px; }
+  .steps { display:flex; gap:5px; flex-wrap:wrap; }
+  .st { font-size:12px; padding:3px 8px; border-radius:6px; background:#262628; color:var(--dim); display:inline-flex; gap:6px; align-items:center; white-space:nowrap; }
+  .st.done { color:var(--ok); } .st.cur { background:#1d3557; color:#fff; } .st.err { background:#4a1515; color:#fff; }
+  .bar { width:48px; height:4px; background:#445; border-radius:2px; overflow:hidden; } .bar i { display:block; height:100%; background:#7ab8ff; }
+  .spin { width:9px; height:9px; border:2px solid #fff; border-right-color:transparent; border-radius:50%; animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .camerr { color:var(--bad); font-size:12px; margin:2px 0 0 50px; }
+  .camdone { font-size:13px; color:var(--dim); }
 </style>
 </head>
 <body>
@@ -155,19 +170,69 @@ document.addEventListener("click", e => {
   if (u) navigator.clipboard.writeText(u).then(() => { e.target.textContent = "copied"; });
 });
 const STEPS = ["pulled", "checked", "conformed", "verified", "written", "marked"];
-function ingestView(st) {
-  const s = esc(st.status || "–") + (st.step ? " · " + esc(st.step) : "") +
-    (st.drive_free_gb != null ? " · drive " + st.drive_free_gb + " GB free" : "");
-  $("#ingest-status").innerHTML = s;
-  const rows = Object.entries(st.takes || {}).reverse().map(([id, cams]) => {
-    const cells = Object.entries(cams).filter(([c]) => c !== "complete").map(([c, cs]) => {
-      const last = (cs.done || []).slice(-1)[0] || "queued";
-      const ok = last === "marked";
-      return `<td>${esc(c)}: <span class="${cs.error ? "bad" : ok ? "good" : "step"}">${esc(cs.error ? "error: " + cs.error : ok ? "done" : last)}</span>${cs.repeated != null ? ` <span class="step">(${cs.repeated} repeats)</span>` : ""}</td>`;
-    }).join("");
-    return `<tr><td>${esc(id)}${cams.complete ? ' <span class="good">✓</span>' : ""}</td>${cells}</tr>`;
+const STEP_NAMES = { pulled: "Pull", checked: "Check", conformed: "Convert",
+  verified: "Verify", written: "Copy to drive", marked: "Mark on camera" };
+function fmtEta(s) {
+  if (s == null) return "";
+  if (s < 60) return "under a minute";
+  const m = Math.round(s / 60);
+  return m < 60 ? `about ${m} min` : `about ${Math.floor(m / 60)} h ${m % 60} min`;
+}
+function fmtDur(s) {
+  s = Math.round(s || 0);
+  const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, ss = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+function camSteps(cs, paused) {
+  const done = cs.done || [];
+  const next = STEPS.find(x => !done.includes(x));
+  return STEPS.map(step => {
+    const name = STEP_NAMES[step];
+    if (done.includes(step)) return `<span class="st done">✓ ${name}</span>`;
+    if (cs.error && step === next) return `<span class="st err">✗ ${name}</span>`;
+    if (cs.step === step) {
+      const pct = cs.progress != null ? Math.round(cs.progress * 100) : null;
+      return `<span class="st cur">${paused ? "⏸" : '<span class="spin"></span>'} ${name}` +
+        (pct != null ? ` ${pct}% <span class="bar"><i style="width:${pct}%"></i></span>` : "") +
+        (paused ? " · paused" : "") + "</span>";
+    }
+    return `<span class="st">○ ${name}</span>`;
   }).join("");
-  $("#ingest-takes").innerHTML = rows ? `<table>${rows}</table>` : "";
+}
+function ingestView(st) {
+  const paused = /^paused/.test(st.status || "");
+  const running = (st.status || "") === "ingesting";
+  const takes = Object.entries(st.takes || {});
+  const total = takes.length;
+  const doneN = takes.filter(([, cams]) => cams.complete ||
+    Object.entries(cams).every(([c, cs]) => c === "complete" || (cs.done || []).includes("marked"))).length;
+  let s = `<b>${esc(st.status || "–")}</b>`;
+  if (total) s += ` · ${doneN} of ${total} takes done`;
+  if ((running || paused) && st.eta_s != null) s += ` · ${fmtEta(st.eta_s)} left`;
+  if (st.drive_free_gb != null) s += ` · drive ${st.drive_free_gb} GB free`;
+  $("#ingest-status").innerHTML = s;
+
+  $("#ingest-takes").innerHTML = takes.reverse().map(([id, cams]) => {
+    const cs = Object.entries(cams).filter(([c, v]) => c !== "complete" && v && typeof v === "object");
+    const allDone = cs.length && cs.every(([, v]) => (v.done || []).includes("marked"));
+    const active = cs.some(([, v]) => v.step);
+    const err = cs.some(([, v]) => v.error);
+    const dur = Math.max(0, ...cs.map(([, v]) => v.duration_s || 0));
+    const etas = cs.map(([, v]) => v.eta_s).filter(x => x != null);
+    let head = `${esc(id)} <small>${dur ? fmtDur(dur) + " of video" : ""}</small>`;
+    let right = allDone ? '<span class="good">✓ done</span>' : err ? '<span class="bad">needs attention</span>' :
+      active ? `<span>${etas.length ? fmtEta(Math.max(...etas)) + " left" : "working"}</span>` : '<small>queued</small>';
+    let body;
+    if (allDone) {
+      body = `<div class="camdone">` + cs.map(([c, v]) => `${esc(c)}: ${v.frames_out != null ? v.frames_out + " frames" : "done"}` +
+        (v.repeated > 0 ? ` (${v.repeated} repeated)` : v.repeated < 0 ? ` (${-v.repeated} skipped to fit 30 fps)` : "") + (v.dropped ? `, ${v.dropped} dropped on camera` : "")).join(" · ") + "</div>";
+    } else {
+      body = cs.map(([c, v]) => `<div class="camrow"><span class="camname">${esc(c)}</span><div class="steps">${camSteps(v, paused)}</div></div>` +
+        (v.error ? `<div class="camerr">${esc(v.error)}</div>` : "")).join("");
+    }
+    const cls = allDone ? "done" : err ? "error" : active ? "active" : "";
+    return `<div class="take ${cls}"><h4><span>${head}</span>${right}</h4>${body}</div>`;
+  }).join("");
 }
 async function pollIngest() {
   try { const r = await fetch("/api/ingest"); ingestView(await r.json()); } catch (e) {}

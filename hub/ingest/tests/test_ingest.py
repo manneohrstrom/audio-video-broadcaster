@@ -79,8 +79,10 @@ class FakeRunner:
         self.frames_override = None
         self.pause_on = None          # tool name that finds the rig busy
 
-    def run(self, cmd, pause="kill", nice=19, timeout=None):
+    def run(self, cmd, pause="kill", nice=19, timeout=None, on_poll=None):
         tool = cmd[0]
+        if on_poll:
+            on_poll()
         self.calls.append(tool)
         if self.pause_on == tool or (self.rig.busy and tool == "rsync"):
             raise ingest.Paused()
@@ -145,7 +147,7 @@ class FakeDrive:
         return 100.0
 
 
-class IngestTest(unittest.TestCase):
+class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.rig = FakeRig(os.path.join(self.tmp, "cams"))
@@ -178,6 +180,8 @@ class IngestTest(unittest.TestCase):
         with open(os.path.join(self.ing.cmd_dir, "%f.json" % time.time()), "w") as f:
             json.dump({"cmd": cmd}, f)
 
+
+class IngestTest(Base):
     # ---- maths
     def test_grid_origin(self):
         tc, origin, residual = ingest.grid_origin(5 * 10**9 + 50_000_000, tz_localtime=time.gmtime)
@@ -313,6 +317,77 @@ class IngestTest(unittest.TestCase):
         self.ing.tick()
         self.make()                                   # service restarted
         self.assertIn("pulled", self.ing.cam_state(TAKE, "cam1")["done"])
+
+
+class ProgressTest(Base):
+    """Step progress and ETA shown in the UI."""
+
+    def test_ffmpeg_progress_reads_last_out_time(self):
+        p = os.path.join(self.tmp, "progress.txt")
+        with open(p, "w") as f:
+            f.write("frame=10\nout_time_us=N/A\nprogress=continue\n"
+                    "frame=300\nout_time_us=10000000\nprogress=continue\n")
+        self.assertAlmostEqual(ingest.ffmpeg_progress(p, 40.0), 0.25)
+        self.assertIsNone(ingest.ffmpeg_progress(p + ".missing", 40.0))
+        self.assertIsNone(ingest.ffmpeg_progress(p, 0))
+
+    def test_queue_listed_with_eta_before_work_starts(self):
+        self.rig.add_take("cam1")
+        self.rig.add_take("cam2")
+        todo = self.ing.pending()
+        self.ing.register(todo)
+        self.ing.save()
+        cams = self.ing.state["takes"][TAKE]
+        self.assertEqual(set(cams), {"cam1", "cam2"})
+        self.assertEqual(cams["cam1"]["done"], [])
+        self.assertAlmostEqual(cams["cam1"]["duration_s"], 10.0)      # 300 frames, no duration_s
+        # Every step at its default rate plus overhead, for both cameras.
+        per_cam = sum(ingest.DEFAULT_RATES.values()) * 10.0 + 6 * ingest.STEP_OVERHEAD_S
+        self.assertAlmostEqual(self.ing.state["eta_s"], round(2 * per_cam), delta=1)
+
+    def test_eta_uses_progress_of_current_step(self):
+        cs = self.ing.cam_state(TAKE, "cam1")
+        cs.update(duration_s=600.0, done=["pulled", "checked"])
+        self.ing.begin(TAKE, "cam1", "conformed")
+        self.now[0] += 100
+        self.ing.progress(TAKE, "cam1", 0.25)          # 100 s for 25% -> 300 s left
+        later = (ingest.DEFAULT_RATES["verified"] + ingest.DEFAULT_RATES["written"]) * 600 \
+            + 3 * ingest.STEP_OVERHEAD_S
+        self.assertAlmostEqual(self.ing.cam_eta(cs), 300 + later, delta=1)
+
+    def test_rates_learned_and_skipped_when_rig_was_busy(self):
+        cs = self.ing.cam_state(TAKE, "cam1")
+        cs["duration_s"] = 100.0
+        self.ing.begin(TAKE, "cam1", "conformed")
+        self.now[0] += 52                               # 50 s of work + 2 s overhead -> 0.5
+        self.ing.mark(TAKE, "cam1", "conformed")
+        self.assertAlmostEqual(self.ing.rates()["conformed"], 0.6 * 1.0 + 0.4 * 0.5)
+        before = self.ing.rates()["verified"]
+        self.ing.begin(TAKE, "cam1", "verified")
+        self.now[0] += 500
+        self.ing.last_busy = self.now[0] - 1            # paused part-way: don't learn
+        self.ing.mark(TAKE, "cam1", "verified")
+        self.assertEqual(self.ing.rates()["verified"], before)
+        self.assertIsNone(cs.get("step"))
+
+    def test_full_run_ends_with_no_eta_and_no_current_step(self):
+        self.rig.add_take("cam1")
+        self.command("start")
+        self.ing.tick()
+        cs = self.ing.state["takes"][TAKE]["cam1"]
+        self.assertIn("marked", cs["done"])
+        self.assertIsNone(cs.get("step"))
+        self.assertIsNone(self.ing.state["eta_s"])
+
+
+class DriveTest(unittest.TestCase):
+    def test_free_gb_none_when_not_mounted(self):
+        # The bare mount point lives on the hub's SD card; its free space must
+        # not be shown as the drive's (seen on the rig 2026-11-15: 24.9 GB).
+        with tempfile.TemporaryDirectory() as mp:
+            d = ingest.Drive({"drive_label": "STUDIO", "mount_point": mp})
+            self.assertFalse(d.mounted())
+            self.assertIsNone(d.free_gb())
 
 
 if __name__ == "__main__":

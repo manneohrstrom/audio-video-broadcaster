@@ -28,8 +28,29 @@ import threading
 import time
 import urllib.request
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 FPS = 30
+
+# ETA model: seconds of work per second of video, per step. Starting values from the
+# rig (2026-11-15: conform about 1x real time); learned as takes go through.
+DEFAULT_RATES = {"pulled": 1.0, "checked": 0.01, "conformed": 1.0, "verified": 0.25,
+                 "written": 0.05, "marked": 0.0}
+STEP_OVERHEAD_S = 2.0
+
+
+def ffmpeg_progress(path, duration_s):
+    """Fraction done from an ffmpeg -progress file (last out_time_us), or None."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 4096))
+            tail = f.read().decode("ascii", "replace")
+    except OSError:
+        return None
+    vals = re.findall(r"out_time_us=(\d+)", tail)
+    if not vals or not duration_s:
+        return None
+    return max(0.0, min(1.0, int(vals[-1]) / 1e6 / duration_s))
 
 DEFAULT_CONFIG = {
     "nodes": ["cam1", "cam2", "cam3", "cam4"],
@@ -98,8 +119,9 @@ class Runner:
     def __init__(self, busy, poll=0.5):
         self.busy, self.poll = busy, poll
 
-    def run(self, cmd, pause="kill", nice=19, timeout=None):
-        """pause='kill' (rsync: resumable) or 'stop' (ffmpeg: SIGSTOP/SIGCONT)."""
+    def run(self, cmd, pause="kill", nice=19, timeout=None, on_poll=None):
+        """pause='kill' (rsync: resumable) or 'stop' (ffmpeg: SIGSTOP/SIGCONT).
+        on_poll() is called about every poll interval while it runs (progress)."""
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                              preexec_fn=lambda: os.nice(nice))
         stopped = False
@@ -112,6 +134,11 @@ class Runner:
                 return out
             except subprocess.TimeoutExpired:
                 pass
+            if on_poll:
+                try:
+                    on_poll()
+                except Exception:  # noqa: BLE001 - progress is cosmetic
+                    pass
             if timeout and time.monotonic() - start > timeout:
                 p.kill(); p.wait()
                 raise RuntimeError("%s timed out" % cmd[0])
@@ -182,6 +209,10 @@ class Drive:
         self.checked_dev = None
 
     def free_gb(self):
+        """Free space on the drive, or None when it isn't mounted (the bare mount
+        point is on the hub's SD card, so its free space would be misleading)."""
+        if not self.mounted():
+            return None
         try:
             return round(shutil.disk_usage(self.mp).free / 1e9, 1)
         except OSError:
@@ -219,6 +250,8 @@ class Ingest:
     def save(self, **status):
         with self.lock:            # pull threads save concurrently
             self.state.update(status, version=VERSION, updated=self.clock(), last_busy=self.last_busy)
+            self.state["eta_s"] = self.eta()
+            self._saved_at = time.monotonic()
             tmp = os.path.join(self.sd, "state.json.tmp")
             with open(tmp, "w") as f:
                 json.dump(self.state, f, indent=1)
@@ -232,8 +265,80 @@ class Ingest:
         cs = self.cam_state(take_id, cam)
         if step not in cs["done"]:
             cs["done"].append(step)
-        cs.update(info, error=None)
+        self._learn(cs, step)
+        cs.update(info, error=None, step=None, progress=None, step_started=None)
         self.save()
+
+    # -- progress and ETA (for the UI)
+    def begin(self, take_id, cam, step):
+        cs = self.cam_state(take_id, cam)
+        cs.update(step=step, progress=None, step_started=self.clock())
+        self.save(current=take_id, step="%s %s" % (cam, step))
+
+    def progress(self, take_id, cam, frac):
+        """Fraction of the current step done. Saved at most every 2 s."""
+        if frac is None:
+            return
+        cs = self.cam_state(take_id, cam)
+        cs["progress"] = round(frac, 3)
+        if time.monotonic() - getattr(self, "_saved_at", 0) >= 2:
+            self.save()
+
+    def rates(self):
+        r = dict(DEFAULT_RATES)
+        r.update(self.state.get("rates") or {})
+        return r
+
+    def _learn(self, cs, step):
+        """Update the step's seconds-per-video-second from this run, unless the rig was
+        busy meanwhile (paused time would spoil it) or the take is too short to tell."""
+        t0, dur = cs.get("step_started"), cs.get("duration_s") or 0
+        if cs.get("step") != step or not t0 or dur < 20 or self.last_busy > t0:
+            return
+        k = max(0.0, self.clock() - t0 - STEP_OVERHEAD_S) / dur
+        rates = self.state.setdefault("rates", {})
+        old = rates.get(step, DEFAULT_RATES[step])
+        rates[step] = round(0.6 * old + 0.4 * k, 4)
+
+    def cam_eta(self, cs):
+        """Seconds left for one camera-take, or None if it has stopped on an error."""
+        if cs.get("error") and not cs.get("step"):
+            return None
+        rates, dur, done = self.rates(), cs.get("duration_s") or 0, cs.get("done", [])
+        left = 0.0
+        for step in self.STEPS:
+            if step in done:
+                continue
+            est = rates[step] * dur + STEP_OVERHEAD_S
+            if step == cs.get("step") and cs.get("step_started"):
+                el = max(0.0, self.clock() - cs["step_started"])
+                p = cs.get("progress")
+                est = el * (1 - p) / p if p and p > 0.03 and el > 5 else max(est - el, 1.0)
+            left += est
+        return left
+
+    def eta(self):
+        total, any_ = 0.0, False
+        for t, cams in self.state.get("takes", {}).items():
+            for c, cs in cams.items():
+                if not isinstance(cs, dict) or "marked" in cs.get("done", []):
+                    continue
+                e = self.cam_eta(cs)
+                cs["eta_s"] = None if e is None else round(e)
+                if e is not None:
+                    total, any_ = total + e, True
+        return round(total) if any_ else None
+
+    def register(self, todo):
+        """Put every pending camera-take in the state, so the UI can list the queue."""
+        for take_id, cams in todo.items():
+            for cam, m in cams.items():
+                cs = self.cam_state(take_id, cam)
+                cs["duration_s"] = m.get("duration_s") or (m.get("frames") or 0) / 30.0
+                cs["frames_cam"] = m.get("frames")
+                cs["dropped"] = m.get("dropped_frames")
+                files = m.get("files") or {}
+                cs["src_bytes"] = sum(files.get(n, 0) for n in ("video.h264", "video.pts")) or None
 
     # -- rig
     def rig_status(self):
@@ -314,10 +419,17 @@ class Ingest:
     def pull(self, take_id, cam):
         ssh = "ssh -i %s -o BatchMode=yes -o ConnectTimeout=10" % self.cfg["ssh_key"]
         # rrsync on the camera roots paths at /var/lib/camnode/takes.
+        d = self.cam_dir(take_id, cam)
+        want = self.cam_state(take_id, cam).get("src_bytes")
+
+        def poll():
+            if want:   # rsync's temporary (dot) files count too
+                got = sum(e.stat().st_size for e in os.scandir(d) if e.is_file() and e.name != "ts.mkv")
+                self.progress(take_id, cam, min(1.0, got / want))
         self.runner.run(["rsync", "-a", "--partial", "--timeout=60", "-e", ssh,
                          "--include=video.h264", "--include=video.pts", "--include=manifest.json",
-                         "--exclude=*", "%s.local:%s/" % (cam, take_id), self.cam_dir(take_id, cam) + "/"],
-                        pause="kill")
+                         "--exclude=*", "%s.local:%s/" % (cam, take_id), d + "/"],
+                        pause="kill", on_poll=poll)
         self.mark(take_id, cam, "pulled")
 
     def check_source(self, take_id, cam, man):
@@ -343,12 +455,15 @@ class Ingest:
                          os.path.join(d, "video.h264")], pause="stop")
         out = self.out_name(take_id, cam)
         vf = "setpts=PTS-STARTPTS+%f/TB,fps=fps=%d:start_time=0:round=near" % (residual / 1e9, FPS)
-        self.runner.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", mkv, "-map", "0:v", "-vf", vf,
+        prog = os.path.join(d, "progress.txt")
+        dur = man.get("duration_s") or 0
+        self.runner.run(["ffmpeg", "-nostdin", "-v", "error", "-progress", prog, "-y", "-i", mkv, "-map", "0:v", "-vf", vf,
                          "-c:v", "libx264", "-preset", self.cfg["x264_preset"], "-crf", self.cfg["x264_crf"],
                          "-pix_fmt", "yuv420p", "-r", str(FPS), "-video_track_timescale", "30000",
                          "-timecode", tc, "-metadata", "title=%s %s" % (take_id, cam),
                          "-metadata", "comment=studio-multicam %s; conformed to 30.000 fps" % VERSION,
-                         "-movflags", "+faststart", "-f", "mov", out + ".tmp"], pause="stop")
+                         "-movflags", "+faststart", "-f", "mov", out + ".tmp"], pause="stop",
+                        on_poll=lambda: self.progress(take_id, cam, ffmpeg_progress(prog, dur)))
         os.replace(out + ".tmp", out)
         os.remove(mkv)
         self.mark(take_id, cam, "conformed", timecode=tc)
@@ -372,7 +487,10 @@ class Ingest:
         if (st.get("tags") or {}).get("timecode") != tc:
             problems.append("timecode %s, expected %s" % ((st.get("tags") or {}).get("timecode"), tc))
         # Full decode: catches a damaged encode.
-        self.runner.run(["ffmpeg", "-nostdin", "-v", "error", "-i", out, "-f", "null", "-"], pause="stop")
+        prog = os.path.join(d, "progress.txt")
+        dur = man.get("duration_s") or 0
+        self.runner.run(["ffmpeg", "-nostdin", "-v", "error", "-progress", prog, "-i", out, "-f", "null", "-"],
+                        pause="stop", on_poll=lambda: self.progress(take_id, cam, ffmpeg_progress(prog, dur)))
         if problems:
             raise RuntimeError("verify failed: " + "; ".join(problems))
         repeated = got - len(pts)
@@ -388,25 +506,29 @@ class Ingest:
         folder = self.take_folder(take_id)
         os.makedirs(folder, exist_ok=True)
         src, dst = self.out_name(take_id, cam), os.path.join(folder, "%s.mov" % cam)
-        need = os.path.getsize(src) / 1e9 + 0.5
+        size = os.path.getsize(src)
+        need = size / 1e9 + 0.5
         free = self.drive.free_gb()
         if free is not None and free < need:
             raise RuntimeError("drive full: %.1f GB free, need %.1f" % (free, need))
         part = dst + ".part"
-        checked = time.monotonic()
+        checked, copied = time.monotonic(), 0
         with open(src, "rb") as fi, open(part, "wb") as fo:
             for b in iter(lambda: fi.read(1 << 22), b""):
                 if time.monotonic() - checked > 2:
                     checked = time.monotonic()
                     if self.rig_busy():
                         raise Paused()       # .part stays; next attempt overwrites it
+                    self.progress(take_id, cam, copied / size if size else None)
                 fo.write(b)
+                copied += len(b)
             fo.flush()
             os.fsync(fo.fileno())
         if sha256_file(part) != self.cam_state(take_id, cam)["sha256"]:
             os.remove(part)
             raise RuntimeError("copy to drive did not verify")
         os.replace(part, dst)
+        self.state["drive_free_gb"] = self.drive.free_gb()
         self.mark(take_id, cam, "written", path=dst)
 
     def write_take_json(self, take_id, cams):
@@ -449,6 +571,7 @@ class Ingest:
         def pull(c):
             try:
                 if "pulled" not in self.cam_state(take_id, c)["done"]:
+                    self.begin(take_id, c, "pulled")
                     self.pull(take_id, c)
             except Exception as e:  # noqa: BLE001
                 errs[c] = e
@@ -460,7 +583,7 @@ class Ingest:
         if any(isinstance(e, Paused) for e in errs.values()):
             raise Paused()
         for c, e in errs.items():
-            self.cam_state(take_id, c)["error"] = "pull: %s" % e
+            self.cam_state(take_id, c).update(error="pull: %s" % e, step=None, progress=None)
         self.save()
         for c in todo:
             if c in errs:
@@ -473,12 +596,12 @@ class Ingest:
                                  ("verified", lambda: self.verify(take_id, c, m)),
                                  ("written", lambda: self.write(take_id, c))):
                     if step not in cs["done"]:
-                        self.save(current=take_id, step="%s %s" % (c, step))
+                        self.begin(take_id, c, step)
                         fn()
             except Paused:
                 raise
             except Exception as e:  # noqa: BLE001 - record, move on to the next camera
-                cs["error"] = str(e)
+                cs.update(error=str(e), step=None, progress=None)
                 self.save()
         written = {c: cams[c] for c in cams if "written" in self.cam_state(take_id, c)["done"]}
         if written and len(written) == len(cams):
@@ -486,6 +609,7 @@ class Ingest:
             self.write_take_json(take_id, cams)
             for c in cams:
                 if "marked" not in self.cam_state(take_id, c)["done"]:
+                    self.begin(take_id, c, "marked")
                     self.mark_on_camera(take_id, c)
             self.state["takes"][take_id]["complete"] = True
         self.save(current=None, step=None)
@@ -502,13 +626,14 @@ class Ingest:
             return why
         try:
             todo = self.pending()
+            self.register(todo)
             if not todo:
                 self.manual = False
                 self.drive.unmount()
                 self.save(status="idle: nothing to ingest")
                 return "nothing to ingest"
             for take_id, cams in todo.items():
-                self.save(status="ingesting", drive_free_gb=self.drive.free_gb())
+                self.save(status="ingesting")
                 self.ingest_take(take_id, cams)
             return "ingested"
         except Paused:

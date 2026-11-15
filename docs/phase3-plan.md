@@ -115,7 +115,12 @@ Answers:
 3. Ingest starts automatically after 30 min idle, plus an "Ingest now" button.
 4. Working space on the hub SD, one take at a time.
 5. Cameras delete the oldest verified takes below 10 GB free.
-6. Samba share and Mac auto-pull are deferred.
+6. Samba share and Mac auto-pull are deferred. The user re-raised it 2026-11-15 ("download the files over the network instead of taking out the stick"), so it's a wanted future item. Notes for when it's picked up:
+   - **Share:** Samba on the hub, read-only, the `STUDIO` drive's `takes/` folder, shown in Finder as `studio-hub` (Bonjour via avahi). Read-only keeps "the hub never deletes from the drive", and nothing can be written from the network.
+   - **Conflicts with a settled decision:** the drive is "mounted only while writing". A share needs it mounted while browsing. Options: mount on demand when the share connects, or a "Share drive" toggle in the UI that keeps it mounted until Eject (simplest). Needs the user's OK.
+   - **Speed:** the hub is on wired Gigabit, so it's limited by the USB stick or the Mac's Wi-Fi, typically 30–100 MB/s. One hour of 4 cameras (40–55 GB) is about 10–30 min.
+   - **Ingest must not write while a copy is in progress, or the reverse:** only finished `.mov` files (never `.part`) are visible; hide `.part` with Samba `veto files`.
+   - **Mac auto-pull** (`mac/`, launchd): rsync of new complete take folders (those with `take.json`) when the Mac is on the studio network. Builds on the share or on rsync over SSH.
 
 Original questions:
 
