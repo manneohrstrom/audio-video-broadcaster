@@ -22,7 +22,8 @@ cd deploy
 ```
 
 - **A second run should report `changed=0`.** The playbooks are idempotent.
-- **There's a safety guard:** the first step asks the hub whether a take or live session is running, and refuses to deploy if one is. Override with `-e force_deploy=true` only if you're sure.
+- **There's a safety guard:** the first step asks the hub whether a take or live session is running, and refuses to deploy if one is. Override with `-e force_deploy=true` only if you're sure. The guard runs whatever `--limit` you use.
+- **Offline cameras are fine:** the hub's host-key scan skips cameras that don't answer (with a warning), and a single camera can be deployed without the hub in the run.
 - **Brand-new Pi:** run `bootstrap.yml` once with the `studio` password (`-K`). It sets up passwordless sudo, so later runs are unattended.
 
 Known snag: with some cameras switched off, a hub-only run fails at the SSH-key step (`ingest_key_hub`) before services are restarted. Either run with all cameras on, or restart the service by hand.

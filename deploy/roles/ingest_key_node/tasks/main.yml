@@ -1,11 +1,25 @@
 # Node side: the hub's ingest key may only rsync-READ the takes folder
 # (restrict = no shell/pty/forwarding; rrsync -ro = read-only, that path only).
+
+# The hub play normally exposes the key as a fact. With --limit camN the hub
+# isn't in the run, so read the key from the hub directly.
+- name: Read hub ingest public key (hub not in this run)
+  ansible.builtin.slurp:
+    src: /home/studio/.ssh/id_ingest.pub
+  delegate_to: "{{ groups['hub'][0] }}"
+  run_once: true
+  register: hub_pub
+  when: hostvars[groups['hub'][0]].hub_ingest_pubkey is not defined
+
 - name: Authorise hub ingest key (read-only rsync of takes)
   ansible.builtin.lineinfile:
     path: /home/studio/.ssh/authorized_keys
-    line: 'command="/usr/bin/rrsync -ro /var/lib/camnode/takes",restrict {{ hostvars[groups["hub"][0]].hub_ingest_pubkey }}'
+    line: 'command="/usr/bin/rrsync -ro /var/lib/camnode/takes",restrict {{ pubkey }}'
     regexp: 'studio-hub ingest$'
     create: true
     owner: studio
     group: studio
     mode: "0600"
+  vars:
+    hub_vars: "{{ hostvars[groups['hub'][0]] }}"
+    pubkey: "{{ hub_vars.hub_ingest_pubkey if hub_vars.hub_ingest_pubkey is defined else (hub_pub.content | b64decode | trim) }}"

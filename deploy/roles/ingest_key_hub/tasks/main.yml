@@ -14,12 +14,21 @@
   ansible.builtin.set_fact:
     hub_ingest_pubkey: "{{ ingest_pub.content | b64decode | trim }}"
 
+# Offline nodes are skipped with a warning (their known_hosts entry is kept as is),
+# so the hub can be deployed while some cameras are off.
 - name: Scan node host keys
-  ansible.builtin.command: ssh-keyscan -t ed25519 {{ item }}.local
+  ansible.builtin.command: ssh-keyscan -T 5 -t ed25519 {{ item }}.local
   loop: "{{ groups['nodes'] }}"
   register: scans
   changed_when: false
+  failed_when: false
   check_mode: false
+
+- name: Warn about nodes that didn't answer the keyscan
+  ansible.builtin.debug:
+    msg: "{{ item.item }}.local is offline; its host key was not refreshed"
+  loop: "{{ scans.results | rejectattr('rc', 'eq', 0) | list }}"
+  loop_control: {label: "{{ item.item }}"}
 
 - name: Remove keyscan banner comments (OpenSSH 10 prints them on stdout)
   ansible.builtin.lineinfile:
@@ -32,6 +41,6 @@
     path: /home/studio/.ssh/known_hosts
     name: "{{ item.item }}.local"
     key: "{{ item.stdout_lines | reject('match', '^#') | first }}"
-  loop: "{{ scans.results }}"
+  loop: "{{ scans.results | selectattr('rc', 'eq', 0) | list }}"
   loop_control: {label: "{{ item.item }}"}
   become_user: studio

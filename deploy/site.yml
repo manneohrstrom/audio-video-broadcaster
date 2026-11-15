@@ -2,8 +2,10 @@
 # A second run must report changed=0.
 
 - name: Guard - never deploy during a take or live session
-  hosts: hub
+  # hosts: all + delegate_to hub, so the guard also runs for --limit cam1.
+  hosts: all
   gather_facts: false
+  any_errors_fatal: true
   tasks:
     - name: Read rig state from hubd
       ansible.builtin.uri:
@@ -11,6 +13,8 @@
         return_content: true
         timeout: 5
       register: rig
+      delegate_to: "{{ groups['hub'][0] }}"
+      run_once: true
       failed_when: false
       changed_when: false
       check_mode: false
@@ -25,6 +29,7 @@
                | reject('in', ['idle']) | list | length == 0))
         fail_msg: "Rig is busy (state {{ rig.json.state | default('?') }}); not deploying. Stop the take/live first."
         quiet: true
+      run_once: true
       when: not (force_deploy | default(false) | bool)
 - name: All hosts
   hosts: all

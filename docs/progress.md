@@ -381,3 +381,9 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - Tests: 2 new (`LedTest`, fake sysfs dir); all 21 pass.
 - Deployed to **cam1 only** (cam2–cam4 offline). `site.yml --limit cam1` fails at `ingest_key_node` (needs the hub's facts), and `--limit hub,cam1` fails at the hub keyscan of offline nodes (same snag as above), so the camnode restart was done by hand after both runs. Verified on cam1 with a 1-camera server take: armed blip, then 2 Hz flash while recording, then `actpwr` after stop. Test take deleted.
 - Next: deploy to cam2–cam4 when they're back online (a normal full `site.yml` run). Fix the playbook so a single camera can be deployed (keyscan tolerates offline nodes; node key role tolerates the hub being out of the limit).
+
+## 2026-11-15: playbook fixes for partial deploys
+- `--limit camN` now works: `ingest_key_node` reads the hub's ingest public key straight from the hub (delegated slurp) when the hub isn't in the run.
+- The hub keyscan (`ingest_key_hub`) skips offline nodes with a warning and keeps their existing `known_hosts` entry, so `--limit hub` works while cameras are off. This fixes the deploy snag noted above.
+- The "never deploy during a take" guard used to target `hosts: hub`, so `--limit camN` silently skipped it. It now runs for any limit (`hosts: all`, run_once, delegated to the hub, any_errors_fatal).
+- Verified: `--limit cam1` and `--limit hub,cam1` each give changed=0 (cam2–cam4 offline). With cam1 armed, `--limit cam1` is refused ("Rig is busy"). Test take deleted.
