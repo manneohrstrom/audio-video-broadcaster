@@ -380,6 +380,18 @@ class ProgressTest(Base):
         self.assertIsNone(self.ing.state["eta_s"])
 
 
+class EjectTest(Base):
+    def test_ejected_flag_cleared_when_drive_returns(self):
+        self.command("eject")
+        self.drive.is_present = False
+        self.ing.tick()
+        self.assertEqual(self.ing.state["drive"], "ejected")
+        self.assertEqual(self.drive.ejected, 1)
+        self.drive.is_present = True
+        self.ing.tick()
+        self.assertIsNone(self.ing.state["drive"])
+
+
 class DriveTest(unittest.TestCase):
     def test_free_gb_none_when_not_mounted(self):
         # The bare mount point lives on the hub's SD card; its free space must

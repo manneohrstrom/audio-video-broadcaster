@@ -206,7 +206,8 @@ function ingestView(st) {
   const total = takes.length;
   const doneN = takes.filter(([, cams]) => cams.complete ||
     Object.entries(cams).every(([c, cs]) => c === "complete" || (cs.done || []).includes("marked"))).length;
-  let s = `<b>${esc(st.status || "–")}</b>`;
+  const ejected = st.drive === "ejected" && /^no .* drive/.test(st.status || "");
+  let s = ejected ? '<b class="good">Drive ejected: safe to unplug</b>' : `<b>${esc(st.status || "–")}</b>`;
   if (total) s += ` · ${doneN} of ${total} takes done`;
   if ((running || paused) && st.eta_s != null) s += ` · ${fmtEta(st.eta_s)} left`;
   if (st.drive_free_gb != null) s += ` · drive ${st.drive_free_gb} GB free`;

@@ -618,6 +618,8 @@ class Ingest:
     def tick(self):
         """One scheduling round. Returns a short status string."""
         self.handle_commands()
+        if self.state.get("drive") == "ejected" and self.drive.present():
+            self.state["drive"] = None           # plugged back in
         ok, why = self.should_run()
         if not ok:
             if self.drive.mounted():
