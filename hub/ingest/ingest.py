@@ -275,6 +275,12 @@ class Ingest:
         self.writing_n = 0
         self.lease = os.path.join(self.sd, "playback.lease")   # touched by hubd per media request
         self.state = self._load()
+        # Nothing is running yet: drop step markers left by a previous run (restart, crash).
+        for cams in self.state.get("takes", {}).values():
+            for cs in cams.values():
+                if isinstance(cs, dict):
+                    cs.update(step=None, progress=None, step_started=None)
+        self.state["current"] = None
         self.last_busy = self.state.get("last_busy", 0)
         self.manual = False
 
@@ -311,7 +317,7 @@ class Ingest:
     # -- progress and ETA (for the UI)
     def begin(self, take_id, cam, step):
         cs = self.cam_state(take_id, cam)
-        cs.update(step=step, progress=None, step_started=self.clock())
+        cs.update(step=step, progress=None, step_started=self.clock(), error=None)
         self.save(current=take_id, step="%s %s" % (cam, step))
 
     def progress(self, take_id, cam, frac):

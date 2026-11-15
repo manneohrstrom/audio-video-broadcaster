@@ -484,6 +484,19 @@ class ReplugTest(Base):
         self.assertNotIn("complete", self.ing.state["takes"][TAKE])
 
 
+class RestartTest(Base):
+    def test_restart_clears_step_markers_and_retry_clears_error(self):
+        cs = self.ing.cam_state(TAKE, "cam1")
+        cs.update(done=["pulled", "checked"], error="ffmpeg failed (255): ")
+        self.ing.begin(TAKE, "cam2", "checked")      # left behind by a restart
+        self.ing.save()
+        self.make()                                   # new process, same state dir
+        self.assertIsNone(self.ing.cam_state(TAKE, "cam2")["step"])
+        self.assertIsNone(self.ing.state["current"])
+        self.ing.begin(TAKE, "cam1", "conformed")
+        self.assertIsNone(self.ing.cam_state(TAKE, "cam1")["error"])
+
+
 class DriveTest(unittest.TestCase):
     def test_free_gb_none_when_not_mounted(self):
         # The bare mount point lives on the hub's SD card; its free space must
