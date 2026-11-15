@@ -1,6 +1,6 @@
 # Phone cameras: build plan
 
-Status: **draft for the user's OK** (2026-11-15). After the spike's GO (`docs/phone-spike-results.md`), the user made this the next item, before Phase 4 Track B. Track B moves back by however long this takes (estimate: 2 days).
+Status: **accepted 2026-11-15** (questions answered below). Next session starts with P1. After the spike's GO (`docs/phone-spike-results.md`), the user made this the next item, before Phase 4 Track B. Track B moves back by however long this takes (estimate: 2 days).
 
 ## Goal
 
@@ -19,7 +19,7 @@ Any Pixel phone can join a session as an extra offline camera from a page on the
 - hubd serves `http://studio-hub.local/phone`: the spike page, tidied. It adds a name picker, and the hub warns about a name already in use.
 - Endpoints move into hubd: `/api/time`, `/api/phone/poll` (status in, command out), chunk upload, finish.
 - Phones are rig members while their page is open: they're on the hub page as cards with camera cards, showing state, battery and charging, frames, drops, upload queue, clock RTT, page in front or not, and the locked settings.
-- REC/STOP: every connected phone records with the Pi cameras under the same take id. The Pi sync start is unchanged; phones don't need it, since they're aligned by timestamp. A phone that's missing or not ready doesn't block REC. It shows as a warning, like a slow camera.
+- REC/STOP: every connected, ready phone records with the Pi cameras under the same take id. The Pi sync start is unchanged; phones don't need it, since they're aligned by timestamp. Phones never block REC (user, 2026-11-15: many sessions use none, and that's expected). A phone that's open but not ready gets a warning; a phone that isn't open isn't mentioned at all.
 - At REC the hub warns (but doesn't refuse) if a phone isn't charging, its page isn't in front, its settings aren't locked, or the hub lacks disk space for it (next point).
 - A phone that drops off mid-take carries on recording to its own storage, and its chunks upload when it comes back (the spike's OPFS resume, now tested: see Tests).
 
@@ -54,7 +54,7 @@ Runbook: phone setup (Chrome flag, local-network permission, 5 GHz, plugged in, 
 
 Colour and look matching to the Pi cameras, live mode for phones, the phone's audio for sync (Track A can add it later), and HTTPS.
 
-## Questions for the user
+## Decisions (user, 2026-11-15)
 
-1. **Phone footage during a take.** Recommended: **live upload to the hub SD** (as above), so footage is safe on the hub even if a phone dies, but it's limited to about 3 phone-hours per session before ingest runs. The alternative is to keep it on the phone and upload after STOP, which is limited only by phone storage, but the page must stay open after the take until the upload finishes (an 11-min take took about as long to upload).
-2. **Phones block REC?** Recommended: **no**, just a warning. A phone is an extra angle, and the Pi cameras shouldn't wait for one.
+1. **Phone footage during a take: live upload to the hub's SD card** (P2). Measured 2026-11-15 on the current card (unbranded 32 GB, running at 50 MHz "SD high-speed"): 15.6 MB/s write with ingest running, 23.8 MB/s read. A 3-phone load (2 MB chunk with fsync per phone per second) took 0.29 s median and 0.77 s worst per chunk: it works, but with little headroom, and the card is also ingest's working disk. **The user will buy a 64 GB high-endurance UHS-I (U3/V30) card**, the same type as the nodes', for about 2–4× the speed and ~7 phone-hours. The build doesn't wait for it; swapping the hub's card is a reflash or clone, so ask first.
+2. **Phones never block REC.** Ready phones record; others are ignored or warned about (P1).
