@@ -17,7 +17,7 @@ flowchart LR
     Hub["studio-hub<br/>Pi 5, wired<br/>web UI · clock · ingest"]
     Drive[("STUDIO drive<br/>exFAT")]
     OBS["OBS (live)"]
-    Mac["Mac + Premiere<br/>(editing)"]
+    Mac["Mac<br/>(editing, own editor planned)"]
 
     Hub -- "REC / STOP / LIVE" --> Cameras
     Cameras -- "takes, overnight" --> Hub
@@ -31,7 +31,7 @@ flowchart LR
 | **Camera nodes** `cam1`–`cam4` (up to `cam6`) | Raspberry Pi Zero 2 W + Camera Module 3 Wide | Capture only: 1080p30 with exposure, white balance and focus locked. Either stream live or record takes to SD. |
 | **Hub** `studio-hub` | Raspberry Pi 5 on Ethernet | Runs the web UI and REC/STOP, serves time to the cameras, pulls and converts takes, and writes them to the drive. |
 | **`STUDIO` drive** | Portable exFAT drive | Where finished takes land. You eject it on the hub page and plug it into the Mac. |
-| **Mac** | | OBS for live shows, Premiere for editing. |
+| **Mac** | | OBS for live shows; editing in our own AI-assisted editor (planned). |
 
 ## Two modes
 
@@ -44,7 +44,7 @@ flowchart LR
 2. Check every camera card is green, then press **REC**. Clap once on camera so the studio audio can be lined up.
 3. Press **STOP**. The page shows a summary: start spread, frame counts and any dropped frames.
 4. Leave everything on. After 30 minutes idle the hub ingests by itself, or press **Ingest now**. Each camera's take is pulled, conformed to exactly 30 fps with time-of-day timecode, verified, and written to `STUDIO/takes/<date>_<take>/`.
-5. Press **Eject**, move the drive to the Mac, and in Premiere create a multicam sequence synced by **Timecode**.
+5. Press **Eject**, move the drive to the Mac. Every `.mov` carries the take's shared timecode, so any editor can line them up; our own editor is planned.
 
 The cameras delete a take only after the hub has verified its copy, and only when they need the space. The hub never deletes anything from the drive.
 

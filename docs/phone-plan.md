@@ -37,11 +37,12 @@ During a take, chunks upload live to the hub's SD card (`/var/lib/hubd/phones/<t
 - After verify: the hub deletes its staging copy (hub SD, not the drive), and the next time the phone's page opens it clears its own copy. The hub never deletes from the drive.
 - The take list and playback on the hub page include phones.
 
-## P4. Rough-section markers (all cameras)
+## P4. Rough sections (all cameras)
 
-- From each manifest's `gaps`: a "rough" section is any 2 s window missing ≥ 3 frames (to tune). The take list shows them per camera, for example "phone1: 6 rough sections, 2.1 min".
-- Premiere: markers on each clip. Spike P4a: which route Premiere reads reliably, either XMP markers embedded in the `.mov` or an importable marker file per clip. If neither works cleanly, a plain list per take (`markers.txt`, timecode in and out per camera) ships instead.
-- The later auto-edit uses the same sections.
+Changed 2026-11-15: there's no Premiere (the user will build an AI-assisted editor; `docs/design.md`, "Editing"), so rough sections are data for that editor, not Premiere markers. The marker spike is dropped.
+- From each manifest's `gaps`: a "rough" section is any 2 s window missing ≥ 3 frames (to tune); overlapping windows merge. One long gap (≥ 3 frames) is rough on its own.
+- Stored per camera in `take.json` on `STUDIO` (`cameras.<cam>.rough`: start and end in seconds from the clip start and as hub wall clock, plus frames missing), and in ingest's state.
+- The hub page's take list shows them per camera, for example "Paul's Pixel: 6 rough sections, 2.1 min".
 
 ## P5. Docs
 
@@ -50,12 +51,12 @@ Runbook: phone setup (Chrome flag, local-network permission, 5 GHz, plugged in, 
 ## Tests
 
 - Unit tests (hubd and ingest, as now): clock fit, chunk assembly, delay correction, phone in REC/STOP, take list with phones, rough sections.
-- On the rig, with one Pixel 3: (1) a take with cam1–cam4 and the phone from the hub page, through ingest to `STUDIO`: `phone1.mov` plays in the hub page and in Premiere, on the same timecode as cam1; (2) Wi-Fi off on the phone for 1 min mid-take, then back: no chunks lost; (3) page reload after STOP: the leftovers upload.
+- On the rig, with one Pixel 3: (1) a take with cam1–cam4 and the phone from the hub page, through ingest to `STUDIO`: the phone's `.mov` plays in the hub page, on the same timecode as cam1 (done 2026-11-15, take 20261115-231111); (2) Wi-Fi off on the phone for 1 min mid-take, then back: no chunks lost; (3) page reload after STOP: the leftovers upload.
 
 ## Open question: ingest time (decide before P3 is finished)
 
 Ingest re-encodes every camera-hour onto the exact 30 fps grid at about real time on the Pi 5, one camera at a time (Phase 3 S2). Two 1-hour sessions with 4 Pi cameras and 5 phones are 18 camera-hours, so **~18 h of ingest**: more than a night. It pauses during takes and resumes when the rig is idle, so nothing is lost, but the footage isn't on `STUDIO` the next morning. Options to weigh, with numbers, during P3:
-- Copy phone footage at its native timing (`-c copy`, a gap becomes one long frame), skipping the re-encode for phones. This is only possible if the editor handles it; see "native 30.0107 fps" in the Phase 4 plan's future ideas.
+- Copy phone footage at its native timing (`-c copy`, a gap becomes one long frame), skipping the re-encode for phones. Now likely: our own editor can read real frame times, so the exact-30-fps re-encode may not be needed at all (for any camera). To decide with the editor's design.
 - Conform on the Mac instead of the hub (the drive goes to the Mac anyway).
 - Accept the delay for big sessions.
 

@@ -91,7 +91,8 @@ Three things the rig can't do yet:
 - Pixel phones as offline camera units: moved ahead of Phase 4 as its own plan (`docs/phone-plan.md`, accepted 2026-11-15).
 - Network share and Mac auto-pull (`docs/phase3-plan.md`, decision 6).
 - "Discard take" button (parked 2026-11-15).
-- Copying gapless takes at the native 30.0107 fps without re-encoding (once an editor is chosen; `docs/phase3-results.md`).
+- Copying takes at their native timing without re-encoding: likely, now that the editor is our own (user, 2026-11-15: no Premiere; `docs/design.md`, "Editing").
+- The AI-assisted editor itself (`docs/design.md`, "Editing").
 - Live latency tuning (deferred 2026-11-14).
 - From the original Phase 4 list (decision 4): tally LEDs on the cameras (the board LED and the bulb cover it), a physical REC button on the hub's GPIO, OBS scene-collection export, LTC timecode (only if Track A disappoints).
 
