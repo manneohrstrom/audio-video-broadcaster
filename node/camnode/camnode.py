@@ -37,6 +37,9 @@ DEFAULT_CONFIG = {
     "delete_below_gb": 10.0,
     "live_ready_timeout_s": 20,
     "mediamtx_api": "http://127.0.0.1:9997",
+    # Green ACT LED as a recording light. Empty string disables it. Needs the
+    # udev rule from node/udev/ (trigger and brightness writable by group video).
+    "led_path": "/sys/class/leds/ACT",
     "settings": {
         "shutter_us": 20000,
         "gain": 2.0,
@@ -296,6 +299,79 @@ def mediamtx_ctl(action):
 
 # ---------------------------------------------------------------- agent
 
+class StatusLed:
+    """Blinks the board LED from a thread: armed = short blip each second,
+    recording/stopping = steady 2 Hz flash, otherwise the kernel default trigger.
+
+    Blinking in user space (trigger "none" + brightness) rather than the kernel
+    "timer" trigger, because timer's delay_on/delay_off files are recreated
+    root-owned on every trigger change and a udev rule can't open them up.
+    Every failure is swallowed: the LED must never get in the way of a take.
+    """
+    PATTERNS = {"armed": (0.1, 0.9), "recording": (0.25, 0.25), "stopping": (0.25, 0.25)}
+
+    def __init__(self, path):
+        self.path = path
+        self.ok = bool(path) and os.access(os.path.join(path, "brightness"), os.W_OK) \
+            and os.access(os.path.join(path, "trigger"), os.W_OK)
+        self.default_trigger = "actpwr"
+        if self.ok:
+            try:
+                with open(os.path.join(path, "trigger")) as f:
+                    m = re.search(r"\[([^\]]+)\]", f.read())
+                if m and m.group(1) != "none":
+                    self.default_trigger = m.group(1)
+                else:   # left blinking by a camnode that died mid-take
+                    self._write("trigger", self.default_trigger)
+            except OSError:
+                self.ok = False
+        self.pattern = None
+        self._wake = threading.Event()
+        if self.ok:
+            threading.Thread(target=self._run, daemon=True).start()
+
+    def _write(self, name, value):
+        try:
+            with open(os.path.join(self.path, name), "w") as f:
+                f.write(value)
+        except OSError:
+            pass
+
+    def set(self, state):
+        pattern = self.PATTERNS.get(state)
+        if self.ok and pattern != self.pattern:
+            self.pattern = pattern
+            self._wake.set()
+
+    def _run(self):
+        blinking = False
+        while True:
+            pattern = self.pattern
+            if pattern is None:
+                if blinking:
+                    self._write("trigger", self.default_trigger)
+                    blinking = False
+                self._wake.wait()
+                self._wake.clear()
+                continue
+            if not blinking:
+                self._write("trigger", "none")
+                blinking = True
+            self._write("brightness", "1")
+            if self._wake.wait(pattern[0]):
+                self._wake.clear()
+                continue
+            self._write("brightness", "0")
+            if self._wake.wait(pattern[1]):
+                self._wake.clear()
+
+    def restore(self):
+        if self.ok:
+            self.pattern = None
+            self._wake.set()
+            self._write("trigger", self.default_trigger)
+
+
 class Busy(Exception):
     pass
 
@@ -304,6 +380,7 @@ class Agent:
     def __init__(self, cfg, probe=probe_system, live_active=mediamtx_active,
                  live_ctl=mediamtx_ctl, live_ready=None):
         self.cfg = cfg
+        self.led = StatusLed(cfg.get("led_path"))
         self.lock = threading.RLock()
         self.proc = None
         self.take = None          # dict while armed/recording/stopping
@@ -318,6 +395,15 @@ class Agent:
         self._sys_at = 0
         os.makedirs(cfg["takes_dir"], exist_ok=True)
         self.recover_incomplete()
+
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, value):
+        self._state = value
+        self.led.set(value)
 
     # -- takes on disk
     def take_dir(self, take_id):
@@ -630,6 +716,7 @@ def main():
                 a.stop()   # never leave a take without a manifest
             except Exception:  # noqa: BLE001
                 pass
+        a.led.restore()
         threading.Thread(target=srv.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, shutdown)

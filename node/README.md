@@ -14,6 +14,7 @@ A node does one thing at a time: **live** (streaming to OBS) or **recording a ta
 | `systemd/` | `camnode.service`, which runs at boot, and `mediamtx.service`, which camnode starts and stops; it doesn't run at boot. |
 | `chrony/studio-node.conf` | Clock sync: the hub is the camera's only time source. |
 | `networkmanager/wifi-powersave-off.conf` | Turns Wi-Fi power saving off. With it on, camera sync messages arrive late and frames get dropped. |
+| `udev/99-camnode-led.rules` | Lets camnode (group `video`) drive the board's green LED as a recording light. |
 | `spike/` | Phase 1 test scripts, kept for reference: `synctest.sh` (long synced recordings), `diag.sh` (frame-drop diagnosis), `cutframes.py` (cut frames out of raw H.264 to check offsets). |
 
 ## How a take works on the node
@@ -29,6 +30,8 @@ A node does one thing at a time: **live** (streaming to OBS) or **recording a ta
 5. `POST /take/stop` ends it and returns the manifest.
 
 The status the hub polls includes a live dropped-frame count, so problems show up on the hub page during the take, not afterwards.
+
+**Green LED on the board:** a short blip once a second = armed, waiting for sync; steady fast flashing (2 Hz) = frames are being recorded; normal power/SD-activity light = idle or live. A camera whose LED doesn't match the others during a take has a problem. Set `"led_path": ""` in `/etc/camnode/config.json` to turn it off (e.g. if it shows in a shot).
 
 ## API (port 8080)
 

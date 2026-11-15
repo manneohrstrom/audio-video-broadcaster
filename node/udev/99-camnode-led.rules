@@ -1,0 +1,3 @@
+# Let camnode (user studio, group video) drive the green ACT LED as a recording
+# light. Only trigger and brightness: they exist for the LED's whole lifetime.
+SUBSYSTEM=="leds", KERNEL=="ACT", ACTION=="add", RUN+="/bin/sh -c 'chgrp video /sys%p/trigger /sys%p/brightness && chmod g+w /sys%p/trigger /sys%p/brightness'"

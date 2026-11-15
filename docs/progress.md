@@ -365,3 +365,19 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 ## 2026-11-15: git + GitHub
 - The project is now a git repo (`main`), pushed to the user's private GitHub repo `manneohrstrom/studio-hub` over SSH. `.gitignore` keeps out media (`claptest.mp3` etc.), `deploy/.venv`, `__pycache__` and `.DS_Store`.
 - `gh` isn't installed; the repo was created on github.com by the user.
+
+## 2026-11-15: cam1 live preview lag (Wi-Fi placement)
+- The hub moved into the studio (wired, same IP .73, 1 Gb/s). cam1 at a temporary spot on a new power supply: no throttling, 49.9 °C.
+- Bad quality and multi-second lag in the WebRTC preview. Causes:
+  1. Three WebRTC preview sessions from the Mac at once (each a full 5 Mbps copy). Later OBS SRT plus a preview made two readers.
+  2. Weak signal at the temporary spot: −61 → −72 dBm, link 5.5–21.6 Mbit/s, ping 2–5.6 s (queues full). MediaMTX logged "reader is too slow, discarding N frames".
+- After moving cam1: −35 to −37 dBm, 72.2 Mbit/s, ping 4–29 ms, 0 discards. Fixed.
+- Lessons, for the runbook and camera placement: aim for −60 dBm or better at each camera spot (check with `/usr/sbin/iw dev wlan0 link`). One live reader per camera where possible; each extra viewer costs a full stream. `iw` lives in `/usr/sbin`, which isn't on the non-login SSH PATH.
+- The hub card already shows Wi-Fi dBm. Small idea: turn it red below −65 dBm, and add the link rate.
+
+## 2026-11-15: board LED as recording light (side item, outside Phase 3)
+- camnode drives the Zero's green ACT LED from agent state (`StatusLed` in `node/camnode/camnode.py`): armed = 0.1 s blip per second; recording/stopping = 2 Hz flash; idle/live = the kernel default trigger (`actpwr`) restored. Blinking happens in a camnode thread (trigger `none` + `brightness`), because the kernel `timer` trigger recreates `delay_on`/`delay_off` root-owned on every trigger change. All LED errors are swallowed; a missing or unwritable LED is a no-op. Config key `led_path` (`""` disables).
+- Permissions: udev rule `node/udev/99-camnode-led.rules` (chgrp video + g+w on `trigger` and `brightness`), installed by the camnode role, which runs `udevadm trigger` when the rule changes.
+- Tests: 2 new (`LedTest`, fake sysfs dir); all 21 pass.
+- Deployed to **cam1 only** (cam2–cam4 offline). `site.yml --limit cam1` fails at `ingest_key_node` (needs the hub's facts), and `--limit hub,cam1` fails at the hub keyscan of offline nodes (same snag as above), so the camnode restart was done by hand after both runs. Verified on cam1 with a 1-camera server take: armed blip, then 2 Hz flash while recording, then `actpwr` after stop. Test take deleted.
+- Next: deploy to cam2–cam4 when they're back online (a normal full `site.yml` run). Fix the playbook so a single camera can be deployed (keyscan tolerates offline nodes; node key role tolerates the hub being out of the limit).

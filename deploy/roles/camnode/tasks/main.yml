@@ -51,3 +51,15 @@
     state: started
     daemon_reload: true
   ignore_errors: "{{ ansible_check_mode }}"
+
+- name: ACT LED writable by group video (recording light)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../node/udev/99-camnode-led.rules"
+    dest: /etc/udev/rules.d/99-camnode-led.rules
+    mode: "0644"
+  register: led_rule
+
+- name: Apply LED udev rule now
+  ansible.builtin.command: udevadm trigger --action=add --subsystem-match=leds --sysname-match=ACT
+  when: led_rule.changed and not ansible_check_mode
+  notify: Restart camnode

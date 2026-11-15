@@ -60,12 +60,45 @@ class Helpers(unittest.TestCase):
             self.assertIn(want, s)
 
 
+class LedTest(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        for name, v in (("trigger", "none timer [actpwr] heartbeat"), ("brightness", "0")):
+            with open(os.path.join(self.d, name), "w") as f:
+                f.write(v)
+
+    def read(self, name):
+        with open(os.path.join(self.d, name)) as f:
+            return f.read()
+
+    def test_states_drive_led(self):
+        led = camnode.StatusLed(self.d)
+        self.assertTrue(led.ok)
+        led.set("recording")
+        time.sleep(0.1)
+        self.assertEqual(self.read("trigger"), "none")
+        seen = set()
+        for _ in range(30):
+            seen.add(self.read("brightness"))
+            time.sleep(0.03)
+        self.assertEqual(seen, {"0", "1"})     # actually blinking
+        led.set("idle")
+        time.sleep(0.4)
+        self.assertEqual(self.read("trigger"), "actpwr")
+
+    def test_missing_led_is_noop(self):
+        led = camnode.StatusLed(os.path.join(self.d, "nope"))
+        self.assertFalse(led.ok)
+        led.set("recording")
+        led.restore()
+
+
 class AgentTest(unittest.TestCase):
     def setUp(self):
         self.tmp = os.path.join(tempfile.mkdtemp(), "takes")
         os.makedirs(self.tmp)
         self.cfg = camnode.load_config(None)
-        self.cfg.update(takes_dir=self.tmp, rpicam_vid=FAKE, stop_timeout_s=3, min_free_gb=0)
+        self.cfg.update(takes_dir=self.tmp, rpicam_vid=FAKE, stop_timeout_s=3, min_free_gb=0, led_path="")
         self.live = False
         self.ready_after = 0
         self.agent = self.make()
