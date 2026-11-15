@@ -103,6 +103,24 @@ function fmt(v, unit, digits = 1) { return v == null ? "–" : (+v).toFixed(digi
 function hms(s) { s = Math.floor(s); return [s / 3600 | 0, (s / 60 | 0) % 60, s % 60].map(x => String(x).padStart(2, "0")).join(":"); }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+function hubCard(h) {
+  if (!h || h.temp_c == null) return "";
+  const thr = h.throttled;
+  const now = thr != null && (thr & 0xF), past = thr != null && (thr & 0xF0000);
+  const hot = h.temp_c >= 75;
+  const cls = now || hot ? "warn" : "ok";
+  const thrTxt = thr == null ? "–" : now ? `<b class=bad>now (0x${thr.toString(16)})</b>` :
+    past ? `<span style="color:var(--warn)">earlier (0x${thr.toString(16)})</span>` : "none";
+  return `<div class="card ${cls}">
+    <h2>studio-hub <span class="mode">hub</span></h2>
+    <div class="kv">
+      <span>temp</span><span class="${hot ? "bad" : ""}">${h.temp_c} °C <span class="step">(throttles at 80)</span></span>
+      <span>fan</span><span>${h.fan_rpm == null ? "–" : h.fan_rpm ? h.fan_rpm + " rpm" : "off"}</span>
+      <span>CPU</span><span>${h.cpu_mhz ?? "–"} MHz · load ${h.load ?? "–"}</span>
+      <span>throttling</span><span>${thrTxt}</span>
+      <span>SD free</span><span>${h.free_gb ?? "–"} GB</span>
+    </div></div>`;
+}
 function card(name, n) {
   const st = n.status || {};
   const mode = n.online ? st.mode : "offline";
@@ -161,7 +179,7 @@ function render() {
   $("#stop").disabled = busy || snap.state !== "recording";
   $("#live").disabled = busy || snap.state !== "idle";
   $("#live").textContent = live ? "LIVE OFF" : "LIVE ON";
-  $("#cards").innerHTML = Object.entries(snap.nodes).map(([k, n]) => card(k, n)).join("");
+  $("#cards").innerHTML = hubCard(snap.hub) + Object.entries(snap.nodes).map(([k, n]) => card(k, n)).join("");
   $("#last").innerHTML = lastTake(snap.last_take);
   if (!busy && snap.message) msg(snap.message);
 }

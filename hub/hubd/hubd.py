@@ -6,8 +6,11 @@ Standard library only. Config: /etc/hubd/config.json (rendered by Ansible).
 """
 import json
 import os
+import glob
 import re
+import shutil
 import signal
+import subprocess
 import socket
 import sys
 import threading
@@ -44,6 +47,37 @@ DEFAULT_CONFIG = {
 # vcgencmd get_throttled: bits 0-3 are "now" (under-voltage, freq capped,
 # throttled, soft temp limit). Bits 16-19 are "has happened since boot".
 THROTTLED_NOW_MASK = 0xF
+
+
+def _read(path, conv=str):
+    try:
+        with open(path) as f:
+            return conv(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def hub_health(state_dir, sysfs="/sys", vcgencmd="vcgencmd"):
+    """The hub's own temperature, fan, clock, throttling, load and SD space.
+    Every field is None if its source is missing (e.g. not on a Pi)."""
+    t = _read(os.path.join(sysfs, "class/thermal/thermal_zone0/temp"), int)
+    fan = None
+    for h in glob.glob(os.path.join(sysfs, "class/hwmon/hwmon*")):
+        if _read(os.path.join(h, "name")) == "pwmfan":
+            fan = _read(os.path.join(h, "fan1_input"), int)
+    mhz = _read(os.path.join(sysfs, "devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"), int)
+    try:
+        out = subprocess.run([vcgencmd, "get_throttled"], capture_output=True, text=True, timeout=2).stdout
+        throttled = int(out.strip().split("=")[1], 16)
+    except (OSError, IndexError, ValueError, subprocess.SubprocessError):
+        throttled = None
+    try:
+        free_gb = round(shutil.disk_usage(state_dir).free / 1e9, 1)
+    except OSError:
+        free_gb = None
+    return {"temp_c": round(t / 1000, 1) if t is not None else None, "fan_rpm": fan,
+            "cpu_mhz": mhz // 1000 if mhz else None, "throttled": throttled,
+            "load": round(os.getloadavg()[0], 2), "free_gb": free_gb}
 
 
 def load_config(path):
@@ -171,6 +205,7 @@ class Hub:
         self.status = {n: None for n in cfg["nodes"]}
         self.seen = {n: None for n in cfg["nodes"]}
         self.misses = {n: 0 for n in cfg["nodes"]}
+        self.health = {}
         self._state = "idle"                # idle | starting | recording | stopping
         self.gen = 0                        # bumped on every state change (see poll_once)
         self.take = None
@@ -252,11 +287,12 @@ class Hub:
         while not stop.is_set():
             t = time.monotonic()
             self.poll_once()
+            self.health = hub_health(self.cfg["state_dir"])
             stop.wait(max(0.1, self.cfg["poll_s"] - (time.monotonic() - t)))
 
     def snapshot(self):
         with self.lock:
-            return {"hub_version": VERSION, "state": self.state, "take": self.take,
+            return {"hub_version": VERSION, "state": self.state, "take": self.take, "hub": self.health,
                     "message": self.message, "sync_server": self.cfg["sync_server"],
                     "nodes": {n: {"online": self.status[n] is not None, "status": self.status[n],
                                   "last_seen": self.seen[n],

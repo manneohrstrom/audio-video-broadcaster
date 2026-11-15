@@ -338,6 +338,24 @@ class HubTest(unittest.TestCase):
         self.hub.poll_once()
         self.assertEqual(self.hub.snapshot()["state"], "idle")
 
+    def test_hub_health_reads_sysfs(self):
+        root = tempfile.mkdtemp()
+
+        def put(rel, text):
+            os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
+            with open(os.path.join(root, rel), "w") as f:
+                f.write(text)
+        put("class/thermal/thermal_zone0/temp", "60050\n")
+        put("class/hwmon/hwmon2/name", "pwmfan\n")
+        put("class/hwmon/hwmon2/fan1_input", "2680\n")
+        put("class/hwmon/hwmon0/name", "cpu_thermal\n")
+        put("devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "2400000\n")
+        h = hubd.hub_health(root, sysfs=root, vcgencmd="/nonexistent/vcgencmd")
+        self.assertEqual((h["temp_c"], h["fan_rpm"], h["cpu_mhz"], h["throttled"]), (60.0, 2680, 2400, None))
+        self.assertIsNotNone(h["free_gb"])
+        empty = hubd.hub_health(root, sysfs=os.path.join(root, "missing"), vcgencmd="/nonexistent/vcgencmd")
+        self.assertIsNone(empty["temp_c"])
+
     def test_snapshot_shows_problems(self):
         self.rig.offline.add("cam4")
         self.hub.poll_once()
