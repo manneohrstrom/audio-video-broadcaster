@@ -258,6 +258,13 @@ function camSteps(cs, paused) {
   }).join("");
 }
 const isCam = c => c !== "recorded";       // Pi cameras (camN) and phones (their file ids)
+function roughTxt(v) {          // stretches to avoid in an edit (dropped frames), from ingest
+  const r = v && v.rough;
+  if (!r || !r.length) return "";
+  const secs = r.reduce((a, x) => a + (x.end_s - x.start_s), 0);
+  const tip = r.map(x => `${fmtDur(x.start_s)}–${fmtDur(x.end_s)} (${x.missing} missing)`).join("\n");
+  return ` <span style="color:var(--warn)" title="${esc(tip)}">· ${r.length} rough section${r.length > 1 ? "s" : ""}, ${secs < 60 ? secs.toFixed(1) + " s" : fmtDur(secs)}</span>`;
+}
 const labelOf = (t, c) => (t[c] && t[c].label) || (t.recorded && t.recorded.cameras && t.recorded.cameras[c] && t.recorded.cameras[c].label) || c;
 const camsOf = t => Object.entries(t).filter(([c, v]) => isCam(c) && v && typeof v === "object");
 // Nothing done or running yet: the take is still only on the cameras.
@@ -308,7 +315,7 @@ function ingestView(st) {
         rc.length + (rc.length === 1 ? " camera" : " cameras")].filter(Boolean).join(" · ")}</small></span>
         <span style="color:var(--warn)">${label}</span></h4>
         <div class="camdone">${rc.map(([c, v]) => `${esc(v.label || c)}${v.uploading ? ": uploading…" : v.frames != null ? ": " + v.frames + " frames" : ""}` +
-          (v.dropped ? ` <span class="bad">(${v.dropped} dropped)</span>` : "")).join(" · ")}` +
+          (v.dropped ? ` <span class="bad">(${v.dropped} dropped)</span>` : "") + roughTxt(cams[c])).join(" · ")}` +
         (drops ? "" : ` · <span class="good">no dropped frames</span>`) + `</div>${probs(rec)}</div>`;
     }
     const allDone = cs.length && cs.every(([, v]) => (v.done || []).includes("marked"));
@@ -327,9 +334,9 @@ function ingestView(st) {
     let body;
     if (allDone) {
       body = `<div class="camdone">` + cs.map(([c, v]) => `${L(c)}: ${v.frames_out != null ? v.frames_out + " frames" : "done"}` +
-        (v.repeated > 0 ? ` (${v.repeated} repeated)` : v.repeated < 0 ? ` (${-v.repeated} skipped to fit 30 fps)` : "") + (v.dropped ? `, ${v.dropped} dropped on camera` : "")).join(" · ") + "</div>";
+        (v.repeated > 0 ? ` (${v.repeated} repeated)` : v.repeated < 0 ? ` (${-v.repeated} skipped to fit 30 fps)` : "") + (v.dropped ? `, ${v.dropped} dropped on camera` : "") + roughTxt(v)).join(" · ") + "</div>";
     } else {
-      body = cs.map(([c, v]) => `<div class="camrow"><span class="camname" title="${L(c)}">${L(c)}</span><div class="steps">${camSteps(v, paused)}</div></div>` +
+      body = cs.map(([c, v]) => `<div class="camrow"><span class="camname" title="${L(c)}">${L(c)}</span><div class="steps">${camSteps(v, paused)}${roughTxt(v) ? `<span class="st">${roughTxt(v)}</span>` : ""}</div></div>` +
         (v.error ? `<div class="camerr">${esc(v.error)}</div>` : "")).join("");
     }
     const cls = allDone ? "done" : err ? "error" : active ? "active" : "";

@@ -202,6 +202,20 @@ class IngestTest(Base):
         # A 900 ms gap (27 frames) adds frames to the grid, never shifts later ones.
         self.assertEqual(ingest.expected_frames(0, 1000.0 + 900), ingest.expected_frames(0, 1900.0))
 
+    def test_rough_sections(self):
+        g = lambda at, missing: {"at_s": at, "gap_ms": 33.3 * (missing + 1), "missing": missing}
+        self.assertEqual(ingest.rough_sections([]), [])
+        self.assertEqual(ingest.rough_sections([g(5, 1), g(30, 2)]), [])           # sparse: fine
+        r = ingest.rough_sections([g(10, 1), g(10.5, 1), g(11.9, 1), g(40, 10)], first_wc_ns=10**18)
+        self.assertEqual([(x["start_s"], x["missing"]) for x in r], [(10, 3), (40, 10)])
+        self.assertAlmostEqual(r[1]["end_s"], 40.366, places=2)
+        self.assertEqual(r[0]["start_wallclock_ns"], 10**18 + 10 * 10**9)
+        # a run of drops merges into one section
+        run = [g(100 + 0.5 * k, 1) for k in range(20)]
+        r = ingest.rough_sections(run)
+        self.assertEqual(len(r), 1)
+        self.assertEqual(r[0]["missing"], 20)
+
     # ---- flow
     def test_waits_for_idle_period(self):
         self.rig.add_take("cam1")
@@ -602,6 +616,7 @@ class PhoneIngestTest(Base):
         self.assertEqual(doc["cameras"]["pauls-pixel"]["timecode"], doc["cameras"]["cam1"]["timecode"])
         self.assertEqual(doc["manifests"]["pauls-pixel"]["label"], "Paul's Pixel")
         self.assertEqual(doc["cameras"]["pauls-pixel"]["dropped"], 2)
+        self.assertEqual(len(doc["cameras"]["pauls-pixel"]["rough"]), 0)              # one 2-frame gap: not rough
         self.assertEqual(self.runner.calls.count("rsync"), 1)                         # cam1 only; the phone is linked
         self.assertEqual(set(self.rig.verified), {("cam1", TAKE)})                    # no HTTP for the phone
         self.assertFalse(os.path.exists(src))                                          # staging copy freed

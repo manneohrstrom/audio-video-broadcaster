@@ -104,6 +104,34 @@ def expected_frames(residual_ns, last_pts_ms, period_ms=1000 / 30.0107):
     return int(round(end_s * FPS))
 
 
+def rough_sections(gaps, first_wc_ns=None, window_s=2.0, min_missing=3):
+    """Stretches of a clip to avoid in an edit (docs/phone-plan.md P4): any window of
+    window_s seconds missing at least min_missing frames; overlapping windows merge.
+    gaps: the manifest's [{"at_s", "gap_ms", "missing"}]. Times are seconds from the
+    clip's first frame, plus hub wall clock (ns) when first_wc_ns is known."""
+    ev = sorted((g["at_s"], g["at_s"] + g["gap_ms"] / 1000.0, g["missing"]) for g in gaps or [] if g.get("missing"))
+    spans = []
+    for i, (t0, _, _) in enumerate(ev):
+        group = [e for e in ev[i:] if e[0] <= t0 + window_s]
+        if sum(e[2] for e in group) >= min_missing:
+            spans.append([t0, max(e[1] for e in group)])
+    merged = []
+    for a, b in spans:
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    out = []
+    for a, b in merged:
+        sec = {"start_s": round(a, 3), "end_s": round(b, 3),
+               "missing": sum(e[2] for e in ev if a <= e[0] <= b)}
+        if first_wc_ns:
+            sec["start_wallclock_ns"] = first_wc_ns + int(a * 1e9)
+            sec["end_wallclock_ns"] = first_wc_ns + int(b * 1e9)
+        out.append(sec)
+    return out
+
+
 def read_pts(path):
     with open(path) as f:
         return [float(line) for line in f if line.strip() and not line.startswith("#")]
@@ -391,6 +419,7 @@ class Ingest:
                 cs["dropped"] = m.get("dropped_frames")
                 if m.get("label"):
                     cs["label"] = m["label"]
+                cs["rough"] = rough_sections(m.get("gaps"), m.get("first_frame_wallclock_ns"))
                 files = m.get("files") or {}
                 cs["src_bytes"] = sum(files.get(n, 0) for n in ("video.h264", "video.pts")) or None
 
