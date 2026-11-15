@@ -11,8 +11,11 @@ Rules (CLAUDE.md, docs/phase3-plan.md):
 - Sync first: frames are placed by their real timestamps onto an exact 30.000 fps
   grid anchored to time of day (Path B); gaps and the 30.011 fps rate become repeats.
 - Writes only to a drive labelled STUDIO, to *.part names, then fsync + rename.
-- Never deletes from the drive. Marks a take verified on the camera; the camera
-  deletes it later, and only when it needs the space.
+- Never deletes from the drive. Marks each camera's take verified on that camera as
+  soon as its own .mov is verified on the drive (not held back by other cameras); the
+  camera deletes it later, and only when it needs the space. take.json is still written
+  last; the last camera written is marked only after it, so a failed take.json leaves
+  the take pending and it is retried.
 
 Talks to hubd via files in state_dir: state.json (read by hubd/UI) and commands/*.json.
 """
@@ -29,7 +32,7 @@ import threading
 import time
 import urllib.request
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 FPS = 30
 
 # ETA model: seconds of work per second of video, per step. Starting values from the
@@ -642,6 +645,31 @@ class Ingest:
         self.state["drive_free_gb"] = self.drive.free_gb()
         self.mark(take_id, cam, "written", path=dst, mov_bytes=size)
 
+    def saved_manifest(self, take_id, cam):
+        return os.path.join(self.work, take_id, "%s.manifest.json" % cam)
+
+    def manifests(self, take_id, cams):
+        """Manifests of every camera in the take: pending ones from the camera, ones
+        marked in an earlier round from the copy kept on the hub. A camera with no kept
+        copy is already in take.json from an earlier round (the merge keeps it)."""
+        out = {}
+        for c in self.take_cams(take_id, cams):
+            if c in cams:
+                out[c] = cams[c]
+                continue
+            try:
+                with open(self.saved_manifest(take_id, c)) as f:
+                    out[c] = json.load(f)
+            except FileNotFoundError:
+                pass
+        return out
+
+    def take_cams(self, take_id, cams):
+        """Cameras in this take: pending this round, plus any written in an earlier one."""
+        known = {c for c, cs in self.state["takes"].get(take_id, {}).items()
+                 if isinstance(cs, dict) and "written" in cs.get("done", [])}
+        return set(cams) | known
+
     def write_take_json(self, take_id, cams):
         """take.json on the drive; merged, so a camera ingested later adds to it."""
         folder = self.take_folder(take_id)
@@ -662,8 +690,13 @@ class Ingest:
             os.fsync(f.fileno())
         os.replace(part, path)
 
-    def mark_on_camera(self, take_id, cam):
+    def mark_on_camera(self, take_id, cam, man):
         cs = self.cam_state(take_id, cam)
+        # Once marked, the camera drops out of pending(): keep its manifest for take.json.
+        path = self.saved_manifest(take_id, cam)
+        with open(path + ".tmp", "w") as f:
+            json.dump(man, f)
+        os.replace(path + ".tmp", path)
         self.http.post(self.node_url(cam, "/takes/%s/verified" % take_id),
                        {"mov_sha256": cs["sha256"], "path": cs["path"]})
         self.mark(take_id, cam, "marked")
@@ -710,20 +743,30 @@ class Ingest:
                     if step not in cs["done"]:
                         self.begin(take_id, c, step)
                         fn()
+                # Safe on the drive: let the camera free its copy now, unless this is the
+                # last camera written (then it waits for take.json, so a failure there
+                # leaves the take pending).
+                others = self.take_cams(take_id, cams) - {c}
+                if "marked" not in cs["done"] and any(
+                        "written" not in self.cam_state(take_id, o)["done"] for o in others):
+                    self.begin(take_id, c, "marked")
+                    self.mark_on_camera(take_id, c, m)
             except Paused:
                 raise
             except Exception as e:  # noqa: BLE001 - record, move on to the next camera
                 cs.update(error=str(e), step=None, progress=None)
                 self.save()
-        written = {c: cams[c] for c in cams if "written" in self.cam_state(take_id, c)["done"]}
-        if written and len(written) == len(cams):
+        members = self.take_cams(take_id, cams)
+        if members and all("written" in self.cam_state(take_id, c)["done"] for c in members):
+            mans = self.manifests(take_id, cams)
             with self.writing():
-                self.write_take_json(take_id, cams)
-            for c in cams:
+                self.write_take_json(take_id, mans)
+            for c in sorted(mans):
                 if "marked" not in self.cam_state(take_id, c)["done"]:
                     self.begin(take_id, c, "marked")
-                    self.mark_on_camera(take_id, c)
+                    self.mark_on_camera(take_id, c, mans[c])
             self.state["takes"][take_id]["complete"] = True
+            shutil.rmtree(os.path.join(self.work, take_id), ignore_errors=True)
         self.save(current=None, step=None)
 
     # -- main loop

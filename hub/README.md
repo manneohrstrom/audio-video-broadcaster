@@ -58,7 +58,7 @@ It starts after 30 minutes with no take or live session, or when you press **Ing
    - So every frame is placed by its real timestamp onto a 30 fps grid anchored to the time of day. A drop becomes a repeated frame, and sync is kept.
 4. **Verify** the result: frame count against expected, frame rate, timecode, and a full decode.
 5. **Write** to `STUDIO/takes/<YYYY-MM-DD>_<take>/<cam>.mov`. Files are written under a temporary `.part` name, flushed to disk, checked, then renamed. A pulled drive leaves only `.part` files, never a half-written `.mov`.
-6. **Mark verified** on the camera, so the camera may delete its copy later when it needs space.
+6. **Mark verified** on the camera, so the camera may delete its copy later when it needs space. Each camera is marked as soon as its own `.mov` is safely on the drive, so a failing camera never holds back the others. `take.json` is written once every camera is on the drive; the last camera is marked only after that.
 
 Every `.mov` gets a time-of-day timecode, so in Premiere you create a multicam sequence by **Timecode**.
 

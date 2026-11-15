@@ -221,7 +221,7 @@ class IngestTest(Base):
         self.assertGreater(doc["cameras"]["cam2"]["repeated"], 0)          # gaps filled
         self.assertEqual(doc["cameras"]["cam1"]["timecode"], doc["cameras"]["cam2"]["timecode"])
         self.assertEqual(set(self.rig.verified), {("cam1", TAKE), ("cam2", TAKE)})
-        self.assertFalse(os.path.exists(os.path.join(self.ing.work, TAKE, "cam1")))   # work cleaned
+        self.assertFalse(os.path.exists(os.path.join(self.ing.work, TAKE)))           # work cleaned
         self.assertFalse(self.drive.is_mounted)                                       # unmounted after
         self.assertEqual(self.ing.tick(), "nothing to ingest")
 
@@ -289,6 +289,49 @@ class IngestTest(Base):
         self.ing.tick()
         doc = self.load_take()
         self.assertEqual(sorted(doc["cameras"]), ["cam1", "cam2"])
+
+    def test_failing_camera_does_not_hold_back_others(self):
+        self.rig.add_take("cam1")
+        self.rig.add_take("cam2")
+        self.command("start")
+        orig = self.ing.conform
+
+        def conform(take_id, cam, man):
+            if cam == "cam2" and fail[0]:
+                raise RuntimeError("ffmpeg failed (1): ")
+            orig(take_id, cam, man)
+        fail = [True]
+        self.ing.conform = conform
+        self.ing.tick()
+        self.assertEqual(set(self.rig.verified), {("cam1", TAKE)})
+        self.assertFalse(os.path.exists(os.path.join(self.folder(), "take.json")))   # not complete
+        self.assertEqual(set(self.ing.pending()[TAKE]), {"cam2"})
+        fail[0] = False                                  # cam2 fixed: take completes later
+        self.command("start")
+        self.ing.tick()
+        doc = self.load_take()
+        self.assertEqual(sorted(doc["cameras"]), ["cam1", "cam2"])
+        self.assertEqual(doc["manifests"]["cam1"]["camera"], "cam1")      # kept on the hub
+        self.assertTrue(self.ing.state["takes"][TAKE]["complete"])
+        self.assertFalse(os.path.exists(os.path.join(self.ing.work, TAKE)))
+
+    def test_last_camera_waits_for_take_json(self):
+        self.rig.add_take("cam1")
+        self.rig.add_take("cam2")
+        self.command("start")
+        orig = self.ing.write_take_json
+
+        def broken(take_id, cams):
+            raise RuntimeError("drive gone")
+        self.ing.write_take_json = broken
+        with self.assertRaises(RuntimeError):
+            self.ing.tick()
+        self.assertEqual(set(self.rig.verified), {("cam1", TAKE)})    # cam2 is last: waits
+        self.ing.write_take_json = orig
+        self.command("start")
+        self.assertEqual(self.ing.tick(), "ingested")
+        self.assertEqual(sorted(self.load_take()["cameras"]), ["cam1", "cam2"])
+        self.assertEqual(set(self.rig.verified), {("cam1", TAKE), ("cam2", TAKE)})
 
     def test_no_drive_and_eject(self):
         self.rig.add_take("cam1")
@@ -482,6 +525,7 @@ class ReplugTest(Base):
         self.assertIn("needs repair", cams["cam2"]["error"])
         self.assertFalse(os.path.exists(os.path.join(self.folder(), "cam2.mov")))
         self.assertNotIn("complete", self.ing.state["takes"][TAKE])
+        self.assertIn("marked", cams["cam1"]["done"])       # cam1 is safe: not held back
 
 
 class RestartTest(Base):
