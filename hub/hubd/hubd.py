@@ -471,8 +471,7 @@ class Hub:
             problems += ["%s: %s" % (n, err) for n, err in sorted((e.get("errors") or {}).items())]
             problems += ["%s exited with code %s" % (n, c.get("exit_code")) for n, c in sorted(cams.items())
                          if c.get("exit_code") not in (0, None)]
-            if e.get("all_clean") is False and not problems:
-                problems.append("not clean: check the take log")
+            # Dropped frames are shown with each camera's frame count, not repeated here.
             takes.setdefault(tid, {})["recorded"] = {
                 "problems": problems,
                 "started_at": min(wc) / 1e9 if wc else e.get("started_at"),
