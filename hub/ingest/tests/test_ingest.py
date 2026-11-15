@@ -382,6 +382,7 @@ class ProgressTest(Base):
         self.assertIn("marked", cs["done"])
         self.assertIsNone(cs.get("step"))
         self.assertIsNone(self.ing.state["eta_s"])
+        self.assertEqual(cs["mov_bytes"], os.path.getsize(cs["path"]))
 
 
 class EjectTest(Base):

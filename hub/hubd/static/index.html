@@ -204,6 +204,9 @@ function fmtEta(s) {
   const m = Math.round(s / 60);
   return m < 60 ? `about ${m} min` : `about ${Math.floor(m / 60)} h ${m % 60} min`;
 }
+function fmtBytes(b) {
+  return b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : Math.max(1, Math.round(b / 1e6)) + " MB";
+}
 function fmtDur(s) {
   s = Math.round(s || 0);
   const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, ss = String(s % 60).padStart(2, "0");
@@ -253,7 +256,12 @@ function ingestView(st) {
     const err = cs.some(([, v]) => v.error);
     const dur = Math.max(0, ...cs.map(([, v]) => v.duration_s || 0));
     const etas = cs.map(([, v]) => v.eta_s).filter(x => x != null);
-    let head = `${esc(id)} <small>${dur ? fmtDur(dur) + " of video" : ""}</small>`;
+    // Size: what's on the drive once written, otherwise what will be pulled from the cameras.
+    const onDrive = cs.reduce((a, [, v]) => a + (v.mov_bytes || 0), 0);
+    const toPull = cs.reduce((a, [, v]) => a + ((v.done || []).includes("written") ? 0 : (v.src_bytes || 0)), 0);
+    const size = [onDrive ? fmtBytes(onDrive) + " on drive" : "", toPull ? fmtBytes(toPull) + " from cameras" : ""]
+      .filter(Boolean).join(" + ");
+    let head = `${esc(id)} <small>${[dur ? fmtDur(dur) + " of video" : "", size].filter(Boolean).join(" · ")}</small>`;
     let right = allDone ? '<span class="good">✓ done</span>' : err ? '<span class="bad">needs attention</span>' :
       active ? `<span>${etas.length ? fmtEta(Math.max(...etas)) + " left" : "working"}</span>` : '<small>queued</small>';
     let body;

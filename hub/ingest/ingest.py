@@ -628,7 +628,7 @@ class Ingest:
             raise RuntimeError("copy to drive did not verify")
         os.replace(part, dst)
         self.state["drive_free_gb"] = self.drive.free_gb()
-        self.mark(take_id, cam, "written", path=dst)
+        self.mark(take_id, cam, "written", path=dst, mov_bytes=size)
 
     def write_take_json(self, take_id, cams):
         """take.json on the drive; merged, so a camera ingested later adds to it."""
