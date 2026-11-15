@@ -58,3 +58,9 @@ Setup: `cd deploy && /opt/homebrew/bin/python3.14 -m venv .venv && .venv/bin/pip
 
 No software installed; the page runs in Chrome. Tested: Pixel 3 (Chrome 157) and Pixel 9a (Chrome, user test 2026-11-15). Needs WebCodecs (`VideoEncoder`), `MediaStreamTrackProcessor` and OPFS; the page says so if Chrome is too old.
 
+
+## Hub page libraries (vendored, no build step)
+
+| Library | Version | Where |
+|---|---|---|
+| qrcode-generator (Kazuhiko Arase, MIT) | 1.4.4, sha256 `18ae399f…1780` (from jsdelivr), unmodified | `hub/hubd/static/qrcode.js`: the phone-page QR code on the hub page |

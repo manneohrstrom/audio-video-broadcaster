@@ -518,3 +518,4 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - P4 done as editor data: `rough_sections()` in ingest (2 s window, ≥3 missing, merged), per camera in ingest state and `take.json` (`rough`: start/end s and wall clock, missing); take list shows "N rough sections". Past takes get it only if re-ingested.
 - P5: `docs/runbook.md` started (phone section); `docs/versions.md` phones note; spike server/page removed; `hub/tools/sync_check.py` kept. Hub page links to `/phone` (user request).
 - Next: robustness tests with a phone (Wi-Fi off 1 min mid-take; reload mid-take), the ingest-time question, then Phase 4 Track B. Hub card (128 GB) swap when it arrives (ask first).
+- Hub page: **QR** button next to the phone link opens a pop-up QR code for `http://studio-hub.local/phone` (user request); library vendored (`docs/versions.md`). Not yet checked by eye in a browser.

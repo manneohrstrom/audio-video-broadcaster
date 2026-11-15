@@ -10,7 +10,8 @@
   body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, sans-serif; }
   h1 { font-size:18px; margin:0 0 12px; display:flex; gap:12px; align-items:baseline; }
   h1 small { color:var(--dim); font-weight:normal; }
-  h1 a.phonelink { margin-left:auto; font-size:14px; font-weight:600; color:#fff; background:#333; padding:6px 12px; border-radius:8px; text-decoration:none; }
+  h1 .phonelinks { margin-left:auto; display:flex; gap:6px; }
+  h1 .phonelink { min-width:0; border:0; cursor:pointer; font-family:inherit; font-size:14px; font-weight:600; color:#fff; background:#333; padding:6px 12px; border-radius:8px; text-decoration:none; }
   .controls { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
   button { font:inherit; font-size:20px; font-weight:600; padding:16px 28px; border:0; border-radius:10px; color:#fff; cursor:pointer; min-width:140px; }
   button:disabled { opacity:.35; cursor:default; }
@@ -62,7 +63,12 @@
   button.play { font-size:12px; font-weight:600; padding:3px 9px; min-width:0; border-radius:6px; background:#2b3a55; }
   .plays { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
   #player { position:fixed; inset:0; background:rgba(0,0,0,.85); display:flex; align-items:center; justify-content:center; padding:16px; z-index:10; }
-  #player[hidden] { display:none; }
+  #player[hidden], #qr[hidden] { display:none; }
+  #qr { position:fixed; inset:0; background:rgba(0,0,0,.8); display:flex; align-items:center; justify-content:center; padding:16px; z-index:11; }
+  .qrbox { background:#fff; color:#111; border-radius:12px; padding:20px 24px; text-align:center; max-width:340px; width:100%; }
+  .qrbox svg { width:100%; height:auto; display:block; }
+  .qrbox p { margin:10px 0 0; font-size:14px; } .qrbox code { font-size:13px; }
+  .qrbox .dim { color:#666; font-size:12px; }
   .pbox { width:100%; max-width:1100px; background:var(--card); border-radius:10px; padding:10px; }
   .phead { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
   .phead b { margin-right:auto; font-size:14px; }
@@ -73,7 +79,7 @@
 </style>
 </head>
 <body>
-<h1>Studio Multicam <small id="ver"></small><a class="phonelink" href="/phone" title="Open on an Android phone to use it as an extra camera">📱 Use a phone as a camera</a></h1>
+<h1>Studio Multicam <small id="ver"></small><span class="phonelinks"><a class="phonelink" href="/phone" title="Open on an Android phone to use it as an extra camera">📱 Use a phone as a camera</a><button id="qrbtn" class="phonelink" title="Show a QR code to open the phone page on a phone">QR</button></span></h1>
 <div class="controls">
   <button id="rec">● REC</button>
   <button id="stop">■ STOP</button>
@@ -88,6 +94,12 @@
   <div id="ingest-takes"></div>
 </section>
 
+<div id="qr" hidden><div class="qrbox">
+  <div id="qrsvg"></div>
+  <p><b>Scan with the phone's camera</b> to open the phone page</p>
+  <p><code>http://studio-hub.local/phone</code></p>
+  <p class="dim">Android + Chrome only. First time on a phone: see the setup at the bottom of the phone page. Click anywhere to close.</p>
+</div></div>
 <div id="player" hidden>
   <div class="pbox">
     <div class="phead"><b id="ptitle"></b><span id="pcams"></span><button id="pclose">✕ Close</button></div>
@@ -96,6 +108,7 @@
   </div>
 </div>
 
+<script src="qrcode.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 let snap = null, busy = false;
@@ -365,6 +378,17 @@ document.addEventListener("click", e => {
   else if (b.dataset.pcam) openPlayer($("#player").dataset.take, b.dataset.pcam, $("#player").dataset.cams.split(","));
 });
 $("#pclose").onclick = closePlayer;
+// QR code for the phone page: the fixed hub name, so it matches the Chrome flag set on each phone (docs/runbook.md).
+const PHONE_URL = "http://studio-hub.local/phone";
+$("#qrbtn").onclick = () => {
+  if (!$("#qrsvg").innerHTML) {
+    try { const q = qrcode(0, "M"); q.addData(PHONE_URL); q.make(); $("#qrsvg").innerHTML = q.createSvgTag({ cellSize: 6, margin: 4, scalable: true }); }
+    catch (e) { $("#qrsvg").textContent = "QR code unavailable: " + e.message; }
+  }
+  $("#qr").hidden = false;
+};
+$("#qr").onclick = () => { $("#qr").hidden = true; };
+document.addEventListener("keydown", e => { if (e.key === "Escape") $("#qr").hidden = true; });
 $("#player").onclick = e => { if (e.target.id === "player") closePlayer(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#player").hidden) closePlayer(); });
 async function pollIngest() {
