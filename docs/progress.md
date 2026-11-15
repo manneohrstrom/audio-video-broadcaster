@@ -465,3 +465,12 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - **The user gave Phase 3 the GO.** CLAUDE.md current phase is now "Phase 4 planning": write `docs/phase4-plan.md` and get the user's OK before any Phase 4 code.
 - The hub's USB mic arrives 2026-11-16 (for the scratch-mic sync and, later, the automatic edit).
 - New requirement for the audio sync (in `docs/design.md`): multi-room sessions, where cameras and players in other rooms can't be heard by the hub mic. Anchor by a clap in the bounce that's visible on a camera in that room; Pi cameras anywhere already share the timecode.
+
+## 2026-11-15 end of session: Phase 4 plan accepted
+- Take list: takes still only on the cameras are listed (from the take log) with start time, length, cameras, frames and drops; "N only on the cameras" in the status line; every take shows its start time; list shows the last 20 takes. The "Last take" section is removed; take problems (sync warnings, camera errors, non-zero exit) show in red on the take's row.
+- **Phase 4 plan accepted** (`docs/phase4-plan.md`). Decisions: visuals first (B, then A, then C); autofocus as a per-camera, per-take option, off by default; auto-then-lock as an option (CLAUDE.md video rule updated); bounce uploads go to the drive, with **songs and versions per take** (user requirement); tally LEDs, GPIO REC button, OBS export and LTC moved to future ideas (user ticked none; confirm if that was not intended).
+
+### Next (2026-11-16)
+- Track B spikes on the cameras (no user time needed): B-S1 live-mode blip when a setting changes, B-S2 auto metering spread across cameras in the same light, B-S3 `rpicam-still` time and memory on a Zero.
+- Then M-B, starting with the snapshot overview page and focus help.
+- The hub's USB mic arrives 2026-11-16: spike A1 (record a scratch WAV during a real take with periodic claps) whenever the user has a session; it doesn't block Track B.

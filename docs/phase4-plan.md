@@ -1,6 +1,6 @@
 # Phase 4 plan: sound, picture and studio polish
 
-Status: **draft, waiting for the user's OK.** Nothing is built until then. **Priority (user, 2026-11-15): the visuals (Track B) come first.** Written 2026-11-15 after Phase 3's GO (`docs/phase3-results.md`). Sources: the Phase 4 list in `docs/design.md`, the user's requirements of 2026-11-14 and 2026-11-15 (`docs/progress.md`).
+Status: **accepted by the user (2026-11-15). Work starts 2026-11-16 with Track B (visuals).** Decisions below are all answered. Written 2026-11-15 after Phase 3's GO (`docs/phase3-results.md`). Sources: the Phase 4 list in `docs/design.md`, the user's requirements of 2026-11-14 and 2026-11-15 (`docs/progress.md`).
 
 ## Goal
 
@@ -21,8 +21,12 @@ Three things the rig can't do yet:
   The hub says which anchor it used and how confident it is. When both work, they must agree within a frame, or the take is flagged.
 - **Pi cameras in any room** already share the timecode. Phones and handhelds need their own anchor; that's the "add media" item, Track A3.
 - **Drift:** the DAW interface's clock may be 30–60 ppm off (Phase 3). With matches at several points, the hub measures it and resamples or time-stretches the bounce to the take's clock, so a 1-hour song stays in sync.
-- **Where files go:** `STUDIO/takes/<take>/audio/` holds `scratch.wav`, the uploaded bounce, and `bounce_synced.wav` with timecode (BWF). Written via `.part` and renamed, like the video. The hub still never deletes from the drive.
-- **Upload:** an "Add audio" button on each take in the hub page. Resumable chunked upload, streamed to disk (1 GB of RAM). It pauses during takes and live sessions, like ingest.
+- **Songs and versions (user requirement, 2026-11-15).** A take can have several songs (track 1, 2, 3, …), and each song several bounce versions (different mixes, levels, tweaks).
+  - Each upload goes to a song of that take, either a new song (named by the user, default "Track N") or an existing one. Uploading to an existing song adds the next version (v1, v2, …). Every version is kept; the newest is the default, and the user can pick another.
+  - Each version is synced on its own. Versions of the same song should land in the same place in the take: if a new version lands elsewhere, it was probably edited in time, and the hub flags it rather than trusting it.
+  - The later auto-edit uses the chosen version of each song.
+- **Where files go:** `STUDIO/takes/<take>/audio/scratch.wav`, and per song `audio/<song>/v<N>/` with the uploaded file as sent plus `synced.wav` with timecode (BWF) and a small `sync.json` (offset, drift, anchor, confidence). Written via `.part` and renamed, like the video. The hub never deletes from the drive.
+- **Upload:** "Add audio" on each take in the hub page: pick or create the song, then the file. Resumable chunked upload, streamed straight to the drive (1 GB of RAM), mounted read-write only while writing (decision 5). It pauses during takes and live sessions, like ingest.
 
 ### Spikes (before building)
 
@@ -37,6 +41,7 @@ Three things the rig can't do yet:
 1. A ≥30-min take with the hub mic, bounced as 2–3 partial songs: each song is placed and stamped automatically, within 1 frame of the periodic claps at start, middle and end.
 2. A take where the hub mic hears nothing usable (players in another room): synced from claps alone, or marked "needs sync". Never wrong.
 3. A deliberately edited bounce (a section moved) is flagged, not synced.
+4. Two versions of one song, uploaded separately, are both synced to the same place and both kept; a third version shifted in time is flagged.
 
 ## Track B: picture (first)
 
@@ -78,7 +83,7 @@ Three things the rig can't do yet:
   - Bump camnode's version number (the LED and lint changes still say 0.1.0).
   - Runbook (`docs/runbook.md`): mounting checklist, Wi-Fi −60 dBm per spot, OBS "Close file when inactive", phone local-network permission, stick repair (First Aid, eject).
   - Pin versions in `docs/versions.md`.
-- **C3. From the original Phase 4 list, keep or drop (decision 4):** tally LEDs on the cameras (the board LED already does this), a physical REC button on the hub's GPIO, OBS scene-collection export, LTC timecode (only worth it if Track A disappoints).
+- **C3.** The rest of the original Phase 4 list (tally LEDs, GPIO REC button, OBS scene export, LTC) moved to future ideas (decision 4).
 
 ## Not in Phase 4 (future ideas, unless the user moves them in)
 
@@ -88,6 +93,7 @@ Three things the rig can't do yet:
 - "Discard take" button (parked 2026-11-15).
 - Copying gapless takes at the native 30.0107 fps without re-encoding (once an editor is chosen; `docs/phase3-results.md`).
 - Live latency tuning (deferred 2026-11-14).
+- From the original Phase 4 list (decision 4): tally LEDs on the cameras (the board LED and the bulb cover it), a physical REC button on the hub's GPIO, OBS scene-collection export, LTC timecode (only if Track A disappoints).
 
 ## Milestones
 
@@ -107,5 +113,5 @@ Order: **B (picture) first** (user priority), then A, then C. C1 whenever the bu
 1. **Autofocus: answered (2026-11-15).** Build continuous AF as a per-camera, per-take option, off by default, without a separate test first. B-S4 becomes the check of the built option. CLAUDE.md updated.
 2. **Auto-then-lock: answered (2026-11-15).** Yes, as an option next to manual settings; values are fixed for the whole take. CLAUDE.md updated.
 3. **Order: answered.** Visuals first (user, 2026-11-15): B, then A, then C.
-4. **C3:** keep or drop tally LEDs, the GPIO REC button, OBS export and LTC? *Recommended:* drop the tally LEDs (the board LED and the bulb cover it) and LTC (unless Track A disappoints); the GPIO button and OBS export are each small, so keep them only if you'd use them.
-5. **Bounce upload from the page** writes to the drive (`audio/` in the take folder): the drive is mounted read-write for the upload, as it is for ingest. OK?
+4. **C3: answered (2026-11-15).** None selected, so all four (tally LEDs, GPIO REC button, OBS export, LTC) move to future ideas.
+5. **Bounce upload: answered (2026-11-15).** Yes: uploads are written to the drive like ingest. Plus songs and versions per take (see Track A).
