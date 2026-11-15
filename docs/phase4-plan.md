@@ -52,7 +52,7 @@ Three things the rig can't do yet:
 
 **B4. Focus help.** On the snapshot page: a zoomed crop per camera and a sharpness number (higher is sharper), for setting manual focus.
 
-**B5. Autofocus (needs the user's OK; see decision 1).** Continuous PDAF on the Camera Module 3, per camera, switchable per take, limited in range and speed. Test first on one camera with someone walking up. Note: the wide lens is sharp from about 1 m at 1080p, so AF may rarely be needed, and it can hunt or breathe mid-take. It doesn't affect frame sync.
+**B5. Autofocus (approved as an option, decision 1).** Continuous PDAF on the Camera Module 3, per camera, switchable per take, limited in range and speed. Test first on one camera with someone walking up. Note: the wide lens is sharp from about 1 m at 1080p, so AF may rarely be needed, and it can hunt or breathe mid-take. It doesn't affect frame sync.
 
 ### Spikes
 
@@ -104,8 +104,8 @@ Order: **B (picture) first** (user priority), then A, then C. C1 whenever the bu
 
 ## Decisions for the user
 
-1. **Autofocus** conflicts with the settled rule "manual focus per camera; no auto focus during takes". Allow continuous AF as a per-camera, per-take option (off by default), after a test (B-S4)? Or keep manual focus and rely on focus help (B4)? *Recommended:* run the test first, then decide.
-2. **Auto-then-lock** changes the settled "fixed gain, fixed AWB gains" to "fixed for each take, chosen at REC". Exposure and white balance still never change during a take. OK? *Recommended:* yes, as an option next to manual.
+1. **Autofocus: answered (2026-11-15).** Build continuous AF as a per-camera, per-take option, off by default, without a separate test first. B-S4 becomes the check of the built option. CLAUDE.md updated.
+2. **Auto-then-lock: answered (2026-11-15).** Yes, as an option next to manual settings; values are fixed for the whole take. CLAUDE.md updated.
 3. **Order: answered.** Visuals first (user, 2026-11-15): B, then A, then C.
 4. **C3:** keep or drop tally LEDs, the GPIO REC button, OBS export and LTC? *Recommended:* drop the tally LEDs (the board LED and the bulb cover it) and LTC (unless Track A disappoints); the GPIO button and OBS export are each small, so keep them only if you'd use them.
 5. **Bounce upload from the page** writes to the drive (`audio/` in the take folder): the drive is mounted read-write for the upload, as it is for ingest. OK?
