@@ -101,6 +101,33 @@ class HubTest(unittest.TestCase):
             self.hub.rec(["cam1", "cam2"])
         self.assertIn("cam2 offline", cm.exception.reasons)
 
+    def test_stale_poll_after_stop_does_not_readopt(self):
+        # Regression (2026-11-15): a background poll that read "recording" just
+        # before STOP finished re-adopted the ended take as "Hub restarted during take".
+        self.rig.offline.update(["cam2", "cam3", "cam4"])
+        self.hub.rec()
+        read, release = threading.Event(), threading.Event()
+        orig = self.rig.get
+
+        def stale_get(n, path, timeout=None):
+            st = orig(n, path, timeout)      # reads "recording"...
+            if n == "cam1" and not read.is_set():
+                read.set()
+                release.wait(5)              # ...and answers after STOP is done
+            return st
+        self.rig.get = stale_get
+        t = threading.Thread(target=self.hub.poll_once)
+        t.start()
+        self.assertTrue(read.wait(5))
+        self.rig.get = orig          # STOP's own polls see the truth
+        self.hub.stop()
+        release.set()
+        t.join(5)
+        snap = self.hub.snapshot()
+        self.assertEqual(snap["state"], "idle")
+        self.assertIsNone(snap["take"])
+        self.assertEqual(len(self.hub.read_log()), 1)
+
     def test_refused_with_reasons(self):
         self.rig.offline.add("cam2")
         self.rig.st["cam3"]["temp_c"] = 75.0

@@ -160,26 +160,46 @@ class Hub:
         self.op_lock = threading.Lock()     # one REC/STOP/LIVE at a time
         self.status = {n: None for n in cfg["nodes"]}
         self.seen = {n: None for n in cfg["nodes"]}
-        self.state = "idle"                 # idle | starting | recording | stopping
+        self._state = "idle"                # idle | starting | recording | stopping
+        self.gen = 0                        # bumped on every state change (see poll_once)
         self.take = None
         self.message = None
         self.pool = ThreadPoolExecutor(max_workers=max(4, 2 * len(cfg["nodes"])))
         os.makedirs(cfg["state_dir"], exist_ok=True)
         self.log_path = os.path.join(cfg["state_dir"], "takes.json")
 
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, value):
+        self._state = value
+        self.gen += 1
+
     # -- polling
     def poll_once(self):
+        """Fetch every node's /status. If REC/STOP changed the rig state while
+        the fetch was in flight, the answers are stale (e.g. "recording" read
+        just before a STOP finished) and are dropped: storing them would make
+        _adopt take over a take that has already ended."""
+        with self.lock:
+            gen = self.gen
+
         def one(n):
             try:
                 return n, self.nodes.get(n, "/status")
             except Exception:  # noqa: BLE001 - offline is a state, not an error
                 return n, None
-        for n, st in self.pool.map(one, self.cfg["nodes"]):
-            with self.lock:
+        results = list(self.pool.map(one, self.cfg["nodes"]))
+        with self.lock:
+            if self.gen != gen:
+                return
+            for n, st in results:
                 self.status[n] = st
                 if st is not None:
                     self.seen[n] = self.clock()
-        self._adopt()
+            self._adopt()
 
     def _adopt(self):
         """After a hubd restart, take over a take the cameras are still recording."""
