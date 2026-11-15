@@ -266,16 +266,25 @@ class Hub:
         if not self.op_lock.acquire(blocking=False):
             raise Refused(["another operation is in progress"])
         try:
-            return self._rec(names or list(self.cfg["nodes"]))
+            return self._rec(names)
         finally:
             self.op_lock.release()
 
     def _rec(self, names):
+        """names=None (the REC button): every camera that is online; offline ones
+        are skipped with a warning. An explicit list is strict: all must be ready.
+        Either way, an online camera that isn't ready blocks the take."""
         with self.lock:
             if self.state != "idle":
                 raise Refused(["rig is %s" % self.state])
         self.poll_once()
+        missing = []
         with self.lock:
+            if names is None:
+                names = [n for n in self.cfg["nodes"] if self.status[n] is not None]
+                missing = [n for n in self.cfg["nodes"] if self.status[n] is None]
+                if not names:
+                    raise Refused(["no cameras online"])
             problems = [p for n in names for p in arm_problems(n, self.status[n], self.cfg["checks"])]
             live = [n for n in names if self.status[n]["mode"] == "live"] if not problems else []
         if problems:
@@ -286,7 +295,7 @@ class Hub:
         with self.lock:
             self.state = "starting"
             self.take = {"take_id": take_id, "nodes": names, "server": server,
-                         "started_at": self.clock()}
+                         "started_at": self.clock(), "missing": missing}
             self.message = None
         try:
             if live:
@@ -316,7 +325,12 @@ class Hub:
             self.state = "recording"
             self.take["recording_at"] = self.clock()
             self.take["sync_warnings"] = warn
-            self.message = ("Sync warning: %s. Consider STOP and REC again." % "; ".join(warn)) if warn else None
+            notes = []
+            if missing:
+                notes.append("Recording %s only: %s offline." % (", ".join(names), ", ".join(missing)))
+            if warn:
+                notes.append("Sync warning: %s. Consider STOP and REC again." % "; ".join(warn))
+            self.message = " ".join(notes) or None
             return dict(self.take)
 
     # -- STOP
@@ -342,7 +356,8 @@ class Hub:
             active = [n for n in names if (self.status[n] or {}).get("mode") in ("armed", "recording")]
         manifests, errors = self._parallel(active, lambda n: self.nodes.post(n, "/take/stop", timeout=40))
         summary = take_summary(take.get("take_id"), manifests, errors, self.cfg["max_sync_difference_us"])
-        summary.update(server=take.get("server"), started_at=take.get("started_at"),
+        summary.update(server=take.get("server"), missing=take.get("missing", []),
+                       started_at=take.get("started_at"),
                        stopped_at=self.clock(), aborted=aborted)
         self.append_log(summary)
         with self.lock:

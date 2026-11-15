@@ -71,6 +71,36 @@ class HubTest(unittest.TestCase):
         self.assertEqual(self.hub.snapshot()["state"], "idle")
         self.assertEqual(self.hub.read_log()[-1]["take_id"], t["take_id"])
 
+    def test_rec_skips_offline_cameras(self):
+        self.rig.offline.update(["cam2", "cam3", "cam4"])
+        t = self.hub.rec()
+        self.assertEqual(t["nodes"], ["cam1"])
+        self.assertEqual(t["missing"], ["cam2", "cam3", "cam4"])
+        arms = [(n, r) for n, p, r in self.rig.calls if p == "/take/arm"]
+        self.assertEqual(arms, [("cam1", "server")])
+        self.assertIn("cam1 only: cam2, cam3, cam4 offline", self.hub.snapshot()["message"])
+        s = self.hub.stop()
+        self.assertEqual(s["missing"], ["cam2", "cam3", "cam4"])
+        self.assertEqual(self.hub.read_log()[-1]["missing"], ["cam2", "cam3", "cam4"])
+
+    def test_rec_server_falls_back_when_sync_server_offline(self):
+        self.rig.offline.add("cam1")
+        t = self.hub.rec()
+        self.assertEqual(t["server"], "cam2")
+        self.assertNotIn("cam1", t["nodes"])
+
+    def test_rec_refused_when_all_offline(self):
+        self.rig.offline.update(self.cfg["nodes"])
+        with self.assertRaises(hubd.Refused) as cm:
+            self.hub.rec()
+        self.assertEqual(cm.exception.reasons, ["no cameras online"])
+
+    def test_explicit_names_stay_strict(self):
+        self.rig.offline.add("cam2")
+        with self.assertRaises(hubd.Refused) as cm:
+            self.hub.rec(["cam1", "cam2"])
+        self.assertIn("cam2 offline", cm.exception.reasons)
+
     def test_refused_with_reasons(self):
         self.rig.offline.add("cam2")
         self.rig.st["cam3"]["temp_c"] = 75.0
@@ -79,7 +109,8 @@ class HubTest(unittest.TestCase):
         with self.assertRaises(hubd.Refused) as cm:
             self.hub.rec()
         r = " | ".join(cm.exception.reasons)
-        for want in ("cam2 offline", "cam3 temperature", "cam4 Wi-Fi power save", "cam1 clock offset"):
+        self.assertNotIn("cam2 offline", r)    # offline is skipped, not a blocker
+        for want in ("cam3 temperature", "cam4 Wi-Fi power save", "cam1 clock offset"):
             self.assertIn(want, r)
         self.assertFalse(any(p == "/take/arm" for _, p, _ in self.rig.calls))
         self.assertEqual(self.hub.snapshot()["state"], "idle")

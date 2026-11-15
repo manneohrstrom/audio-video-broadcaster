@@ -387,3 +387,9 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - The hub keyscan (`ingest_key_hub`) skips offline nodes with a warning and keeps their existing `known_hosts` entry, so `--limit hub` works while cameras are off. This fixes the deploy snag noted above.
 - The "never deploy during a take" guard used to target `hosts: hub`, so `--limit camN` silently skipped it. It now runs for any limit (`hosts: all`, run_once, delegated to the hub, any_errors_fatal).
 - Verified: `--limit cam1` and `--limit hub,cam1` each give changed=0 (cam2–cam4 offline). With cam1 armed, `--limit cam1` is refused ("Rig is busy"). Test take deleted.
+
+## 2026-11-15: REC with cameras offline (user decision: option 1)
+- Problem: REC on the page did nothing with cam2–cam4 offline. hubd refused ("cam2 offline; …", HTTP 409), and the reason was easy to miss in the message line.
+- User decision 2026-11-15: **the REC button records with every camera that's online, skips offline ones and warns.** The page shows "Recording cam1 only: cam2, cam3, cam4 offline." An online camera that fails a check (clock, temperature, space, throttling, Wi-Fi power save) still blocks REC. No cameras online → refused. An explicit `nodes` list in `POST /api/rec` stays strict. If the sync server (`sync_server`, cam1) is offline, the first online camera becomes the server.
+- The take and its log entry carry `missing` (the cameras skipped).
+- Tests: 4 new hubd tests; all hub tests pass. Deployed to the hub and verified: REC through `/api/rec` recorded cam1 only (server role), warning shown, STOP clean. Test take `20261115-155823` deleted from cam1; its entry is still in the hub's take log (`takes.json`).
