@@ -107,6 +107,15 @@ Unit tests for timestamp conform maths (grid snapping, repeat counting), the sta
 | **M3** | camnode: verified flag and lazy delete. UI panels. |
 | **M4** | Exit criteria on real hardware, including a 30-minute Premiere check with the user. Write `docs/phase3-results.md`. |
 
+## Addition (2026-11-15): play takes from the drive on the hub page
+
+User request: a quick way to see what's in each take. The user ruled out extra conversion and extra space, so files are served straight from the `STUDIO` drive.
+- **Settled rule changed (user OK, 2026-11-15):** the drive is mounted read-write only while writing, and read-only while someone plays a take back. A read-only mount writes nothing and never marks exFAT dirty, so a pull mid-playback is harmless. This keeps the reason for the original rule.
+- **hub-ingest owns all mounting.** hubd touches `playback.lease` in the ingest state dir on each media request. A keeper thread in hub-ingest mounts read-only while the lease is fresh (5 min, `playback_idle_s`) and unmounts afterwards. Writes switch to read-write and back under a drive lock. Eject removes the lease.
+- **hubd** serves `GET /media/<take_id>/<cam>.mov` with Range support (seeking), as `video/mp4`, and waits up to 8 s for the mount. 503 if the drive isn't available, 404 if the file isn't on it.
+- **UI:** ▶ buttons per camera on each take that has a camera written to the drive (disabled without the drive), and a player overlay with camera tabs. Switching camera keeps the position.
+- Also fixed: the plug-in fsck is now keyed on the device node's creation time, so a stick pulled without Eject and plugged back in is checked again (it used to be keyed on the device name, which is usually the same).
+
 ## Decisions (answered 2026-11-14)
 
 Answers:

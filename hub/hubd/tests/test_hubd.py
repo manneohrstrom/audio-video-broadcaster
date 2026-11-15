@@ -1,4 +1,8 @@
-import os, sys, tempfile, threading, unittest
+import os
+import sys
+import tempfile
+import threading
+import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import hubd  # noqa: E402
@@ -40,13 +44,16 @@ class FakeRig:
             if path == "/take/stop":
                 s["mode"] = "idle"
                 s["take"] = None
-                return {"take_id": s["take_id"], "frames": 900, "sync_difference_us": self.diff.get(n, 2), "duration_s": 30.0, "dropped_frames": 0,
+                return {"take_id": s["take_id"], "frames": 900, "sync_difference_us": self.diff.get(n, 2),
+                        "duration_s": 30.0, "dropped_frames": 0,
                         "exit_code": 0, "pts_source": "save-pts", "sync_role": s["role"],
                         "first_frame_wallclock_ns": 1_000_000_000 + (7000 if n == "cam3" else 0)}
             if path == "/live/start":
-                s["mode"] = "live"; return {"mode": "live"}
+                s["mode"] = "live"
+                return {"mode": "live"}
             if path == "/live/stop":
-                s["mode"] = "idle"; return {"mode": "idle"}
+                s["mode"] = "idle"
+                return {"mode": "idle"}
         raise AssertionError(path)
 
 
@@ -201,6 +208,7 @@ class HubTest(unittest.TestCase):
     def test_dropped_frames_not_clean(self):
         self.hub.rec()
         orig = self.rig.post
+
         def post(n, path, body=None, timeout=None):
             r = orig(n, path, body, timeout)
             if path == "/take/stop" and n == "cam1":
@@ -232,6 +240,61 @@ class HubTest(unittest.TestCase):
         self.hub.ingest_command("eject")
         cmds = sorted(os.listdir(os.path.join(self.cfg["ingest_dir"], "commands")))
         self.assertEqual([c.split("-", 1)[1] for c in cmds], ["start.json", "eject.json"])
+
+    def _media_server(self, mounted=True):
+        import http.client
+        self.cfg["ingest_dir"] = os.path.join(self.cfg["state_dir"], "ingest")
+        os.makedirs(self.cfg["ingest_dir"], exist_ok=True)
+        self.cfg["drive_mount"] = os.path.join(self.cfg["state_dir"], "studio")
+        d = os.path.join(self.cfg["drive_mount"], "takes", "2026-11-15_20261115-171313")
+        os.makedirs(d)
+        self.data = bytes(range(256)) * 40                  # 10240 bytes
+        with open(os.path.join(d, "cam1.mov"), "wb") as f:
+            f.write(self.data)
+        self.hub.drive_mounted = lambda: mounted
+        hubd.Handler.hub = self.hub
+        srv = hubd.ThreadingHTTPServer(("127.0.0.1", 0), hubd.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+
+        def get(path, headers=None, method="GET"):
+            c = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=15)
+            c.request(method, path, headers=headers or {})
+            r = c.getresponse()
+            try:
+                return r.status, dict(r.getheaders()), r.read()
+            finally:
+                c.close()
+        return get
+
+    def test_media_full_and_ranges(self):
+        get = self._media_server()
+        url = "/media/20261115-171313/cam1.mov"
+        code, h, body = get(url)
+        self.assertEqual((code, body, h["Accept-Ranges"]), (200, self.data, "bytes"))
+        code, h, body = get(url, {"Range": "bytes=100-199"})
+        self.assertEqual((code, body, h["Content-Range"]), (206, self.data[100:200], "bytes 100-199/10240"))
+        code, h, body = get(url, {"Range": "bytes=10000-"})
+        self.assertEqual((code, body), (206, self.data[10000:]))
+        code, h, body = get(url, {"Range": "bytes=-40"})
+        self.assertEqual((code, body), (206, self.data[-40:]))
+        code, h, body = get(url, {"Range": "bytes=20000-"})
+        self.assertEqual(code, 416)
+        code, h, body = get(url, method="HEAD")
+        self.assertEqual((code, h["Content-Length"], body), (200, "10240", b""))
+        self.assertTrue(os.path.exists(os.path.join(self.cfg["ingest_dir"], "playback.lease")))
+
+    def test_media_missing_and_bad_paths(self):
+        get = self._media_server()
+        self.assertEqual(get("/media/20261115-171313/cam2.mov")[0], 404)
+        self.assertEqual(get("/media/../etc/passwd")[0], 404)
+        self.assertEqual(get("/media/20261115-171313/../../x.mov")[0], 404)
+
+    def test_media_drive_not_mounted(self):
+        get = self._media_server(mounted=False)
+        orig = self.hub.media_file
+        self.hub.media_file = lambda t, c: orig(t, c, wait_s=0.3)
+        self.assertEqual(get("/media/20261115-171313/cam1.mov")[0], 503)
 
     def test_snapshot_shows_problems(self):
         self.rig.offline.add("cam4")

@@ -16,6 +16,7 @@ Rules (CLAUDE.md, docs/phase3-plan.md):
 
 Talks to hubd via files in state_dir: state.json (read by hubd/UI) and commands/*.json.
 """
+import contextlib
 import hashlib
 import json
 import os
@@ -28,7 +29,7 @@ import threading
 import time
 import urllib.request
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 FPS = 30
 
 # ETA model: seconds of work per second of video, per step. Starting values from the
@@ -52,6 +53,7 @@ def ffmpeg_progress(path, duration_s):
         return None
     return max(0.0, min(1.0, int(vals[-1]) / 1e6 / duration_s))
 
+
 DEFAULT_CONFIG = {
     "nodes": ["cam1", "cam2", "cam3", "cam4"],
     "node_port": 8080,
@@ -62,6 +64,7 @@ DEFAULT_CONFIG = {
     "mount_point": "/mnt/studio",
     "idle_minutes": 30,
     "poll_s": 2.0,
+    "playback_idle_s": 300,     # read-only mount kept this long after the last playback request
     "x264_preset": "veryfast",
     "x264_crf": "16",
 }
@@ -96,7 +99,7 @@ def expected_frames(residual_ns, last_pts_ms, period_ms=1000 / 30.0107):
 
 def read_pts(path):
     with open(path) as f:
-        return [float(l) for l in f if l.strip() and not l.startswith("#")]
+        return [float(line) for line in f if line.strip() and not line.startswith("#")]
 
 
 def sha256_file(path, chunk=1 << 20):
@@ -141,24 +144,30 @@ class Runner:
                 except Exception:  # noqa: BLE001 - progress is cosmetic
                     pass
             if timeout and time.monotonic() - start > timeout:
-                p.kill(); p.wait()
+                p.kill()
+                p.wait()
                 raise RuntimeError("%s timed out" % cmd[0])
             b = self.busy()
             if b and pause == "kill":
-                p.kill(); p.wait()
+                p.kill()
+                p.wait()
                 raise Paused()
             if b and not stopped:
-                p.send_signal(signal.SIGSTOP); stopped = True
+                p.send_signal(signal.SIGSTOP)
+                stopped = True
                 self.on_pause(True)
             elif not b and stopped:
-                p.send_signal(signal.SIGCONT); stopped = False
+                p.send_signal(signal.SIGCONT)
+                stopped = False
                 self.on_pause(False)
 
 
 # ------------------------------------------------------------------ drive
 
 class Drive:
-    """The STUDIO drive: found by label, checked on plug-in, mounted only while writing."""
+    """The STUDIO drive: found by label, checked on plug-in. Mounted read-write only while
+    writing, read-only while someone plays a file back in the hub UI, otherwise unmounted.
+    A read-only mount never marks exFAT dirty, so pulling the drive then is harmless."""
 
     def __init__(self, cfg, sh=None):
         self.label, self.mp = cfg["drive_label"], cfg["mount_point"]
@@ -173,29 +182,52 @@ class Drive:
     def device(self):
         return os.path.realpath(self.dev_path)
 
-    def mounted(self):
+    def mode(self):
+        """'rw', 'ro' or None (not mounted)."""
         try:
             with open("/proc/mounts") as f:
-                return any(l.split()[1] == self.mp for l in f)
+                for line in f:
+                    parts = line.split()
+                    if parts[1] == self.mp:
+                        return "ro" if "ro" in parts[3].split(",") else "rw"
         except OSError:
-            return False
+            pass
+        return None
+
+    def mounted(self):
+        return self.mode() is not None
+
+    def plug_id(self):
+        """Changes on every plug-in: the device node is recreated, with a new ctime."""
+        dev = self.device()
+        try:
+            return dev, os.stat(dev).st_ctime_ns
+        except OSError:
+            return dev, None
 
     def check(self):
         """fsck.exfat -n once per plug-in (read-only check). Returns True if clean."""
-        dev = self.device()
-        if self.checked_dev == dev:
+        pid = self.plug_id()
+        if self.checked_dev == pid:
             return not self.dirty
-        r = self.sh(["sudo", "-n", "fsck.exfat", "-n", dev])
-        self.checked_dev, self.dirty = dev, r.returncode != 0
+        r = self.sh(["sudo", "-n", "fsck.exfat", "-n", pid[0]])
+        self.checked_dev, self.dirty = pid, r.returncode != 0
         return not self.dirty
 
-    def mount(self):
-        if self.mounted():
+    def mount(self, rw=True):
+        want, have = ("rw" if rw else "ro"), self.mode()
+        if have == want:
             return
-        r = self.sh(["sudo", "-n", "mount", "-t", "exfat", "-o",
-                     "uid=%d,gid=%d,umask=022,noatime" % (os.getuid(), os.getgid()), self.device(), self.mp])
+        if have:
+            if have == "rw":
+                subprocess.run(["sync"])
+            r = self.sh(["sudo", "-n", "mount", "-o", "remount," + want, self.mp])
+        else:
+            r = self.sh(["sudo", "-n", "mount", "-t", "exfat", "-o",
+                         "%s,uid=%d,gid=%d,umask=022,noatime" % (want, os.getuid(), os.getgid()),
+                         self.device(), self.mp])
         if r.returncode:
-            raise RuntimeError("mount failed: %s" % r.stderr.strip())
+            raise RuntimeError("mount (%s) failed: %s" % (want, r.stderr.strip()))
 
     def unmount(self):
         if self.mounted():
@@ -239,6 +271,9 @@ class Ingest:
         self.runner = runner or Runner(
             self.rig_busy, on_pause=lambda paused: self.save(status="paused: rig busy" if paused else "ingesting"))
         self.drive = drive or Drive(cfg)
+        self.drive_lock = threading.RLock()   # mount changes: ingest writes vs. the keeper thread
+        self.writing_n = 0
+        self.lease = os.path.join(self.sd, "playback.lease")   # touched by hubd per media request
         self.state = self._load()
         self.last_busy = self.state.get("last_busy", 0)
         self.manual = False
@@ -371,6 +406,57 @@ class Ingest:
             return False, "waiting for %d min idle" % self.cfg["idle_minutes"]
         return True, "ingesting"
 
+    # -- drive mounting: rw only while writing, ro while someone plays back, else unmounted
+    def viewing(self):
+        try:
+            return self.clock() - os.path.getmtime(self.lease) < self.cfg["playback_idle_s"]
+        except OSError:
+            return False
+
+    def settle_drive(self):
+        """Outside a write: read-only if a playback lease is fresh, otherwise unmounted."""
+        with self.drive_lock:
+            if self.writing_n:
+                return
+            if (self.viewing() and self.state.get("drive") != "ejected"
+                    and self.drive.present() and self.drive.check()):
+                self.drive.mount(rw=False)
+            else:
+                self.drive.unmount()
+
+    @contextlib.contextmanager
+    def writing(self):
+        with self.drive_lock:
+            self.writing_n += 1
+            try:
+                self.drive.mount(rw=True)
+            except Exception:
+                self.writing_n -= 1
+                raise
+        try:
+            yield
+        finally:
+            with self.drive_lock:
+                self.writing_n -= 1
+                try:
+                    self.settle_drive()
+                except RuntimeError as e:   # e.g. busy; the keeper retries
+                    sys.stderr.write("settle drive: %s\n" % e)
+
+    def keep_drive(self, stop, every=1.0):
+        """Thread: follows playback leases even while a long conform runs."""
+        last = None
+        while not stop.is_set():
+            try:
+                self.settle_drive()
+                err = None
+            except Exception as e:  # noqa: BLE001
+                err = str(e)
+            if err != last and err:
+                sys.stderr.write("drive keeper: %s\n" % err)
+            last = err
+            stop.wait(every)
+
     # -- commands from hubd
     def take_commands(self):
         out = []
@@ -389,7 +475,12 @@ class Ingest:
             if c == "start":
                 self.manual = True
             elif c == "eject":
-                self.drive.eject()
+                with self.drive_lock:
+                    try:
+                        os.remove(self.lease)
+                    except OSError:
+                        pass
+                    self.drive.eject()
                 self.manual = False
                 self.save(drive="ejected")
 
@@ -461,7 +552,8 @@ class Ingest:
         vf = "setpts=PTS-STARTPTS+%f/TB,fps=fps=%d:start_time=0:round=near" % (residual / 1e9, FPS)
         prog = os.path.join(d, "progress.txt")
         dur = man.get("duration_s") or 0
-        self.runner.run(["ffmpeg", "-nostdin", "-v", "error", "-progress", prog, "-y", "-i", mkv, "-map", "0:v", "-vf", vf,
+        self.runner.run(["ffmpeg", "-nostdin", "-v", "error", "-progress", prog, "-y",
+                         "-i", mkv, "-map", "0:v", "-vf", vf,
                          "-c:v", "libx264", "-preset", self.cfg["x264_preset"], "-crf", self.cfg["x264_crf"],
                          "-pix_fmt", "yuv420p", "-r", str(FPS), "-video_track_timescale", "30000",
                          "-timecode", tc, "-metadata", "title=%s %s" % (take_id, cam),
@@ -506,7 +598,10 @@ class Ingest:
         return os.path.join(self.drive.mp, "takes", "%s_%s" % (day, take_id))
 
     def write(self, take_id, cam):
-        self.drive.mount()
+        with self.writing():
+            self._write(take_id, cam)
+
+    def _write(self, take_id, cam):
         folder = self.take_folder(take_id)
         os.makedirs(folder, exist_ok=True)
         src, dst = self.out_name(take_id, cam), os.path.join(folder, "%s.mov" % cam)
@@ -572,6 +667,7 @@ class Ingest:
         self.save(current=take_id)
         # Pull every camera in parallel (Wi-Fi airtime is the limit, S3).
         errs = {}
+
         def pull(c):
             try:
                 if "pulled" not in self.cam_state(take_id, c)["done"]:
@@ -609,8 +705,8 @@ class Ingest:
                 self.save()
         written = {c: cams[c] for c in cams if "written" in self.cam_state(take_id, c)["done"]}
         if written and len(written) == len(cams):
-            self.drive.mount()
-            self.write_take_json(take_id, cams)
+            with self.writing():
+                self.write_take_json(take_id, cams)
             for c in cams:
                 if "marked" not in self.cam_state(take_id, c)["done"]:
                     self.begin(take_id, c, "marked")
@@ -626,16 +722,15 @@ class Ingest:
             self.state["drive"] = None           # plugged back in
         ok, why = self.should_run()
         if not ok:
-            if self.drive.mounted():
-                self.drive.unmount()            # mounted only while writing
-            self.save(status=why, drive_free_gb=None)
+            self.settle_drive()
+            self.save(status=why, drive_free_gb=self.drive.free_gb())
             return why
         try:
             todo = self.pending()
             self.register(todo)
             if not todo:
                 self.manual = False
-                self.drive.unmount()
+                self.settle_drive()
                 self.save(status="idle: nothing to ingest")
                 return "nothing to ingest"
             for take_id, cams in todo.items():
@@ -648,7 +743,7 @@ class Ingest:
         finally:
             if not self.state.get("current"):
                 try:
-                    self.drive.unmount()
+                    self.settle_drive()
                 except RuntimeError:
                     pass
 
@@ -671,6 +766,7 @@ def main():
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     sys.stderr.write("hub-ingest %s, nodes %s\n" % (VERSION, ", ".join(cfg["nodes"])))
+    threading.Thread(target=ing.keep_drive, args=(stop,), daemon=True).start()
     last = None
     while not stop.is_set():
         try:

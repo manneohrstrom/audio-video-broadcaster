@@ -132,9 +132,13 @@ class FakeDrive:
     def mounted(self):
         return self.is_mounted
 
-    def mount(self):
+    def mode(self):
+        return self.mode_ if self.is_mounted else None
+
+    def mount(self, rw=True):
         assert self.is_present
-        self.is_mounted = True
+        self.is_mounted, self.mode_ = True, ("rw" if rw else "ro")
+        self.mounts = getattr(self, "mounts", []) + [self.mode_]
 
     def unmount(self):
         self.is_mounted = False
@@ -395,6 +399,7 @@ class EjectTest(Base):
 class RunnerTest(unittest.TestCase):
     def test_sigstop_reports_pause_and_resume(self):
         busy, events = [True], []
+
         def is_busy():
             if len(events) >= 1:
                 busy[0] = False          # busy at first, idle after the pause was reported
@@ -402,6 +407,58 @@ class RunnerTest(unittest.TestCase):
         r = ingest.Runner(is_busy, poll=0.1, on_pause=events.append)
         r.run([sys.executable, "-c", "import time; time.sleep(0.6)"], pause="stop", nice=0)
         self.assertEqual(events, [True, False])
+
+
+class PlaybackTest(Base):
+    """Read-only mount while the hub UI plays a file back."""
+
+    def lease(self, age_s=0):
+        with open(self.ing.lease, "w"):
+            pass
+        os.utime(self.ing.lease, (self.now[0] - age_s, self.now[0] - age_s))
+
+    def test_fresh_lease_mounts_read_only_stale_unmounts(self):
+        self.lease()
+        self.ing.settle_drive()
+        self.assertEqual(self.drive.mode(), "ro")
+        self.lease(age_s=self.ing.cfg["playback_idle_s"] + 1)
+        self.ing.settle_drive()
+        self.assertIsNone(self.drive.mode())
+
+    def test_no_lease_means_never_mounted_when_idle(self):
+        self.ing.tick()
+        self.assertFalse(self.drive.mounted())
+
+    def test_write_while_viewing_goes_rw_then_back_to_ro(self):
+        self.rig.add_take("cam1")
+        self.lease()
+        self.command("start")
+        self.ing.tick()
+        self.assertIn("marked", self.ing.state["takes"][TAKE]["cam1"]["done"])
+        self.assertIn("rw", self.drive.mounts)
+        self.assertEqual(self.drive.mode(), "ro")          # still viewing afterwards
+
+    def test_write_without_viewer_unmounts_afterwards(self):
+        self.rig.add_take("cam1")
+        self.command("start")
+        self.ing.tick()
+        self.assertIn("rw", self.drive.mounts)
+        self.assertFalse(self.drive.mounted())
+
+    def test_keeper_leaves_drive_alone_during_a_write(self):
+        self.lease(age_s=10_000)                            # stale: keeper would unmount
+        with self.ing.writing():
+            self.ing.settle_drive()
+            self.assertEqual(self.drive.mode(), "rw")
+        self.assertFalse(self.drive.mounted())
+
+    def test_eject_drops_lease_and_stays_unmounted(self):
+        self.lease()
+        self.ing.settle_drive()
+        self.command("eject")
+        self.ing.tick()
+        self.assertFalse(os.path.exists(self.ing.lease))
+        self.assertFalse(self.drive.mounted())
 
 
 class DriveTest(unittest.TestCase):
@@ -412,6 +469,23 @@ class DriveTest(unittest.TestCase):
             d = ingest.Drive({"drive_label": "STUDIO", "mount_point": mp})
             self.assertFalse(d.mounted())
             self.assertIsNone(d.free_gb())
+
+    def test_fsck_reruns_after_replug(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dev = os.path.join(tmp, "sda1")
+            open(dev, "w").close()
+            calls = []
+            d = ingest.Drive({"drive_label": "STUDIO", "mount_point": tmp},
+                             sh=lambda cmd: calls.append(cmd) or type("R", (), {"returncode": 0})())
+            d.dev_path = dev
+            self.assertTrue(d.check())
+            self.assertTrue(d.check())
+            self.assertEqual(len(calls), 1)                 # same plug-in: cached
+            os.remove(dev)                                  # unplug, replug: new device node
+            time.sleep(0.01)
+            open(dev, "w").close()
+            self.assertTrue(d.check())
+            self.assertEqual(len(calls), 2)
 
 
 if __name__ == "__main__":

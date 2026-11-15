@@ -114,7 +114,8 @@ After STOP the hub does everything; your only step is pressing Eject and moving 
 
 **Swapping safely:**
 
-- The hub mounts the drive only while it is writing, so whenever the hub page shows it idle, it's safe to pull. Eject forces that state.
+- The hub mounts the drive read-write only while it is writing, so whenever the hub page shows it idle, it's safe to pull. Eject forces that state.
+- Playback on the hub page (added 2026-11-15) mounts it read-only, and it's unmounted 5 minutes after the last playback. A read-only mount writes nothing and never marks exFAT dirty, so pulling the drive mid-playback is harmless.
 - The hub writes only to a drive with its own label (for example `STUDIO`), never to a random USB stick, and resumes by itself when the drive comes back.
 - While the drive is on the Mac, takes wait on the cameras (about 3.5 hours each at 16 Mbps), and REC warns before space runs out.
 - exFAT has no journal, so a power cut mid-write can damage it. The hub writes to temporary names and renames when done, and checks the drive each time it's plugged in. Always eject on the Mac too.

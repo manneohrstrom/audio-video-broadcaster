@@ -6,6 +6,7 @@ Standard library only. Config: /etc/hubd/config.json (rendered by Ansible).
 """
 import json
 import os
+import re
 import signal
 import socket
 import sys
@@ -16,7 +17,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -28,6 +29,7 @@ DEFAULT_CONFIG = {
     "poll_s": 2.0,
     "state_dir": "/var/lib/hubd",
     "ingest_dir": "/var/lib/hubd/ingest",
+    "drive_mount": "/mnt/studio",       # hub-ingest owns mounting; hubd only reads
     "static_dir": os.path.join(HERE, "static"),
     "client_head_start_s": 2.0,
     "sync_timeout_s": 20.0,
@@ -132,8 +134,8 @@ def take_summary(take_id, manifests, errors, limit_us=1000):
     wcs = []
     for name, m in sorted(manifests.items()):
         cams[name] = {k: m.get(k) for k in ("frames", "duration_s", "dropped_frames", "exit_code",
-                                              "pts_source", "sync_role", "first_frame_wallclock_ns",
-                                              "sync_difference_us")}
+                                            "pts_source", "sync_role", "first_frame_wallclock_ns",
+                                            "sync_difference_us")}
         if m.get("first_frame_wallclock_ns"):
             wcs.append(m["first_frame_wallclock_ns"])
     frames = [c["frames"] for c in cams.values() if c["frames"] is not None]
@@ -396,6 +398,33 @@ class Hub:
         st["takes"] = recent
         return st
 
+    # -- playback from the STUDIO drive (read-only mount, managed by hub-ingest)
+    def touch_lease(self):
+        """Ask hub-ingest to keep the drive mounted read-only (see Ingest.viewing)."""
+        p = os.path.join(self.cfg["ingest_dir"], "playback.lease")
+        with open(p, "a"):
+            pass
+        os.utime(p)
+
+    def drive_mounted(self):
+        try:
+            with open("/proc/mounts") as f:
+                return any(line.split()[1] == self.cfg["drive_mount"] for line in f)
+        except OSError:
+            return False
+
+    def media_file(self, take_id, cam, wait_s=8.0):
+        """(path, None) or (None, http_code). Waits for hub-ingest to mount the drive."""
+        self.touch_lease()
+        p = os.path.join(self.cfg["drive_mount"], "takes",
+                         "%s-%s-%s_%s" % (take_id[:4], take_id[4:6], take_id[6:8], take_id), cam + ".mov")
+        deadline = time.monotonic() + wait_s
+        while not self.drive_mounted():
+            if time.monotonic() > deadline:
+                return None, 503
+            time.sleep(0.25)
+        return (p, None) if os.path.isfile(p) else (None, 404)
+
     def ingest_command(self, cmd):
         d = os.path.join(self.cfg["ingest_dir"], "commands")
         os.makedirs(d, exist_ok=True)
@@ -450,8 +479,68 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         return json.loads(self.rfile.read(n)) if n else {}
 
+    MEDIA = re.compile(r"^/media/(\d{8}-\d{6})/(cam\d+)\.mov$")
+
+    def do_HEAD(self):
+        if self.MEDIA.match(self.path.split("?")[0]):
+            return self._media(head=True)
+        self.send_response(405)
+        self.end_headers()
+
+    def _media(self, head=False):
+        """Serve a take's .mov from the drive, with Range support (seeking)."""
+        take_id, cam = self.MEDIA.match(self.path.split("?")[0]).groups()
+        path, err = self.hub.media_file(take_id, cam)
+        if err:
+            msg = {503: "STUDIO drive not available", 404: "not on the drive"}[err]
+            return self._send(err, {"error": msg})
+        size = os.path.getsize(path)
+        start, end, code = 0, size - 1, 200
+        m = re.match(r"bytes=(\d*)-(\d*)$", (self.headers.get("Range") or "").strip())
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                start = int(m.group(1))
+                end = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+            else:
+                start = max(0, size - int(m.group(2)))
+            if start > end:
+                self.send_response(416)
+                self.send_header("Content-Range", "bytes */%d" % size)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            code = 206
+        self.send_response(code)
+        self.send_header("Content-Type", "video/mp4")      # H.264 in .mov; browsers play it as mp4
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(end - start + 1))
+        if code == 206:
+            self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        if head:
+            return
+        touched = time.monotonic()
+        try:
+            with open(path, "rb") as f:
+                f.seek(start)
+                left = end - start + 1
+                while left > 0:
+                    b = f.read(min(1 << 18, left))
+                    if not b:
+                        break
+                    self.wfile.write(b)
+                    left -= len(b)
+                    if time.monotonic() - touched > 30:     # long reads keep the mount alive
+                        self.hub.touch_lease()
+                        touched = time.monotonic()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass          # viewer seeked/closed, or the drive was ejected mid-read
+
     def do_GET(self):
         h = self.hub
+        if self.MEDIA.match(self.path.split("?")[0]):
+            return self._media()
         if self.path == "/api/status":
             return self._send(200, h.snapshot())
         if self.path == "/api/takes":
