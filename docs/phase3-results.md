@@ -2,7 +2,7 @@
 
 Date: 2026-11-15. Plan: `docs/phase3-plan.md`. Detailed log: `docs/progress.md`.
 
-**Verdict: all five exit criteria pass on real hardware, with three deviations from the criteria as written (below). Two bugs were found by the tests and fixed. Waiting for the user's GO.**
+**Verdict: all five exit criteria pass on real hardware, with three deviations from the criteria as written (below). Two bugs were found by the tests and fixed. GO from the user on 2026-11-15.**
 
 ## Exit criteria
 

@@ -206,6 +206,12 @@ Four phases, each ending in something usable. Phase 1 is a go/no-go on the two r
      - The result doesn't have to be perfect. If the match points disagree or confidence is low, the take is marked "needs sync" and falls back to a clap marked by hand, or to LTC. It never guesses silently.
      - Known weak case: mostly-DI sessions in a quiet room. The stem upload or LTC covers it.
      - Needs the bounce upload (see the next item).
+     - **Multi-room sessions (user requirement, 2026-11-15).** Sessions sometimes use several rooms in the house. Cameras and players in other rooms can't be heard by the hub mic.
+       - Pi cameras in any room still share the hub-clock timecode (if on the rig's Wi-Fi), so syncing the bounce once to the timeline syncs all of them. The hub mic only needs to hear *something* of the performance.
+       - When the hub mic hears nothing usable, the anchor is a clap that's in the bounce (through the instrument mics) and visible on a camera in that room. Sync must then work from claps alone: find the clap in the bounce and the motion peak on that camera (as in `hub/tools/clap_check.py`).
+       - Video not on the shared clock (phones, handhelds) always needs its own anchor: a clap it can see that's in the bounce, or its own audio matched against the bounce.
+       - Per take, the hub picks the anchor (hub mic match, or claps) and says which one it used and how confident it is. "Needs sync" if neither works.
+       - Cameras in other rooms need good Wi-Fi there (−60 dBm or better); check before a session.
      - **Acceptance test (user, 2026-11-15):** a real session with claps at regular intervals (say every 5 minutes), visible to all cameras and audible in the bounce. The claps are ground truth: the automatic scratch-mic match must agree with them within one frame at every clap, start to end. This also measures the audio interface's clock drift over a long take. Use the clap finder from the Phase 3 sync check (audio onsets, per-camera motion peaks), kept in the repo for this.
    - **Add media to a take from the web page** (added 2026-11-15): phone or handheld video, the DAW bounce, and stems. An "Add media" button on the hub page works from a phone or the DAW computer. Files land in the take's folder on `STUDIO` (`cameras/`, `handheld/`, `audio/`), so each take keeps all its media in one place.
      - The take is picked automatically from the file's recording time; the user confirms.

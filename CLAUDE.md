@@ -6,7 +6,9 @@ The full design is in `docs/design.md`. Read it before proposing any architectur
 
 ## Current phase
 
-**Phase 3: ingest.** Phase 1 is done: GO on 2026-11-14 (`docs/phase1-results.md`); its five conditions still apply. Phase 2 is done: all exit criteria passed on 2026-11-14 (`docs/phase2-results.md`). Phase 3 scope, from `docs/design.md`:
+**Phase 4 planning.** Phase 3 is done: GO on 2026-11-15 (`docs/phase3-results.md`). Write `docs/phase4-plan.md` from the Phase 4 items in `docs/design.md` and get my OK before building anything. Don't write Phase 4 code until I say so.
+
+Earlier phases: Phase 1 GO on 2026-11-14 (`docs/phase1-results.md`); its five conditions still apply. Phase 2 passed on 2026-11-14 (`docs/phase2-results.md`). Phase 3 scope, kept for reference:
 - pull takes from the nodes;
 - conform or rewrap to `.mov` with timecode, keeping sync (see Ingest below);
 - verify, and lazy delete on the nodes;

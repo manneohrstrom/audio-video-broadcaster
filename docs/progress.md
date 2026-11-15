@@ -460,3 +460,8 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 
 ### Next
 - The user's GO on Phase 3, then the Phase 4 plan for their OK (nothing built before that).
+
+## 2026-11-15: Phase 3 GO
+- **The user gave Phase 3 the GO.** CLAUDE.md current phase is now "Phase 4 planning": write `docs/phase4-plan.md` and get the user's OK before any Phase 4 code.
+- The hub's USB mic arrives 2026-11-16 (for the scratch-mic sync and, later, the automatic edit).
+- New requirement for the audio sync (in `docs/design.md`): multi-room sessions, where cameras and players in other rooms can't be heard by the hub mic. Anchor by a clap in the bounce that's visible on a camera in that room; Pi cameras anywhere already share the timecode.
