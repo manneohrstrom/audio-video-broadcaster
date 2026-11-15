@@ -1,4 +1,9 @@
-import json, os, sys, tempfile, time, unittest
+import json
+import os
+import sys
+import tempfile
+import time
+import unittest
 from unittest import mock
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -39,6 +44,7 @@ class Helpers(unittest.TestCase):
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
             p = f.name
         per = int(1e9 / 30)
+
         def frame(i):
             return '{\n "FrameWallClock": %d,\n "SensorTimestamp": 0\n},\n' % (1000 + i * per)
         with open(p, "w") as f:
@@ -193,7 +199,8 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(man["pts_source"], "rebuilt-from-metadata")
 
     def test_recover_after_restart(self):
-        d = os.path.join(self.tmp, "orphan"); os.makedirs(d)
+        d = os.path.join(self.tmp, "orphan")
+        os.makedirs(d)
         camnode.write_json_atomic(os.path.join(d, "take.json"), {
             "camera": "cam9", "take_id": "orphan", "role": "server", "settings": {}, "armed_at": 1})
         with open(os.path.join(d, "metadata.json"), "w") as f:
@@ -220,14 +227,16 @@ class AgentTest(unittest.TestCase):
         import threading
         gate = threading.Event()
         self.agent._live_ctl = lambda action: (gate.wait(2), "")
-        t = threading.Thread(target=self.agent.live, args=(False,)); t.start()
+        t = threading.Thread(target=self.agent.live, args=(False,))
+        t.start()
         time.sleep(0.1)
         t0 = time.time()
         self.assertEqual(self.agent.status()["mode"], "switching")
         self.assertLess(time.time() - t0, 0.5)
         with self.assertRaises(camnode.Busy):
             self.agent.arm("t1", "client")
-        gate.set(); t.join()
+        gate.set()
+        t.join()
         self.assertEqual(self.agent.status()["mode"], "idle")
 
     def test_live_waits_for_stream(self):

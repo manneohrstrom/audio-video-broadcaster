@@ -83,7 +83,7 @@ def parse_pts(path):
     """Return frame times in ms from an mkvmerge v2 timecode file, or None."""
     try:
         with open(path) as f:
-            out = [float(l) for l in f if l.strip() and not l.startswith("#")]
+            out = [float(line) for line in f if line.strip() and not line.startswith("#")]
     except (OSError, ValueError):
         return None
     return out or None
@@ -269,7 +269,7 @@ def probe_system(takes_dir):
     else:
         st["clock_offset_ms"], st["clock_leap"] = None, None
     srcs = _run(["chronyc", "-c", "-n", "sources"])
-    st["clock_synced"] = any(l.split(",")[1:2] == ["*"] for l in srcs.splitlines())
+    st["clock_synced"] = any(line.split(",")[1:2] == ["*"] for line in srcs.splitlines())
     link = _run(["/usr/sbin/iw", "dev", "wlan0", "link"])
     m = re.search(r"signal:\s*(-?\d+)", link)
     st["wifi_dbm"] = int(m.group(1)) if m else None
