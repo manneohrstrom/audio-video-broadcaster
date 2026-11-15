@@ -1,0 +1,19 @@
+# Ingest worker: pulls, conforms, verifies and writes takes to the STUDIO drive.
+# Separate from hubd so a crash or a long encode can never affect REC/LIVE.
+[Unit]
+Description=hub-ingest studio take ingest
+After=network-online.target hubd.service
+Wants=network-online.target
+
+[Service]
+User=studio
+Group=studio
+Environment=INGEST_CONFIG=/etc/hubd/ingest.json
+ExecStart=/usr/bin/python3 -u /opt/hub-ingest/ingest.py
+Restart=on-failure
+RestartSec=5
+# An encode can take ~1 h; give the current step time to stop cleanly.
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

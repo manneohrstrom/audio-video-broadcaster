@@ -1,0 +1,7 @@
+# Per-camera image settings: one source for camnode (rpicam-vid) and MediaMTX.
+# PLACEHOLDERS until the grey-card calibration session (Phase 1 condition 5).
+cam_shutter_us: 20000
+cam_gain: 2.0
+cam_awb_gains: [1.5, 1.5]
+cam_lens_position: 1.0
+cam_calibrated: false

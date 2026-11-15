@@ -1,0 +1,51 @@
+# MediaMTX {{ mediamtx_version }} config for {{ inventory_hostname }} (live mode).
+# Managed by Ansible (deploy/roles/mediamtx); per-camera values from
+# deploy/host_vars/{{ inventory_hostname }}.yml.
+# OBS: Media Source, uncheck "Local File", input:
+#   srt://{{ inventory_hostname }}.local:8890?streamid=read:cam
+#   (lower latency: append &latency=100000, in microseconds)
+# Fallback: rtsp://{{ inventory_hostname }}.local:8554/cam (TCP only).
+# Low-latency option (Phase 1 trial): OBS Browser Source, URL
+#   http://{{ inventory_hostname }}.local:8889/cam/?controls=false&muted=true&autoplay=true
+
+logLevel: info
+
+rtsp: true
+rtspAddress: :8554
+rtspTransports: [tcp]
+srt: true
+srtAddress: :8890
+rtmp: false
+hls: false
+# MoQ is on by default in v1.21 and writes auto.key/auto.crt to the working
+# directory ("/" under systemd, not writable): its Close() then hangs and
+# `systemctl stop mediamtx` waited for the kill timeout. Not used here.
+moq: false
+# Local-only API: camnode asks it whether the camera stream is ready.
+api: true
+apiAddress: 127.0.0.1:9997
+webrtc: true
+webrtcAddress: :8889
+# LAN only: media over UDP 8189, no STUN/TURN.
+webrtcLocalUDPAddress: :8189
+webrtcICEServers2: []
+
+paths:
+  cam:
+    source: rpiCamera
+    # 1080p30 scaled from the binned full-FOV 2304x1296 mode.
+    rpiCameraMode: "2304:1296:10:P"
+    rpiCameraWidth: 1920
+    rpiCameraHeight: 1080
+    rpiCameraFPS: 30
+    rpiCameraCodec: hardwareH264
+    rpiCameraBitrate: {{ mediamtx_bitrate }}
+    # 1 s GOP: a new viewer (OBS reconnect) gets a picture within 1 s.
+    rpiCameraIDRPeriod: 30
+    # Same locked look as offline takes (calibrated: {{ cam_calibrated }}).
+    rpiCameraShutter: {{ cam_shutter_us }}
+    rpiCameraGain: {{ cam_gain }}
+    rpiCameraAWBGains: [{{ cam_awb_gains | join(', ') }}]
+    rpiCameraDenoise: cdn_off
+    rpiCameraAfMode: manual
+    rpiCameraLensPosition: {{ cam_lens_position }}

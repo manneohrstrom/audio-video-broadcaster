@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+deploy/.venv/
+
+# macOS
+.DS_Store
+
+# Media and test recordings (keep out of git history)
+*.mp3
+*.wav
+*.h264
+*.mov
+*.mp4
+*.mkv

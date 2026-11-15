@@ -1,0 +1,60 @@
+- name: Install pinned packages at exact versions
+  ansible.builtin.apt:
+    name: "{{ pins | dict2items | map(attribute='key') | zip(pins.values()) | map('join', '=') | list }}"
+    state: present
+    allow_downgrade: false
+  vars:
+    pins: "{{ pinned_packages_all | combine(pinned_packages_group) }}"
+
+- name: Gather package facts
+  ansible.builtin.package_facts:
+
+- name: Assert installed versions match the pins
+  ansible.builtin.assert:
+    that: "ansible_facts.packages[item.key][0].version == item.value"
+    fail_msg: "{{ item.key }} is {{ ansible_facts.packages[item.key][0].version }}, pinned {{ item.value }}"
+    quiet: true
+  loop: "{{ pinned_packages_all | combine(pinned_packages_group) | dict2items }}"
+  loop_control: {label: "{{ item.key }}"}
+
+- name: Hold pinned packages
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ (pinned_packages_all | combine(pinned_packages_group)).keys() | list }}"
+
+- name: Read timezone
+  ansible.builtin.command: timedatectl show -p Timezone --value
+  register: tz_now
+  changed_when: false
+  check_mode: false
+
+- name: Set timezone
+  ansible.builtin.command: timedatectl set-timezone {{ timezone }}
+  when: tz_now.stdout != timezone
+
+- name: Persistent journal directory (logs survive unexpected reboots)
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+  notify: Restart journald
+
+- name: Journald drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: "0755"
+
+- name: Journald size cap
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/studio.conf
+    content: |
+      # Managed by Ansible (deploy/roles/common).
+      [Journal]
+      Storage=persistent
+      SystemMaxUse={{ journal_max_use }}
+    mode: "0644"
+  notify: Restart journald

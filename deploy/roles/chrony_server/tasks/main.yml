@@ -1,0 +1,12 @@
+- name: Hub chrony config (NTP server for the nodes)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/chrony/studio-hub.conf"
+    dest: /etc/chrony/conf.d/studio-hub.conf
+    mode: "0644"
+  notify: Restart chrony
+
+- name: Chrony enabled and running
+  ansible.builtin.systemd_service:
+    name: chrony
+    enabled: true
+    state: started

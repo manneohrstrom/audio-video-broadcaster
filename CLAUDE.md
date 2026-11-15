@@ -1,0 +1,57 @@
+# Studio Multicam
+
+Synchronised multi-camera capture for a home music studio: Raspberry Pi Zero 2 W + Camera Module 3 Wide camera nodes, a Raspberry Pi 5 hub, OBS for live, Premiere for editing.
+
+The full design is in `docs/design.md`. Read it before proposing any architectural change.
+
+## Current phase
+
+**Phase 3: ingest.** Phase 1 is done: GO on 2026-11-14 (`docs/phase1-results.md`); its five conditions still apply. Phase 2 is done: all exit criteria passed on 2026-11-14 (`docs/phase2-results.md`). Phase 3 scope, from `docs/design.md`:
+- pull takes from the nodes;
+- conform or rewrap to `.mov` with timecode, keeping sync (see Ingest below);
+- verify, and lazy delete on the nodes;
+- `STUDIO` drive handling (mount on demand, Eject);
+- optional network share and Mac auto-pull.
+
+Start by writing a Phase 3 plan in `docs/phase3-plan.md` and get my OK before building. Don't write Phase 4 code until I say so.
+
+## Settled decisions (ask before changing any of these)
+
+- **Hosts:** `studio-hub` (Pi 5, wired Ethernet). Nodes `cam1`–`cam4` now, possibly scaling to `cam6`. SSH user `studio`. All reachable as `<name>.local`.
+- **Video:** 1080p30 H.264, the hardware encoder's ceiling. Shutter locked at 1/50 s (20000 µs), fixed gain, fixed AWB gains, manual focus per camera. No auto exposure, white balance or focus during takes.
+- **Live mode:** MediaMTX on each node with its built-in Raspberry Pi camera source. OBS pulls SRT (fallback RTSP over TCP) at 4–5 Mbps per camera, or 3–4 at six cameras. Pis do not record in live mode; ISOs are recorded in OBS.
+- **Offline mode:** `rpicam-vid` software camera sync, with `--sync client` on all nodes but one, started first, then `--sync server` on the last. Raw H.264 plus `--save-pts`, about 16 Mbps, to SD. `--denoise cdn_off` (the default `cdn_fast` drops ~6% of frames on the Zero 2 W at normal clocks; see `docs/progress.md`).
+- **Clocks:** chrony on every node; the hub is the NTP server.
+- **Ingest:** the hub pulls takes only when no take or live session is active (typically overnight). It produces `.mov` files and stamps a shared start timecode. **Sync takes priority over `-c copy`** (user decision 2026-11-14): cameras are aligned by each take's first-frame wall clock (`first_frame_wallclock_ns` in the manifest), and dropped frames (the manifest's `gaps`) must not shift later frames, even if that means re-encoding. The sensor really runs at about 30.011 fps, so stamping frames as exactly 30 fps drifts about 1.3 s per hour against audio. The user accepts native 30.011 fps if Premiere and YouTube handle it. So the preferred path is `-c copy` with each frame stamped at its real time (a gap becomes one long frame), and conforming by timestamp onto an exact 30 fps grid (re-encode) is the fallback. Phase 3 spike S1 decides between them in Premiere. What's ruled out is stamping frames as exactly 30.000 fps without fixing the timing. Frame counts are verified against the manifest, gaps included. Nodes delete a take only after verify passes and only when they need the space.
+- **Storage:** a portable exFAT drive labelled `STUDIO`, plugged into the hub and swapped to the Mac for editing.
+  - The hub mounts it only while writing and provides an Eject action.
+  - It writes to temporary names and renames when done, and checks the filesystem on plug-in.
+  - The hub never deletes from the drive.
+- **Audio sync:** a clap or slate by default. LTC from the hub is Phase 4 and optional.
+- **Network:** cameras on their own 2.4 GHz channel. Wi-Fi power saving off on the nodes.
+
+## Hardware constraints
+
+- **Zero 2 W:** 4× Cortex-A53 at 1 GHz, 512 MB RAM, 2.4 GHz-only Wi-Fi, one USB 2.0 OTG port. Keep CPU-heavy work off the nodes: no software encoding, no heavy denoise.
+- **Camera Module 3 Wide:** 1080p is scaled from the binned 2304×1296 mode (56 fps max), which keeps the full field of view.
+- **Thermals:** throttling starts at 80 °C. Log `vcgencmd measure_temp` and `vcgencmd get_throttled` during long runs.
+- **Bulk transfers:** SSH encryption may be CPU-bound on the Zero. Measure rsync-over-SSH throughput; switch to an unencrypted rsync daemon on the LAN if it is.
+
+## Repository layout
+
+- `node/`: camera agent, MediaMTX config template, systemd units
+- `hub/`: control API and web UI, ingest worker, chrony config
+- `mac/`: optional auto-pull script
+- `deploy/`: Ansible inventory and playbooks (run from the dev machine)
+- `docs/`: design, phase results, progress log, runbook
+
+## Stack
+
+Python 3 from Raspberry Pi OS, a lightweight HTTP service for the node agent and hub API, plain HTML and JS for the hub UI (no build step), systemd for services, Ansible for provisioning.
+
+## Working rules
+
+- Ask before rebooting, reflashing, or deleting anything on a Pi. Installing packages is fine.
+- Keep command output short: tail and grep logs instead of dumping them.
+- Once something works, pin the package versions and record them in `docs/versions.md`.
+- At the end of each session, update `docs/progress.md` with what changed and what's next. That file is the memory between sessions.

@@ -1,0 +1,55 @@
+- name: hubd directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "0755"
+  loop:
+    - {path: /opt/hubd, owner: root}
+    - {path: /opt/hubd/static, owner: root}
+    - {path: /etc/hubd, owner: root}
+    - {path: /var/lib/hubd, owner: studio}
+
+- name: hubd service code
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/hubd/hubd.py"
+    dest: /opt/hubd/hubd.py
+    mode: "0755"
+  notify: Restart hubd
+
+- name: hubd web UI (static, no restart needed)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/hubd/static/"
+    dest: /opt/hubd/static/
+    mode: "0644"
+
+- name: hubd config
+  ansible.builtin.copy:
+    dest: /etc/hubd/config.json
+    mode: "0644"
+    content: "{{ cfg | to_nice_json }}\n"
+  vars:
+    cfg:
+      port: "{{ hubd_port }}"
+      nodes: "{{ groups['nodes'] }}"
+      node_port: "{{ hostvars[groups['nodes'][0]].camnode_port }}"
+      sync_server: "{{ hubd_sync_server }}"
+      static_dir: /opt/hubd/static
+      state_dir: /var/lib/hubd
+  notify: Restart hubd
+
+- name: hubd systemd unit
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/systemd/hubd.service"
+    dest: /etc/systemd/system/hubd.service
+    mode: "0644"
+  notify: Restart hubd
+
+- name: hubd enabled and running
+  ansible.builtin.systemd_service:
+    name: hubd
+    enabled: true
+    state: started
+    daemon_reload: true
+  ignore_errors: "{{ ansible_check_mode }}"

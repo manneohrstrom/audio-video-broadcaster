@@ -1,0 +1,2 @@
+- name: Restart mediamtx if running
+  ansible.builtin.command: systemctl try-restart mediamtx

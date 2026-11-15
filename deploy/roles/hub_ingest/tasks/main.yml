@@ -1,0 +1,54 @@
+- name: hub-ingest directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "0755"
+  loop:
+    - {path: /opt/hub-ingest, owner: root}
+    - {path: /var/lib/hubd/ingest, owner: studio}
+    - {path: /var/lib/hubd/ingest/commands, owner: studio}
+    # Mount point for the STUDIO drive (mounted only while writing).
+    - {path: /mnt/studio, owner: studio}
+
+- name: hub-ingest code
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/ingest/ingest.py"
+    dest: /opt/hub-ingest/ingest.py
+    mode: "0755"
+  notify: Restart hub-ingest
+
+- name: hub-ingest config
+  ansible.builtin.copy:
+    dest: /etc/hubd/ingest.json
+    mode: "0644"
+    content: "{{ cfg | to_nice_json }}\n"
+  vars:
+    cfg:
+      nodes: "{{ groups['nodes'] }}"
+      node_port: "{{ hostvars[groups['nodes'][0]].camnode_port }}"
+      hub_api: "http://127.0.0.1:{{ hubd_port }}"
+      ssh_key: /home/studio/.ssh/id_ingest
+      state_dir: /var/lib/hubd/ingest
+      drive_label: STUDIO
+      mount_point: /mnt/studio
+      idle_minutes: "{{ ingest_idle_minutes }}"
+      x264_preset: "{{ ingest_x264_preset }}"
+      x264_crf: "{{ ingest_x264_crf }}"
+  notify: Restart hub-ingest
+
+- name: hub-ingest systemd unit
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/systemd/hub-ingest.service"
+    dest: /etc/systemd/system/hub-ingest.service
+    mode: "0644"
+  notify: Restart hub-ingest
+
+- name: hub-ingest enabled and running
+  ansible.builtin.systemd_service:
+    name: hub-ingest
+    enabled: true
+    state: started
+    daemon_reload: true
+  ignore_errors: "{{ ansible_check_mode }}"

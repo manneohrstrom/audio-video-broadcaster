@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio Multicam</title>
+<style>
+  :root { --bg:#111; --card:#1c1c1e; --fg:#eee; --dim:#888; --ok:#3c3; --warn:#e90; --bad:#e33; --rec:#d22; --live:#27e; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, sans-serif; }
+  h1 { font-size:18px; margin:0 0 12px; display:flex; gap:12px; align-items:baseline; }
+  h1 small { color:var(--dim); font-weight:normal; }
+  .controls { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+  button { font:inherit; font-size:20px; font-weight:600; padding:16px 28px; border:0; border-radius:10px; color:#fff; cursor:pointer; min-width:140px; }
+  button:disabled { opacity:.35; cursor:default; }
+  #rec { background:var(--rec); } #stop { background:#555; } #live { background:var(--live); }
+  #rig { font-size:22px; font-weight:700; margin-left:auto; align-self:center; }
+  #rig.recording { color:var(--rec); } #rig.starting, #rig.stopping { color:var(--warn); }
+  #msg { min-height:1.4em; margin-bottom:12px; color:var(--warn); white-space:pre-line; }
+  #msg.err { color:var(--bad); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:12px; }
+  .card { background:var(--card); border-radius:10px; padding:12px 14px; border-left:5px solid var(--dim); }
+  .card.ok { border-color:var(--ok); } .card.warn { border-color:var(--warn); } .card.off { border-color:var(--bad); opacity:.7; }
+  .card.recording { border-color:var(--rec); } .card.live { border-color:var(--live); }
+  .card h2 { margin:0 0 6px; font-size:17px; display:flex; justify-content:space-between; }
+  .mode { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:1px 10px; font-size:13px; }
+  .kv span:nth-child(odd) { color:var(--dim); }
+  .problems { color:var(--warn); font-size:13px; margin-top:6px; }
+  .url { margin-top:8px; display:flex; gap:6px; }
+  .url input { flex:1; min-width:0; background:#000; color:var(--dim); border:1px solid #333; border-radius:6px; font:12px ui-monospace, monospace; padding:4px 6px; }
+  .url button { font-size:12px; padding:4px 8px; min-width:0; background:#333; }
+  .url a.pv { font-size:12px; padding:4px 8px; border-radius:6px; background:var(--live); color:#fff; text-decoration:none; align-self:center; }
+  .url a.pv.off { background:#333; color:var(--dim); pointer-events:none; }
+  section { margin-top:18px; } section h3 { font-size:15px; margin:0 0 6px; color:var(--dim); }
+  table { border-collapse:collapse; font-size:13px; width:100%; max-width:720px; }
+  td, th { text-align:left; padding:3px 10px 3px 0; border-bottom:1px solid #2a2a2a; }
+  .bad { color:var(--bad); } .good { color:var(--ok); }
+  .controls.small button { font-size:14px; padding:8px 14px; min-width:0; background:#333; }
+  .step { font-size:12px; color:var(--dim); }
+</style>
+</head>
+<body>
+<h1>Studio Multicam <small id="ver"></small></h1>
+<div class="controls">
+  <button id="rec">● REC</button>
+  <button id="stop">■ STOP</button>
+  <button id="live">LIVE</button>
+  <div id="rig">…</div>
+</div>
+<div id="msg"></div>
+<div class="grid" id="cards"></div>
+<section><h3>Last take</h3><div id="last">none yet</div></section>
+<section><h3>Ingest &amp; drive</h3>
+  <div class="controls small"><button id="ingest">Ingest now</button><button id="eject">Eject drive</button></div>
+  <div id="ingest-status">…</div>
+  <div id="ingest-takes"></div>
+</section>
+
+<script>
+const $ = s => document.querySelector(s);
+let snap = null, busy = false;
+
+function fmt(v, unit, digits = 1) { return v == null ? "–" : (+v).toFixed(digits) + unit; }
+function hms(s) { s = Math.floor(s); return [s / 3600 | 0, (s / 60 | 0) % 60, s % 60].map(x => String(x).padStart(2, "0")).join(":"); }
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function card(name, n) {
+  const st = n.status || {};
+  const mode = n.online ? st.mode : "offline";
+  const cls = !n.online ? "off" : mode === "recording" ? "recording" : mode === "live" ? "live" : n.problems.length ? "warn" : "ok";
+  const sd = st.take && st.take.sync_difference_us;
+  const dr = st.take ? (st.take.dropped_so_far || 0) : 0;
+  const take = st.take ? `<span>take</span><span>${esc(st.take.take_id)} · ${hms(st.take.elapsed_s)} · ${st.take.frames ?? st.take.frames_est} fr</span>
+    <span>dropped</span><span class="${dr ? "bad" : "good"}">${dr ? "<b>" + dr + " frames</b> (" + st.take.gaps_so_far + " gaps)" : "0"}</span>
+    <span>sync Δ</span><span class="${sd != null && Math.abs(sd) > 1000 ? "bad" : ""}">${sd == null ? "–" : (sd / 1000).toFixed(3) + " ms"}</span>` : "";
+  const url = `srt://${name}.local:8890?streamid=read:cam`;
+  return `<div class="card ${cls}">
+    <h2>${esc(name)} <span class="mode">${esc(mode)}${st.take ? " · " + esc(st.take.role) : ""}</span></h2>
+    <div class="kv">
+      ${take}
+      <span>temp</span><span>${fmt(st.temp_c, " °C")}</span>
+      <span>free</span><span>${fmt(st.free_gb, " GB")} · ${fmt(st.free_hours, " h")}</span>
+      <span>clock</span><span>${st.clock_synced ? "synced" : "<b class=bad>not synced</b>"} · ${fmt(st.clock_offset_ms, " ms", 3)}</span>
+      <span>Wi-Fi</span><span>${fmt(st.wifi_dbm, " dBm", 0)} · PS ${st.wifi_powersave === false ? "off" : "<b class=bad>on</b>"}</span>
+      ${st.last_error ? `<span>error</span><span class="bad">${esc(st.last_error)}</span>` : ""}
+    </div>
+    ${n.problems.length && mode !== "recording" ? `<div class="problems">${n.problems.map(esc).join("<br>")}</div>` : ""}
+    <div class="url"><input readonly value="${url}"><button data-copy="${url}">copy</button>
+      <a class="pv${mode === "live" ? "" : " off"}" href="http://${name}.local:8889/cam/" target="_blank" rel="noopener"
+         title="${mode === "live" ? "Open live preview" : "Turn LIVE on to preview"}">preview</a></div>
+  </div>`;
+}
+
+function lastTake(t) {
+  if (!t) return "none yet";
+  const rows = Object.entries(t.cameras).map(([n, c]) =>
+    `<tr><td>${esc(n)}</td><td>${esc(c.sync_role)}</td><td>${c.frames}</td><td>${fmt(c.duration_s, " s")}</td>
+     <td class="${c.dropped_frames ? "bad" : ""}">${c.dropped_frames}</td>
+     <td class="${c.exit_code === 0 ? "" : "bad"}">${c.exit_code}</td><td>${esc(c.pts_source)}</td>
+     <td class="${c.sync_difference_us != null && Math.abs(c.sync_difference_us) > 1000 ? "bad" : ""}">${c.sync_difference_us == null ? "–" : (c.sync_difference_us / 1000).toFixed(3) + " ms"}</td></tr>`).join("");
+  const errs = Object.entries(t.errors || {}).map(([n, e]) => `<div class="bad">${esc(n)}: ${esc(e)}</div>`).join("");
+  return `<div>${esc(t.take_id)} · start spread ${t.start_spread_us ?? "–"} µs · frame-count spread ${t.frame_count_spread ?? "–"}
+    · <b class="${t.all_clean ? "good" : "bad"}">${t.all_clean ? "clean" : "check"}</b>
+    ${t.aborted ? `<div class="bad">aborted: ${esc(t.aborted)}</div>` : ""}
+    ${(t.sync_warnings || []).map(w => `<div class="bad">sync: ${esc(w)}</div>`).join("")}</div>${errs}
+    <table><tr><th>cam</th><th>role</th><th>frames</th><th>duration</th><th>dropped</th><th>exit</th><th>PTS</th><th>sync Δ</th></tr>${rows}</table>`;
+}
+
+function render() {
+  if (!snap) return;
+  $("#ver").textContent = "hubd " + snap.hub_version;
+  const rig = $("#rig");
+  const live = Object.values(snap.nodes).some(n => n.status && n.status.mode === "live");
+  let label = snap.state;
+  if (snap.state === "recording" && snap.take) label = "● REC " + hms(Date.now() / 1000 - snap.take.recording_at);
+  else if (snap.state === "idle" && live) label = "LIVE";
+  rig.textContent = label.toUpperCase(); rig.className = snap.state;
+  $("#rec").disabled = busy || snap.state !== "idle";
+  $("#stop").disabled = busy || snap.state !== "recording";
+  $("#live").disabled = busy || snap.state !== "idle";
+  $("#live").textContent = live ? "LIVE OFF" : "LIVE ON";
+  $("#cards").innerHTML = Object.entries(snap.nodes).map(([k, n]) => card(k, n)).join("");
+  $("#last").innerHTML = lastTake(snap.last_take);
+  if (!busy && snap.message) msg(snap.message);
+}
+
+function msg(text, err) { const m = $("#msg"); m.textContent = text || ""; m.className = err ? "err" : ""; }
+
+async function poll() {
+  try { const r = await fetch("/api/status"); snap = await r.json(); render(); }
+  catch (e) { msg("hub unreachable", true); }
+}
+
+async function act(path, body, label) {
+  busy = true; render(); msg(label + "…");
+  try {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+    const j = await r.json();
+    if (!r.ok) msg((j.reasons || [j.error]).join("\n"), true);
+    else if (j.errors && Object.keys(j.errors).length) msg(Object.entries(j.errors).map(([n, e]) => n + ": " + e).join("\n"), true);
+    else msg("");
+  } catch (e) { msg(String(e), true); }
+  busy = false; poll();
+}
+
+$("#rec").onclick = () => act("/api/rec", {}, "Arming cameras");
+$("#stop").onclick = () => act("/api/stop", {}, "Stopping");
+$("#live").onclick = () => {
+  const on = $("#live").textContent === "LIVE ON";
+  act("/api/live", { on }, on ? "Starting live" : "Stopping live");
+};
+document.addEventListener("click", e => {
+  const u = e.target.dataset && e.target.dataset.copy;
+  if (u) navigator.clipboard.writeText(u).then(() => { e.target.textContent = "copied"; });
+});
+const STEPS = ["pulled", "checked", "conformed", "verified", "written", "marked"];
+function ingestView(st) {
+  const s = esc(st.status || "–") + (st.step ? " · " + esc(st.step) : "") +
+    (st.drive_free_gb != null ? " · drive " + st.drive_free_gb + " GB free" : "");
+  $("#ingest-status").innerHTML = s;
+  const rows = Object.entries(st.takes || {}).reverse().map(([id, cams]) => {
+    const cells = Object.entries(cams).filter(([c]) => c !== "complete").map(([c, cs]) => {
+      const last = (cs.done || []).slice(-1)[0] || "queued";
+      const ok = last === "marked";
+      return `<td>${esc(c)}: <span class="${cs.error ? "bad" : ok ? "good" : "step"}">${esc(cs.error ? "error: " + cs.error : ok ? "done" : last)}</span>${cs.repeated != null ? ` <span class="step">(${cs.repeated} repeats)</span>` : ""}</td>`;
+    }).join("");
+    return `<tr><td>${esc(id)}${cams.complete ? ' <span class="good">✓</span>' : ""}</td>${cells}</tr>`;
+  }).join("");
+  $("#ingest-takes").innerHTML = rows ? `<table>${rows}</table>` : "";
+}
+async function pollIngest() {
+  try { const r = await fetch("/api/ingest"); ingestView(await r.json()); } catch (e) {}
+}
+$("#ingest").onclick = () => act("/api/ingest/start", {}, "Queued ingest").then(pollIngest);
+$("#eject").onclick = () => act("/api/drive/eject", {}, "Ejecting drive").then(pollIngest);
+poll(); setInterval(poll, 1000);
+pollIngest(); setInterval(pollIngest, 3000);
+</script>
+</body>
+</html>

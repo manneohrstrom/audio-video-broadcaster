@@ -1,0 +1,10 @@
+pinned_packages_group:
+  ffmpeg: "8:7.1.5-0+deb13u1+rpt2"
+  mkvtoolnix: "92.0-1+deb13u1"
+  exfatprogs: "1.2.9-1+deb13u1"
+hubd_port: 80
+hubd_sync_server: cam1
+# Ingest (docs/phase3-plan.md): starts after this long idle, or "Ingest now".
+ingest_idle_minutes: 30
+ingest_x264_preset: veryfast
+ingest_x264_crf: "16"

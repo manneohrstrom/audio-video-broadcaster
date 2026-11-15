@@ -1,0 +1,15 @@
+- name: NetworkManager Wi-Fi power save off (persistent)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../node/networkmanager/wifi-powersave-off.conf"
+    dest: /etc/NetworkManager/conf.d/wifi-powersave-off.conf
+    mode: "0644"
+
+- name: Read live Wi-Fi power save state
+  ansible.builtin.command: iw dev wlan0 get power_save
+  register: ps_now
+  changed_when: false
+  check_mode: false
+
+- name: Turn Wi-Fi power save off now
+  ansible.builtin.command: iw dev wlan0 set power_save off
+  when: "'on' in ps_now.stdout"

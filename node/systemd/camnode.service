@@ -1,0 +1,20 @@
+# Camera node agent. KillMode=mixed: on stop, SIGTERM goes to the agent only,
+# which stops rpicam-vid itself (clean exit, manifest written); anything left
+# is killed after TimeoutStopSec.
+[Unit]
+Description=camnode camera agent
+After=network-online.target chrony.service
+Wants=network-online.target
+
+[Service]
+User=studio
+Group=video
+Environment=CAMNODE_CONFIG=/etc/camnode/config.json
+ExecStart=/usr/bin/python3 -u /opt/camnode/camnode.py
+Restart=on-failure
+RestartSec=2
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

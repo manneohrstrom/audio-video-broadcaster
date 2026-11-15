@@ -1,0 +1,53 @@
+- name: camnode directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "0755"
+  loop:
+    - {path: /opt/camnode, owner: root}
+    - {path: /etc/camnode, owner: root}
+    - {path: /var/lib/camnode, owner: studio}
+    - {path: /var/lib/camnode/takes, owner: studio}
+
+- name: camnode agent
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../node/camnode/camnode.py"
+    dest: /opt/camnode/camnode.py
+    mode: "0755"
+  notify: Restart camnode
+
+- name: camnode config (per-camera settings from host_vars)
+  ansible.builtin.copy:
+    dest: /etc/camnode/config.json
+    mode: "0644"
+    content: "{{ cfg | to_nice_json }}\n"
+  vars:
+    cfg:
+      host: "{{ inventory_hostname }}"
+      port: "{{ camnode_port }}"
+      takes_dir: /var/lib/camnode/takes
+      stop_signal: "{{ camnode_stop_signal }}"
+      settings:
+        shutter_us: "{{ cam_shutter_us }}"
+        gain: "{{ cam_gain }}"
+        awb_gains: "{{ cam_awb_gains }}"
+        lens_position: "{{ cam_lens_position }}"
+        bitrate: "{{ camnode_bitrate }}"
+  notify: Restart camnode
+
+- name: camnode systemd unit
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../node/systemd/camnode.service"
+    dest: /etc/systemd/system/camnode.service
+    mode: "0644"
+  notify: Restart camnode
+
+- name: camnode enabled and running
+  ansible.builtin.systemd_service:
+    name: camnode
+    enabled: true
+    state: started
+    daemon_reload: true
+  ignore_errors: "{{ ansible_check_mode }}"

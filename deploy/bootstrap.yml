@@ -1,0 +1,15 @@
+# One-time per host: passwordless sudo for `studio` (Phase 2 decision 1).
+# Run once with the studio password:  .venv/bin/ansible-playbook bootstrap.yml -K
+# After this, site.yml runs unattended.
+- name: Passwordless sudo for studio
+  hosts: all
+  become: true
+  tasks:
+    - name: Install sudoers drop-in (validated before it is put in place)
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/010-studio-nopasswd
+        content: "studio ALL=(ALL) NOPASSWD: ALL\n"
+        owner: root
+        group: root
+        mode: "0440"
+        validate: /usr/sbin/visudo -cf %s

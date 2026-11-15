@@ -1,0 +1,62 @@
+# Full provisioning. Run from deploy/:  .venv/bin/ansible-playbook site.yml
+# A second run must report changed=0.
+
+- name: Guard - never deploy during a take or live session
+  hosts: hub
+  gather_facts: false
+  tasks:
+    - name: Read rig state from hubd
+      ansible.builtin.uri:
+        url: http://127.0.0.1/api/status
+        return_content: true
+        timeout: 5
+      register: rig
+      failed_when: false
+      changed_when: false
+      check_mode: false
+
+    - name: Refuse if any camera is busy (override with -e force_deploy=true)
+      ansible.builtin.assert:
+        that: >-
+          rig.status != 200 or (
+            rig.json.state == 'idle' and
+            (rig.json.nodes | dict2items | map(attribute='value.status')
+               | select('mapping') | map(attribute='mode')
+               | reject('in', ['idle']) | list | length == 0))
+        fail_msg: "Rig is busy (state {{ rig.json.state | default('?') }}); not deploying. Stop the take/live first."
+        quiet: true
+      when: not (force_deploy | default(false) | bool)
+- name: All hosts
+  hosts: all
+  become: true
+  roles: [common]
+
+- name: Hub
+  hosts: hub
+  become: true
+  roles: [chrony_server, hubd, ingest_key_hub, hub_ingest]
+
+- name: Camera nodes
+  hosts: nodes
+  become: true
+  roles: [chrony_client, node_net, mediamtx, camnode, ingest_key_node]
+
+- name: Checks
+  hosts: nodes
+  become: true
+  tasks:
+    - name: Wi-Fi power save is off
+      ansible.builtin.command: iw dev wlan0 get power_save
+      register: ps
+      changed_when: false
+      check_mode: false
+      failed_when: "'off' not in ps.stdout"
+
+    - name: Chrony is synced to the hub
+      ansible.builtin.command: chronyc -n sources
+      register: src
+      changed_when: false
+      check_mode: false
+      retries: 6
+      delay: 10
+      until: src.stdout_lines | select('match', '^\^\*') | list | length == 1

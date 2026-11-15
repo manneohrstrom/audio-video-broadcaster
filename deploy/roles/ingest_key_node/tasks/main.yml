@@ -1,0 +1,11 @@
+# Node side: the hub's ingest key may only rsync-READ the takes folder
+# (restrict = no shell/pty/forwarding; rrsync -ro = read-only, that path only).
+- name: Authorise hub ingest key (read-only rsync of takes)
+  ansible.builtin.lineinfile:
+    path: /home/studio/.ssh/authorized_keys
+    line: 'command="/usr/bin/rrsync -ro /var/lib/camnode/takes",restrict {{ hostvars[groups["hub"][0]].hub_ingest_pubkey }}'
+    regexp: 'studio-hub ingest$'
+    create: true
+    owner: studio
+    group: studio
+    mode: "0600"

@@ -1,0 +1,46 @@
+- name: MediaMTX directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: [/opt/mediamtx, /etc/mediamtx]
+
+- name: Download MediaMTX release (sha256 checked)
+  ansible.builtin.get_url:
+    url: "https://github.com/bluenviron/mediamtx/releases/download/{{ mediamtx_version }}/mediamtx_{{ mediamtx_version }}_linux_arm64.tar.gz"
+    dest: "/opt/mediamtx/mediamtx_{{ mediamtx_version }}_linux_arm64.tar.gz"
+    checksum: "sha256:{{ mediamtx_sha256 }}"
+    mode: "0644"
+  register: mtx_tar
+  ignore_errors: "{{ ansible_check_mode }}"  # dir absent in a first dry run
+
+- name: Unpack MediaMTX binary
+  ansible.builtin.unarchive:
+    src: "{{ mtx_tar.dest }}"
+    dest: /opt/mediamtx
+    remote_src: true
+    include: [mediamtx]
+    creates: /opt/mediamtx/mediamtx
+  ignore_errors: "{{ ansible_check_mode }}"
+  notify: Restart mediamtx if running
+
+- name: MediaMTX config
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../node/mediamtx/mediamtx.yml.j2"
+    dest: /etc/mediamtx/mediamtx.yml
+    mode: "0644"
+  notify: Restart mediamtx if running
+
+- name: MediaMTX systemd unit
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../node/systemd/mediamtx.service"
+    dest: /etc/systemd/system/mediamtx.service
+    mode: "0644"
+  notify: Restart mediamtx if running
+
+- name: MediaMTX not started at boot (camnode owns live mode)
+  ansible.builtin.systemd_service:
+    name: mediamtx
+    enabled: false
+    daemon_reload: true
+  ignore_errors: "{{ ansible_check_mode }}"  # unit not installed yet in a dry run

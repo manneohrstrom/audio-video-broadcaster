@@ -1,0 +1,7 @@
+# try-restart: a running take is stopped cleanly by the agent (KillMode=mixed).
+# Don't deploy during a take.
+- name: Restart camnode
+  ansible.builtin.systemd_service:
+    name: camnode
+    state: restarted
+    daemon_reload: true

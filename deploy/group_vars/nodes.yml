@@ -1,0 +1,8 @@
+mediamtx_version: v1.21.3
+mediamtx_sha256: 27f038237cb5f77a724f6afc58eca2798f2bc4edf9989895631a80eeb41a4fe2
+# Live bitrate per camera: 4-5 Mbps at four cameras, 3-4 at six (CLAUDE.md).
+mediamtx_bitrate: 5000000
+camnode_port: 8080
+camnode_bitrate: 16000000
+# From spike S2 (docs/progress.md).
+camnode_stop_signal: SIGINT

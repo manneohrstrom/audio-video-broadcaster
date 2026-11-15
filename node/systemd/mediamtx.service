@@ -1,0 +1,20 @@
+# Live mode. Installed but NOT enabled at boot: camnode starts/stops it,
+# because the camera can be owned by only one process (MediaMTX or rpicam-vid).
+[Unit]
+Description=MediaMTX live camera stream
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=studio
+Group=video
+ExecStart=/opt/mediamtx/mediamtx /etc/mediamtx/mediamtx.yml
+Restart=on-failure
+RestartSec=2
+# SIGTERM to the main process only: with the default (whole cgroup) the camera
+# child dies first, MediaMTX respawns it, and stop hangs until the 90 s timeout.
+KillMode=mixed
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

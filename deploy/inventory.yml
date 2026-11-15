@@ -1,0 +1,14 @@
+all:
+  children:
+    hub:
+      hosts:
+        studio-hub:
+          ansible_host: studio-hub.local
+    nodes:
+      hosts:
+        cam1: {ansible_host: cam1.local}
+        cam2: {ansible_host: cam2.local}
+        cam3: {ansible_host: cam3.local}
+        cam4: {ansible_host: cam4.local}
+        # cam5: {ansible_host: cam5.local}
+        # cam6: {ansible_host: cam6.local}

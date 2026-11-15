@@ -1,0 +1,37 @@
+# Hub side of ingest access (user-approved 2026-11-14): a key the hub uses to pull takes.
+- name: Hub ingest SSH key
+  ansible.builtin.command: ssh-keygen -q -t ed25519 -N "" -C "studio-hub ingest" -f /home/studio/.ssh/id_ingest
+  args:
+    creates: /home/studio/.ssh/id_ingest
+  become_user: studio
+
+- name: Read hub ingest public key
+  ansible.builtin.slurp:
+    src: /home/studio/.ssh/id_ingest.pub
+  register: ingest_pub
+
+- name: Expose public key to the node play
+  ansible.builtin.set_fact:
+    hub_ingest_pubkey: "{{ ingest_pub.content | b64decode | trim }}"
+
+- name: Scan node host keys
+  ansible.builtin.command: ssh-keyscan -t ed25519 {{ item }}.local
+  loop: "{{ groups['nodes'] }}"
+  register: scans
+  changed_when: false
+  check_mode: false
+
+- name: Remove keyscan banner comments (OpenSSH 10 prints them on stdout)
+  ansible.builtin.lineinfile:
+    path: /home/studio/.ssh/known_hosts
+    regexp: '^# \S+\.local:22 SSH-'
+    state: absent
+
+- name: Nodes in the hub's known_hosts
+  ansible.builtin.known_hosts:
+    path: /home/studio/.ssh/known_hosts
+    name: "{{ item.item }}.local"
+    key: "{{ item.stdout_lines | reject('match', '^#') | first }}"
+  loop: "{{ scans.results }}"
+  loop_control: {label: "{{ item.item }}"}
+  become_user: studio
