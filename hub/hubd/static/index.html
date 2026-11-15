@@ -79,7 +79,7 @@
 </style>
 </head>
 <body>
-<h1>Studio Multicam <small id="ver"></small><span class="phonelinks"><a class="phonelink" href="/phone" title="Open on an Android phone to use it as an extra camera">📱 Use a phone as a camera</a><button id="qrbtn" class="phonelink" title="Show a QR code to open the phone page on a phone">QR</button></span></h1>
+<h1>Studio Multicam <small id="ver"></small><span class="phonelinks"><button id="qrbtn" class="phonelink" title="Show a QR code to open the phone page on a phone">📱 Use a phone as a camera</button></span></h1>
 <div class="controls">
   <button id="rec">● REC</button>
   <button id="stop">■ STOP</button>
@@ -98,7 +98,8 @@
   <div id="qrsvg"></div>
   <p><b>Scan with the phone's camera</b> to open the phone page</p>
   <p><code>http://studio-hub.local/phone</code></p>
-  <p class="dim">Android + Chrome only. First time on a phone: see the setup at the bottom of the phone page. Click anywhere to close.</p>
+  <p><a href="/phone" id="qrhere">Already on the phone? Open it here</a></p>
+  <p class="dim">Android + Chrome only. First time on a phone: see the setup at the bottom of the phone page. Click outside to close.</p>
 </div></div>
 <div id="player" hidden>
   <div class="pbox">
@@ -387,7 +388,7 @@ $("#qrbtn").onclick = () => {
   }
   $("#qr").hidden = false;
 };
-$("#qr").onclick = () => { $("#qr").hidden = true; };
+$("#qr").onclick = e => { if (e.target.id !== "qrhere") $("#qr").hidden = true; };
 document.addEventListener("keydown", e => { if (e.key === "Escape") $("#qr").hidden = true; });
 $("#player").onclick = e => { if (e.target.id === "player") closePlayer(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#player").hidden) closePlayer(); });
