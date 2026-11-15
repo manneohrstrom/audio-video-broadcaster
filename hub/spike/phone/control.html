@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phone control</title>
+<style>
+  :root { --bg:#fff; --fg:#111; --mut:#666; --line:#ddd; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --mut:#999; --line:#333; } }
+  body { margin:0; padding:12px 16px; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, sans-serif; }
+  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+  td, th { text-align:left; padding:4px 8px; border-bottom:1px solid var(--line); }
+  button { font:inherit; padding:8px 14px; }
+  .mut { color:var(--mut); }
+</style>
+</head>
+<body>
+<h2>Phones</h2>
+<p class="mut">REC/STOP on the hub page also starts and stops every phone shown here.</p>
+<p><button id="rec">REC all phones</button> <button id="stop">STOP all phones</button> <span id="hub" class="mut"></span></p>
+<table><thead><tr><th>phone</th><th>seen</th><th>state</th><th>take</th><th>frames</th><th>dropped</th><th>chunks up / queued</th><th>battery</th><th>screen</th><th>error</th></tr></thead>
+<tbody id="rows"></tbody></table>
+<script>
+const cmd = a => fetch("/api/cmd", {method: "POST", body: JSON.stringify({action: a})});
+document.getElementById("rec").onclick = () => cmd("rec");
+document.getElementById("stop").onclick = () => cmd("stop");
+async function tick() {
+  try {
+    const s = await (await fetch("/api/state")).json();
+    document.getElementById("hub").textContent = s.hub_take ? "rig recording " + s.hub_take : "";
+    document.getElementById("rows").innerHTML = Object.entries(s.phones).map(([n, p]) => {
+      const t = p.status || {};
+      return `<tr><td>${n}</td><td>${p.age_s} s</td><td>${t.state || ""}</td><td>${t.take || ""}</td><td>${t.frames ?? ""}</td>
+        <td>${t.dropped ?? ""}</td><td>${t.uploaded ?? ""} / ${t.queue ?? ""}</td>
+        <td>${t.battery ?? ""}%${t.charging ? " ⚡" : ""}</td><td>${t.visible || ""}</td><td>${t.err || ""}</td></tr>`;
+    }).join("");
+  } catch (e) {}
+}
+setInterval(tick, 1000); tick();
+</script>
+</body>
+</html>

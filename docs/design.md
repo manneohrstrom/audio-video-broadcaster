@@ -232,10 +232,11 @@ Four phases, each ending in something usable. Phase 1 is a go/no-go on the two r
      - Records 1080p30 in the browser (hardware encoder) in small pieces saved as it goes, so a Wi-Fi drop or crash loses seconds, not the take.
      - Uploads to the hub over 5 GHz, so the phones never touch the Pi cameras' 2.4 GHz channel. Files land in the take's `handheld/` folder and go through the same conform and timecode as the Pi cameras.
      - Sync: per-frame capture timestamps from the browser, offset against the hub's clock (measured by the page), and cross-checked by matching the phone's audio against the hub scratch mic. "Needs sync" if they disagree.
-     - Needs HTTPS for camera access in the browser: a one-off certificate on each phone (local CA) or a one-off Chrome setting.
+     - Camera access in the browser needs a secure context: a one-off Chrome flag per phone (`unsafely-treat-insecure-origin-as-secure`), the user's choice (2026-11-15); no HTTPS or local CA.
      - The page keeps the screen awake and must stay in the foreground during a take. Keep the phones plugged in. The hub shows temperature and warns, since old Pixel 3 batteries can swell.
      - First step: test the page on one Pixel 3. Can Chrome lock exposure, white balance and focus? Are its frame timestamps accurate? Does browser-recorded video match the quality the user already confirmed? The browser doesn't get the Google Camera app's processing.
      - If the browser falls short: a native Android app, possibly starting from Google Research's open-source RecSync (synchronised multi-phone capture).
+     - **Dropped frames are tolerated: marked, not fixed** (user decision 2026-11-15, after the phone spike). Phone footage is one angle in a cut, so a rough stretch just means using another angle there. Every frame keeps its own hub-clock time, so drops never shift sync. The hub marks rough sections per camera (e.g. any 2 s window missing more than a few frames) on the take's timeline in the hub page and as Premiere markers on that clip, and the auto-edit avoids them. Bad chunks are not blanked or discarded. Applies to the Pi cameras' `gaps` too.
      - Step one: record a scratch WAV during one real take and test the matching offline before building anything.
 
 One repository:
