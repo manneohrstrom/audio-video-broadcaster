@@ -81,7 +81,6 @@
 </div>
 <div id="msg"></div>
 <div class="grid" id="cards"></div>
-<section><h3>Last take</h3><div id="last">none yet</div></section>
 <section><h3>Ingest &amp; drive</h3>
   <div class="controls small"><button id="ingest">Ingest now</button><button id="eject">Eject drive</button></div>
   <div id="ingest-status">…</div>
@@ -152,21 +151,6 @@ function card(name, n) {
   </div>`;
 }
 
-function lastTake(t) {
-  if (!t) return "none yet";
-  const rows = Object.entries(t.cameras).map(([n, c]) =>
-    `<tr><td>${esc(n)}</td><td>${esc(c.sync_role)}</td><td>${c.frames}</td><td>${fmt(c.duration_s, " s")}</td>
-     <td class="${c.dropped_frames ? "bad" : ""}">${c.dropped_frames}</td>
-     <td class="${c.exit_code === 0 ? "" : "bad"}">${c.exit_code}</td><td>${esc(c.pts_source)}</td>
-     <td class="${c.sync_difference_us != null && Math.abs(c.sync_difference_us) > 1000 ? "bad" : ""}">${c.sync_difference_us == null ? "–" : (c.sync_difference_us / 1000).toFixed(3) + " ms"}</td></tr>`).join("");
-  const errs = Object.entries(t.errors || {}).map(([n, e]) => `<div class="bad">${esc(n)}: ${esc(e)}</div>`).join("");
-  return `<div>${esc(t.take_id)} · start spread ${t.start_spread_us ?? "–"} µs · frame-count spread ${t.frame_count_spread ?? "–"}
-    · <b class="${t.all_clean ? "good" : "bad"}">${t.all_clean ? "clean" : "check"}</b>
-    ${t.aborted ? `<div class="bad">aborted: ${esc(t.aborted)}</div>` : ""}
-    ${(t.sync_warnings || []).map(w => `<div class="bad">sync: ${esc(w)}</div>`).join("")}</div>${errs}
-    <table><tr><th>cam</th><th>role</th><th>frames</th><th>duration</th><th>dropped</th><th>exit</th><th>PTS</th><th>sync Δ</th></tr>${rows}</table>`;
-}
-
 function render() {
   if (!snap) return;
   $("#ver").textContent = "hubd " + snap.hub_version;
@@ -181,7 +165,6 @@ function render() {
   $("#live").disabled = busy || snap.state !== "idle";
   $("#live").textContent = live ? "LIVE OFF" : "LIVE ON";
   $("#cards").innerHTML = hubCard(snap.hub) + Object.entries(snap.nodes).map(([k, n]) => card(k, n)).join("");
-  $("#last").innerHTML = lastTake(snap.last_take);
   if (!busy && snap.message) msg(snap.message);
 }
 
@@ -281,6 +264,8 @@ function ingestView(st) {
     return `<div class="plays">` + ready.map(c => `<button class="play" ${driveOk ? "" : "disabled title='STUDIO drive not in the hub'"}
       data-play="${esc(id)}" data-cam="${esc(c)}" data-cams="${esc(ready.join(","))}">▶ ${esc(c)}</button>`).join("") + "</div>";
   };
+  const probs = rec => rec && rec.problems && rec.problems.length ?
+    `<div class="camerr" style="margin-left:0">⚠ ${rec.problems.map(esc).join(" · ")}</div>` : "";
   $("#ingest-takes").innerHTML = takes.reverse().map(([id, cams]) => {
     const cs = camsOf(cams);
     const rec = cams.recorded;
@@ -295,7 +280,7 @@ function ingestView(st) {
         <span style="color:var(--warn)">${label}</span></h4>
         <div class="camdone">${rc.map(([c, v]) => `${esc(c)}${v.frames != null ? ": " + v.frames + " frames" : ""}` +
           (v.dropped ? ` <span class="bad">(${v.dropped} dropped)</span>` : "")).join(" · ")}` +
-        (drops ? "" : ` · <span class="good">no dropped frames</span>`) + `</div></div>`;
+        (drops ? "" : ` · <span class="good">no dropped frames</span>`) + `</div>${probs(rec)}</div>`;
     }
     const allDone = cs.length && cs.every(([, v]) => (v.done || []).includes("marked"));
     const active = cs.some(([, v]) => v.step);
@@ -319,7 +304,7 @@ function ingestView(st) {
         (v.error ? `<div class="camerr">${esc(v.error)}</div>` : "")).join("");
     }
     const cls = allDone ? "done" : err ? "error" : active ? "active" : "";
-    return `<div class="take ${cls}"><h4><span>${head}</span>${right}</h4>${body}${playBtns(id, cs)}</div>`;
+    return `<div class="take ${cls}"><h4><span>${head}</span>${right}</h4>${body}${probs(rec)}${playBtns(id, cs)}</div>`;
   }).join("");
 }
 // ---- playback straight from the STUDIO drive (hub-ingest mounts it read-only on request)

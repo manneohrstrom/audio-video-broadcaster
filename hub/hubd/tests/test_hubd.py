@@ -371,6 +371,16 @@ class HubTest(unittest.TestCase):
         self.assertEqual(sorted(rec["recorded"]["cameras"]), ["cam1", "cam2", "cam3", "cam4"])
         self.assertEqual(rec["recorded"]["length_s"], 30.0)
         self.assertEqual(rec["recorded"]["cameras"]["cam1"]["frames"], 900)
+        self.assertEqual(rec["recorded"]["problems"], [])
+
+    def test_ingest_list_flags_a_take_that_was_not_clean(self):
+        self.cfg["ingest_dir"] = os.path.join(self.cfg["state_dir"], "ingest")
+        self.hub.append_log({"take_id": "20261115-120000", "all_clean": False, "errors": {"cam3": "stop timed out"},
+                             "sync_warnings": ["cam2 started 2 ms late"],
+                             "cameras": {"cam1": {"frames": 10, "exit_code": 0},
+                                         "cam3": {"frames": 9, "exit_code": -6}}})
+        p = self.hub.ingest_state()["takes"]["20261115-120000"]["recorded"]["problems"]
+        self.assertEqual(p, ["cam2 started 2 ms late", "cam3: stop timed out", "cam3 exited with code -6"])
 
     def test_snapshot_shows_problems(self):
         self.rig.offline.add("cam4")

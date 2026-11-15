@@ -467,7 +467,14 @@ class Hub:
             if not cams and "recorded" in takes.get(tid, {}):
                 continue                            # an empty duplicate never hides real data
             wc = [c.get("first_frame_wallclock_ns") for c in cams.values() if c.get("first_frame_wallclock_ns")]
+            problems = list(e.get("sync_warnings") or [])
+            problems += ["%s: %s" % (n, err) for n, err in sorted((e.get("errors") or {}).items())]
+            problems += ["%s exited with code %s" % (n, c.get("exit_code")) for n, c in sorted(cams.items())
+                         if c.get("exit_code") not in (0, None)]
+            if e.get("all_clean") is False and not problems:
+                problems.append("not clean: check the take log")
             takes.setdefault(tid, {})["recorded"] = {
+                "problems": problems,
                 "started_at": min(wc) / 1e9 if wc else e.get("started_at"),
                 "length_s": max([c.get("duration_s") or 0 for c in cams.values()] or [0]),
                 "cameras": {n: {"frames": c.get("frames"), "dropped": c.get("dropped_frames") or 0}
