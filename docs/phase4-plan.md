@@ -1,6 +1,6 @@
 # Phase 4 plan: sound, picture and studio polish
 
-Status: **draft, waiting for the user's OK.** Nothing is built until then. Written 2026-11-15 after Phase 3's GO (`docs/phase3-results.md`). Sources: the Phase 4 list in `docs/design.md`, the user's requirements of 2026-11-14 and 2026-11-15 (`docs/progress.md`).
+Status: **draft, waiting for the user's OK.** Nothing is built until then. **Priority (user, 2026-11-15): the visuals (Track B) come first.** Written 2026-11-15 after Phase 3's GO (`docs/phase3-results.md`). Sources: the Phase 4 list in `docs/design.md`, the user's requirements of 2026-11-14 and 2026-11-15 (`docs/progress.md`).
 
 ## Goal
 
@@ -9,7 +9,7 @@ Three things the rig can't do yet:
 2. **Picture:** set up and match all cameras from one place, for changing light, without touching each camera.
 3. **Studio polish:** a big recording light, and the small loose ends from Phases 2–3.
 
-## Track A: audio sync (first: the hub's USB mic arrives 2026-11-16)
+## Track A: audio sync (second; the hub's USB mic arrives 2026-11-16 and spike A1 can run whenever convenient)
 
 **What it does.** During every take the hub records a scratch WAV from its USB mic, stamped against its own clock (the clock the cameras' frames are stamped against). After the session the user uploads the bounce, one per song if they like. The hub finds where each bounce sits in the take, and how fast its clock runs, and stamps it with the take's timecode, so it drops onto the Premiere timeline already in sync.
 
@@ -38,7 +38,7 @@ Three things the rig can't do yet:
 2. A take where the hub mic hears nothing usable (players in another room): synced from claps alone, or marked "needs sync". Never wrong.
 3. A deliberately edited bounce (a section moved) is flagged, not synced.
 
-## Track B: picture
+## Track B: picture (first)
 
 **B1. Snapshot overview page.** A still from every camera side by side, for placing, framing, focusing and matching, with each camera's status. Idle cameras: a short `rpicam-still` with the locked settings. Live: a frame from the stream. Never during a take, and never stored.
 
@@ -93,19 +93,19 @@ Three things the rig can't do yet:
 
 | | Milestone |
 |---|---|
-| A1–A3 | Audio spikes. A1 needs one real session from the user. |
-| **M-A** | Scratch recording during takes; bounce upload; matching and anchors; synced BWF on the drive; UI per take ("synced, confidence high, anchor: hub mic"). Tests. |
 | B-S1–S3 | Picture spikes (no user time needed, apart from looking at results). |
 | **M-B** | Snapshot page and focus help; global controls and looks; grey-card calibration; auto-then-lock. Autofocus only if approved. |
+| A1–A3 | Audio spikes. A1 needs one real session from the user; it can run any time, in parallel with M-B. |
+| **M-A** | Scratch recording during takes; bounce upload; matching and anchors; synced BWF on the drive; UI per take ("synced, confidence high, anchor: hub mic"). Tests. |
 | **M-C** | Recording light (when the bulb is set up); small items; runbook. |
 | **M-X** | Exit checks per track; `docs/phase4-results.md`. |
 
-Tracks can be done in any order. A goes first because the mic arrives first; C1 whenever the bulb is ready.
+Order: **B (picture) first** (user priority), then A, then C. C1 whenever the bulb is ready.
 
 ## Decisions for the user
 
 1. **Autofocus** conflicts with the settled rule "manual focus per camera; no auto focus during takes". Allow continuous AF as a per-camera, per-take option (off by default), after a test (B-S4)? Or keep manual focus and rely on focus help (B4)? *Recommended:* run the test first, then decide.
 2. **Auto-then-lock** changes the settled "fixed gain, fixed AWB gains" to "fixed for each take, chosen at REC". Exposure and white balance still never change during a take. OK? *Recommended:* yes, as an option next to manual.
-3. **Order:** A (sound), then B (picture), then C (polish)? *Recommended:* yes, because of the mic.
+3. **Order: answered.** Visuals first (user, 2026-11-15): B, then A, then C.
 4. **C3:** keep or drop tally LEDs, the GPIO REC button, OBS export and LTC? *Recommended:* drop the tally LEDs (the board LED and the bulb cover it) and LTC (unless Track A disappoints); the GPIO button and OBS export are each small, so keep them only if you'd use them.
 5. **Bounce upload from the page** writes to the drive (`audio/` in the take folder): the drive is mounted read-write for the upload, as it is for ingest. OK?
