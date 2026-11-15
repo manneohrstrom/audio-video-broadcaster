@@ -444,3 +444,9 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - After the stick repair: check the hub accepts it and finishes cam2–4 of the 14 Nov takes; confirm merged `take.json` (4 cameras) on the stick.
 - Steps 3+4 with the user: a 30-min 4-camera take with the DAW recording and claps at start/middle/end; unattended ingest after 30 min idle; sync check on the Mac. Then `docs/phase3-results.md`.
 - Possible later: let the hub repair a damaged stick itself (`fsck.exfat -y` only truncates broken files), with the user's OK, since it touches the drive.
+
+## 2026-11-15: skip conversion for gapless takes? (no)
+- Sensor timing (binned 2304x1296): line 13.361 µs (7824 px at 585.6 MHz), but the frame length only takes effect in **steps of 2 lines** (requesting 2495 lines is reported as 33334 µs but runs at 2494). Real choices: 2494 lines = 30.0107 fps (+1.28 s/h, current) or 2496 = 29.9866 fps (−1.61 s/h). Measured on cam1 by sensor timestamps, PTS and wall clock, all agreeing.
+- So no frame-rate setting gets within the user's 0.5 s/h (or even 1 s/h); gapless takes can't skip conversion that way. Other option noted: copy at the native measured rate (Path A), depends on the editor; untested (no editor yet).
+- **User decision 2026-11-15: keep the current implementation (convert everything).** Cameras unchanged.
+- S2 quality check done (see `docs/phase3-plan.md`): VMAF 96.5, SSIM 0.995, PSNR 51.5 dB. Visually transparent.
