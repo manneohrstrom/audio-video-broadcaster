@@ -360,3 +360,7 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - Also added as a future idea: an automatic edit on the hub. Each partial bounce (one per song) is located within the take, flagged if it was edited in time, and an "Auto edit" makes a cut video with the bounce as soundtrack (beat-aware switching, skips cameras with drops), plus an EDL for Premiere.
 - Also added as a future idea: Pixel 3 phones as offline camera units via a hub web page (REC/STOP from the hub, preview, chunked upload over 5 GHz, sync by browser frame timestamps plus audio match). Long sessions and quality are already confirmed by the user. The first test covers exposure/WB/focus lock, timestamps and quality in the browser.
 - Not in the plan (user's call): YouTube streaming / live auto-switching.
+
+## 2026-11-15: git + GitHub
+- The project is now a git repo (`main`), pushed to the user's private GitHub repo `manneohrstrom/studio-hub` over SSH. `.gitignore` keeps out media (`claptest.mp3` etc.), `deploy/.venv`, `__pycache__` and `.DS_Store`.
+- `gh` isn't installed; the repo was created on github.com by the user.
