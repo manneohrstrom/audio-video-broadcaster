@@ -410,5 +410,6 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 
 ### Next
 - Watch the new checklist and ETA during the next real ingest; check the learned rates.
-- Remaining M4 acceptance: Eject from the UI; 30-min take ingested unattended after 30 min idle; REC during ingest pauses then resumes; pull the stick mid-write (ask the user first); lazy delete on a camera; `docs/phase3-results.md`.
+- Eject tested 2026-11-15 (API, same as the button): unmount, SYNCHRONIZE CACHE + START STOP UNIT, USB port powered off; the page now says "Drive ejected: safe to unplug" and the flag clears on replug. To check: after a replug the stick reappears, gets fsck'd and is accepted.
+- Remaining M4 acceptance: 30-min take ingested unattended after 30 min idle; REC during ingest pauses then resumes; pull the stick mid-write (ask the user first); lazy delete on a camera; `docs/phase3-results.md`.
 - Recheck cam1 `get_throttled` during a take on the new supply.
