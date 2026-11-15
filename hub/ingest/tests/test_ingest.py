@@ -81,6 +81,7 @@ class FakeRunner:
 
     def run(self, cmd, pause="kill", nice=19, timeout=None, on_poll=None):
         tool = cmd[0]
+        self.cmds = getattr(self, "cmds", []) + list(cmd)
         if on_poll:
             on_poll()
         self.calls.append(tool)
@@ -604,6 +605,7 @@ class PhoneIngestTest(Base):
         self.assertEqual(self.runner.calls.count("rsync"), 1)                         # cam1 only; the phone is linked
         self.assertEqual(set(self.rig.verified), {("cam1", TAKE)})                    # no HTTP for the phone
         self.assertFalse(os.path.exists(src))                                          # staging copy freed
+        self.assertFalse(any("setpts" in c for c in self.runner.cmds if isinstance(c, str)))   # see conform()
         self.assertFalse(os.path.exists(os.path.dirname(src)))
         self.assertEqual(self.ing.tick(), "nothing to ingest")
 

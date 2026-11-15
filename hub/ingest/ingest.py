@@ -621,11 +621,16 @@ class Ingest:
         self.runner.run(["mkvmerge", "-q", "-o", mkv, "--timestamps", "0:" + os.path.join(d, "video.pts"),
                          os.path.join(d, "video.h264")], pause="stop")
         out = self.out_name(take_id, cam)
-        vf = "setpts=PTS-STARTPTS+%f/TB,fps=fps=%d:start_time=0:round=near" % (residual / 1e9, FPS)
+        # The residual (first frame's offset from its grid slot) goes on the input with
+        # -itsoffset, not as setpts in the filter: on phone footage (uneven frame spacing,
+        # nominal rate guessed at 30.49) setpts left ~5% of frames with duplicate times and
+        # ffmpeg dropped them (2026-11-15, Pixel 9a: 584 of 612). Pi output is unchanged
+        # (bit-identical on take 20261115-231111). mkvmerge's timestamps start at 0.
+        vf = "fps=fps=%d:start_time=0:round=near" % FPS
         prog = os.path.join(d, "progress.txt")
         dur = man.get("duration_s") or 0
         self.runner.run(["ffmpeg", "-nostdin", "-v", "error", "-progress", prog, "-y",
-                         "-i", mkv, "-map", "0:v", "-vf", vf,
+                         "-itsoffset", "%.6f" % (residual / 1e9), "-i", mkv, "-map", "0:v", "-vf", vf,
                          "-c:v", "libx264", "-preset", self.cfg["x264_preset"], "-crf", self.cfg["x264_crf"],
                          "-pix_fmt", "yuv420p", "-r", str(FPS), "-video_track_timescale", "30000",
                          "-timecode", tc, "-metadata", "title=%s %s" % (take_id, man.get("label") or cam),
@@ -650,7 +655,9 @@ class Ingest:
         st = info["streams"][0]
         got = int(st["nb_read_packets"])
         problems = []
-        if abs(got - want) > 1:
+        # Phones: uneven frame spacing makes the last frame's end fuzzier, so allow ±2
+        # (still catches real loss); Pi cameras stay at ±1.
+        if abs(got - want) > (2 if man.get("source") == "phone" else 1):
             problems.append("frames %d, expected %d" % (got, want))
         if st.get("avg_frame_rate") != "30/1":
             problems.append("frame rate %s" % st.get("avg_frame_rate"))
