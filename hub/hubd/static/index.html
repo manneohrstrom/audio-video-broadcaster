@@ -20,8 +20,12 @@
   #msg.err { color:var(--bad); }
   .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:12px; }
   .card { background:var(--card); border-radius:10px; padding:12px 14px; border-left:5px solid var(--dim); }
-  .card.ok { border-color:var(--ok); } .card.warn { border-color:var(--warn); } .card.off { border-color:var(--bad); opacity:.7; }
-  .card.recording { border-color:var(--rec); } .card.live { border-color:var(--live); }
+  .card.ok { border-color:var(--ok); } .card.warn { border-color:var(--warn); } .card.off { border:1px dashed #444; border-left:5px dashed #555; background:#151516; opacity:.55; }
+  .card.recording { border-color:var(--rec); background:#2a1414; box-shadow:0 0 0 1px #5a1c1c inset; } .card.live { border-color:var(--live); }
+  .card.recording .mode { color:#ff5a5a; font-weight:700; }
+  .card.off .mode { color:#777; }
+  .recdot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--rec); margin-right:5px; animation:pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:.25; } }
   .card h2 { margin:0 0 6px; font-size:17px; display:flex; justify-content:space-between; }
   .mode { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); }
   .kv { display:grid; grid-template-columns:auto 1fr; gap:1px 10px; font-size:13px; }
@@ -83,7 +87,9 @@ function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<":
 function card(name, n) {
   const st = n.status || {};
   const mode = n.online ? st.mode : "offline";
-  const cls = !n.online ? "off" : mode === "recording" ? "recording" : mode === "live" ? "live" : n.problems.length ? "warn" : "ok";
+  if (!n.online) return `<div class="card off"><h2>${esc(name)} <span class="mode">offline</span></h2>
+    <div class="step">Not reachable: powered off or not on Wi-Fi. REC records without it.</div></div>`;
+  const cls = mode === "recording" ? "recording" : mode === "live" ? "live" : n.problems.length ? "warn" : "ok";
   const sd = st.take && st.take.sync_difference_us;
   const dr = st.take ? (st.take.dropped_so_far || 0) : 0;
   const take = st.take ? `<span>take</span><span>${esc(st.take.take_id)} · ${hms(st.take.elapsed_s)} · ${st.take.frames ?? st.take.frames_est} fr</span>
@@ -91,7 +97,7 @@ function card(name, n) {
     <span>sync Δ</span><span class="${sd != null && Math.abs(sd) > 1000 ? "bad" : ""}">${sd == null ? "–" : (sd / 1000).toFixed(3) + " ms"}</span>` : "";
   const url = `srt://${name}.local:8890?streamid=read:cam`;
   return `<div class="card ${cls}">
-    <h2>${esc(name)} <span class="mode">${esc(mode)}${st.take ? " · " + esc(st.take.role) : ""}</span></h2>
+    <h2>${esc(name)} <span class="mode">${mode === "recording" ? '<span class="recdot"></span>REC' : esc(mode)}${st.take ? " · " + esc(st.take.role) : ""}</span></h2>
     <div class="kv">
       ${take}
       <span>temp</span><span>${fmt(st.temp_c, " °C")}</span>
