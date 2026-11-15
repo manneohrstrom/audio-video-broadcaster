@@ -6,7 +6,7 @@ The full design is in `docs/design.md`. Read it before proposing any architectur
 
 ## Current phase
 
-**Phase 4: plan accepted 2026-11-15 (`docs/phase4-plan.md`); building starts 2026-11-16 with Track B (visuals), then A (audio sync), then C (polish).** Phase 3 is done: GO on 2026-11-15 (`docs/phase3-results.md`). Stay within the plan; ask before adding scope.
+**Phone cameras first: plan accepted 2026-11-15 (`docs/phone-plan.md`), after the spike's GO (`docs/phone-spike-results.md`). Building starts with P1. Then Phase 4 (plan accepted 2026-11-15, `docs/phase4-plan.md`): Track B (visuals), then A (audio sync), then C (polish).** Phase 3 is done: GO on 2026-11-15 (`docs/phase3-results.md`). Stay within the plans; ask before adding scope.
 
 Earlier phases: Phase 1 GO on 2026-11-14 (`docs/phase1-results.md`); its five conditions still apply. Phase 2 passed on 2026-11-14 (`docs/phase2-results.md`). Phase 3 scope, kept for reference:
 - pull takes from the nodes;
@@ -29,6 +29,7 @@ Start by writing a Phase 3 plan in `docs/phase3-plan.md` and get my OK before bu
   - The hub mounts it read-write only while writing, and read-only while someone plays a take back on the hub page (unmounted 5 min after the last playback; user decision 2026-11-15). Otherwise it's unmounted. It provides an Eject action.
   - It writes to temporary names and renames when done, and checks the filesystem on plug-in.
   - The hub never deletes from the drive.
+- **Phone cameras** (user decisions 2026-11-15, `docs/phone-plan.md`): Pixel phones join offline takes from a page on the hub (browser, no app; camera access through a one-off Chrome flag, no HTTPS). Ready phones record on the hub's REC/STOP; phones never block REC. Chunks upload live to the hub's SD card during the take. One capture-delay correction per model (default −40 ms); one tested phone stands for all, so no per-phone tests. Dropped frames, on phones and Pi cameras alike, are tolerated: marked as rough sections, not fixed.
 - **Audio sync:** a clap or slate by default. LTC from the hub is Phase 4 and optional.
 - **Network:** cameras on their own 2.4 GHz channel. Wi-Fi power saving off on the nodes.
 

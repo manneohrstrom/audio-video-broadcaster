@@ -88,7 +88,7 @@ Three things the rig can't do yet:
 ## Not in Phase 4 (future ideas, unless the user moves them in)
 
 - Automatic edit on the hub (needs Track A), per `docs/design.md`.
-- Pixel 3 phones as offline camera units.
+- Pixel phones as offline camera units: moved ahead of Phase 4 as its own plan (`docs/phone-plan.md`, accepted 2026-11-15).
 - Network share and Mac auto-pull (`docs/phase3-plan.md`, decision 6).
 - "Discard take" button (parked 2026-11-15).
 - Copying gapless takes at the native 30.0107 fps without re-encoding (once an editor is chosen; `docs/phase3-results.md`).
