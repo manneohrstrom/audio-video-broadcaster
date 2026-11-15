@@ -16,7 +16,7 @@ Any Pixel phone can join a session as an extra offline camera from a page on the
 
 ## P1. Phones in hubd (the spike server goes away)
 
-- hubd serves `http://studio-hub.local/phone`: the spike page, tidied. It adds a name picker, and the hub warns about a name already in use.
+- hubd serves `http://studio-hub.local/phone`: the spike page, tidied. Each phone gets a free-text name typed on the phone and remembered there ("Paul's Pixel", user request 2026-11-15). Files use a safe id made from it (`pauls-pixel.mov`); a rejoin mid-take adds `-part2`. Two phones can't use the same name at once.
 - Endpoints move into hubd: `/api/time`, `/api/phone/poll` (status in, command out), chunk upload, finish.
 - Phones are rig members while their page is open: they're on the hub page as cards with camera cards, showing state, battery and charging, frames, drops, upload queue, clock RTT, page in front or not, and the locked settings.
 - REC/STOP: every connected, ready phone records with the Pi cameras under the same take id. The Pi sync start is unchanged; phones don't need it, since they're aligned by timestamp. Phones never block REC (user, 2026-11-15: many sessions use none, and that's expected). A phone that's open but not ready gets a warning; a phone that isn't open isn't mentioned at all.
@@ -61,7 +61,7 @@ Ingest re-encodes every camera-hour onto the exact 30 fps grid at about real tim
 
 ## Not in this plan
 
-Colour and look matching to the Pi cameras, live mode for phones, the phone's audio for sync (Track A can add it later), and HTTPS.
+iPhones (every iOS browser is Safari, which lacks `MediaStreamTrackProcessor`; it would need a separate capture path), colour and look matching to the Pi cameras, live mode for phones, the phone's audio for sync (Track A can add it later), and HTTPS.
 
 ## Decisions (user, 2026-11-15)
 

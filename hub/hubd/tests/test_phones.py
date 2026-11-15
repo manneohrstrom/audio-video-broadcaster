@@ -125,7 +125,22 @@ class PhonesTest(unittest.TestCase):
         # the page reloads mid-take: a new page id, ready again
         self.now[0] += 10
         c2 = self.poll(page="pageBBBBBBBB")["cmd"]
-        self.assertEqual((c2["action"], c2["part"]), ("rec", "phone1-2"))
+        self.assertEqual((c2["action"], c2["part"]), ("rec", "phone1-part2"))
+
+    def test_labels_become_safe_ids(self):
+        self.assertEqual(phones.phone_id("Paul's Pixel"), "pauls-pixel")
+        self.assertEqual(phones.phone_id("  Pixel 9 (left)  "), "pixel-9-left")
+        self.assertEqual(phones.phone_id("phone1"), "phone1")
+        for bad in ("", "cam1", "!!!", "x" * 25):
+            with self.assertRaises(phones.PhoneError):
+                phones.phone_id(bad)
+        r = self.poll(name="Paul's Pixel")
+        self.assertEqual(r["id"], "pauls-pixel")
+        self.assertEqual(self.ph.snapshot(None)["pauls-pixel"]["label"], "Paul's Pixel")
+        with self.assertRaises(phones.PhoneError):            # same id from another phone
+            self.poll(name="Pauls pixel", page="pageBBBBBBBB")
+        self.rig = {"state": "recording", "take_id": "20261116-100000"}
+        self.assertEqual(self.poll(name="Paul's Pixel")["cmd"]["part"], "pauls-pixel")
 
     def test_name_in_use_by_another_page(self):
         self.poll()

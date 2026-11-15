@@ -151,8 +151,9 @@ function card(name, n) {
   </div>`;
 }
 
-function phoneCard(name, p) {
+function phoneCard(id, p) {
   const st = p.status || {};
+  const name = p.label || id;
   if (!p.online) return `<div class="card off"><h2>${esc(name)} <span class="mode">gone</span></h2>
     <div class="step">Page closed or phone off ${Math.round(p.age_s)} s ago. REC records without it.</div></div>`;
   const rec = st.state === "recording";
@@ -163,7 +164,8 @@ function phoneCard(name, p) {
   return `<div class="card ${cls}">
     <h2>${esc(name)} <span class="mode">${mode} · phone</span></h2>
     <div class="kv">
-      ${st.take ? `<span>take</span><span>${esc(st.part || name)} · ${esc(st.take)} · ${st.frames ?? 0} fr</span>
+      <span>files</span><span>${esc(st.part || id)}.mov</span>
+      ${st.take ? `<span>take</span><span>${esc(st.take)} · ${st.frames ?? 0} fr</span>
       <span>dropped</span><span class="${st.dropped ? "bad" : "good"}">${st.dropped ? "<b>" + st.dropped + " frames</b>" : "0"}</span>
       <span>upload</span><span>${st.uploaded ?? 0} pieces${st.queue ? ` · <b style="color:var(--warn)">${st.queue} waiting</b>` : " · up to date"}</span>` : ""}
       <span>picture</span><span>${pic}</span>
@@ -303,7 +305,7 @@ function ingestView(st) {
       return `<div class="take waiting"><h4><span>${esc(id)} <small>${[takeStart(id), len ? fmtDur(len) : "",
         rc.length + (rc.length === 1 ? " camera" : " cameras")].filter(Boolean).join(" · ")}</small></span>
         <span style="color:var(--warn)">${label}</span></h4>
-        <div class="camdone">${rc.map(([c, v]) => `${esc(c)}${v.uploading ? ": uploading…" : v.frames != null ? ": " + v.frames + " frames" : ""}` +
+        <div class="camdone">${rc.map(([c, v]) => `${esc(v.label || c)}${v.uploading ? ": uploading…" : v.frames != null ? ": " + v.frames + " frames" : ""}` +
           (v.dropped ? ` <span class="bad">(${v.dropped} dropped)</span>` : "")).join(" · ")}` +
         (drops ? "" : ` · <span class="good">no dropped frames</span>`) + `</div>${probs(rec)}</div>`;
     }

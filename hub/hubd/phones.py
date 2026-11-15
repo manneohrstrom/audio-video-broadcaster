@@ -21,8 +21,26 @@ import shutil
 import threading
 import time
 
-NAME = re.compile(r"^phone[1-9]\d?$")
-PART = re.compile(r"^phone[1-9]\d?(-\d{1,2})?$")   # phone1, or phone1-2 after a rejoin mid-take
+# A phone has a free-text label ("Paul's Pixel") and an id made from it for folders
+# and file names ("pauls-pixel" -> pauls-pixel.mov). A rejoin mid-take records a
+# new part: pauls-pixel-part2, -part3 …
+LABEL_MAX = 24
+NAME = re.compile(r"^(?!cam\d+$)[a-z0-9](?:[a-z0-9-]{0,22}[a-z0-9])?$")
+PART = re.compile(r"^(?!cam\d+$)[a-z0-9](?:[a-z0-9-]{0,22}[a-z0-9])?(-part\d{1,2})?$")
+
+
+def phone_id(label):
+    """Folder/file id for a label: lower case, letters and digits, '-' between words.
+    Apostrophes vanish ("Paul's" -> "pauls"). Raises PhoneError if nothing usable is left."""
+    label = (label or "").strip()
+    if not label or len(label) > LABEL_MAX:
+        raise PhoneError("name must be 1–%d characters" % LABEL_MAX)
+    s = re.sub(r"['’`]", "", label.lower())
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    s = re.sub(r"-part\d+$", "", s)
+    if not NAME.match(s or ""):
+        raise PhoneError("pick a name with some letters or digits (and not camN)")
+    return s
 TAKE = re.compile(r"^\d{8}-\d{6}$")
 PAGE = re.compile(r"^[A-Za-z0-9]{8,40}$")
 NOMINAL_MS = 1000 / 30.0
@@ -106,7 +124,7 @@ def assemble(d, meta, delay_table):
     have = set(seqs)
     missing = [s for s in want if s not in have]
     model = (meta.get("info") or {}).get("model")
-    man = {"schema": 1, "camera": meta.get("phone"), "take_id": meta.get("take_id"), "source": "phone",
+    man = {"schema": 1, "camera": meta.get("phone"), "label": meta.get("label"), "take_id": meta.get("take_id"), "source": "phone",
            "phone_model": model, "complete": not missing, "chunks": len(seqs), "missing_chunks": missing,
            "settings": meta.get("settings"), "encoder": meta.get("encoder"), "phone": meta.get("info"),
            "page_stats": meta.get("stats"), "finished_at": time.time()}
@@ -194,19 +212,18 @@ class Phones:
     def poll(self, body, rig):
         """One poll from a phone page. rig: {"state", "take_id"} from the hub.
         Returns {"cmd": {...} or None, "rig": rig, "hub_ns": now}."""
-        name, page = body.get("phone", ""), body.get("page", "")
-        if not NAME.match(name):
-            raise PhoneError("phone name must be phone1 … phone99")
+        label, page = (body.get("phone") or "").strip(), body.get("page", "")
+        name = phone_id(label)
         if not PAGE.match(page):
             raise PhoneError("bad page id")
         now = self.clock()
         with self.lock:
             p = self.phones.get(name)
             if p and p["page"] != page and self._online(p, now):
-                raise PhoneError("%s is already in use by another phone; pick another name" % name)
+                raise PhoneError("“%s” is already in use by another phone; pick another name" % p["label"])
             if not p or p["page"] != page:
                 p = self.phones[name] = {"page": page, "cmd": None}
-            p["seen"], p["status"] = now, body
+            p["seen"], p["status"], p["label"] = now, body, label
             if p["cmd"] and body.get("done_cmd") == p["cmd"]["id"]:
                 p["cmd"] = None
             want = self._wanted(name, body, rig)
@@ -218,7 +235,7 @@ class Phones:
                     self.recorded.setdefault(want[1], set()).add(name)
             elif not want and p["cmd"] and p["cmd"]["action"] == "rec" and body.get("state") != "ready":
                 p["cmd"] = None     # stale: the phone can't act on it any more
-            return {"cmd": p["cmd"], "rig": rig, "hub_ns": time.time_ns()}
+            return {"id": name, "cmd": p["cmd"], "rig": rig, "hub_ns": time.time_ns()}
 
     def _new_part(self, take_id, name):
         """Folder for a new recording of this phone in this take: phone1, then
@@ -226,8 +243,8 @@ class Phones:
         Counted from disk so a hubd restart can't reuse a folder."""
         td = os.path.join(self.dir, take_id)
         os.makedirs(td, exist_ok=True)
-        n = sum(1 for d in os.listdir(td) if d == name or d.startswith(name + "-"))
-        part = name if n == 0 else "%s-%d" % (name, n + 1)
+        n = sum(1 for d in os.listdir(td) if d == name or re.match(re.escape(name) + r"-part\d+$", d))
+        part = name if n == 0 else "%s-part%d" % (name, n + 1)
         os.makedirs(os.path.join(td, part))
         return part
 
@@ -255,13 +272,14 @@ class Phones:
             for n, p in sorted(live.items()):
                 online = self._online(p, now)
                 st = p["status"] or {}
-                out[n] = {"online": online, "age_s": round(now - p["seen"], 1), "status": st,
+                out[n] = {"label": p.get("label", n), "online": online, "age_s": round(now - p["seen"], 1), "status": st,
                           "problems": self.problems(n, st, free_gb, n_on) if online else []}
             return out
 
     def problems(self, name, st, free_gb, n_phones):
         """Warnings only: a phone never blocks REC."""
         p = []
+        name = st.get("phone") or name
         if st.get("state") not in ("ready", "recording"):
             p.append("%s camera not started" % name)
         if st.get("charging") is False:
@@ -354,8 +372,8 @@ class Phones:
         return {n: self.manifest(take_id, n) for n in sorted(os.listdir(d)) if PART.match(n)}
 
     def log(self, phone, body):
-        if not NAME.match(phone or ""):
-            raise PhoneError("bad phone name")
+        if not PART.match(phone or ""):
+            raise PhoneError("bad phone id")
         ldir = os.path.join(self.dir, "logs")
         os.makedirs(ldir, exist_ok=True)
         body = dict(body, hub_ns=time.time_ns())

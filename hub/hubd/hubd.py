@@ -498,7 +498,7 @@ class Hub:
             }
             for part, m in self.phones.manifests(tid).items():
                 done = bool(m and m.get("complete"))
-                takes[tid]["recorded"]["cameras"][part] = {
+                takes[tid]["recorded"]["cameras"][part] = {"label": (m or {}).get("label"),
                     "frames": m.get("frames") if done else None, "dropped": (m.get("dropped_frames") or 0) if done else 0,
                     "phone": True, "uploading": not done}
                 if done:
@@ -587,7 +587,7 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         return json.loads(self.rfile.read(n)) if n else {}
 
-    MEDIA = re.compile(r"^/media/(\d{8}-\d{6})/(cam\d+|phone\d+(?:-\d+)?)\.mov$")
+    MEDIA = re.compile(r"^/media/(\d{8}-\d{6})/([a-z0-9](?:[a-z0-9-]{0,40}[a-z0-9])?)\.mov$")
     P_CHUNK = re.compile(r"^/api/phone/chunk/([^/]+)/([^/]+)/(\d{1,6})\.(h264|json)$")
     P_HAVE = re.compile(r"^/api/phone/have/([^/]+)/([^/]+)$")
     P_FINISH = re.compile(r"^/api/phone/finish/([^/]+)/([^/]+)$")
