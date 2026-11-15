@@ -428,3 +428,4 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - Check the read-only mount drops 5 min after the last playback.
 - Remaining M4: a 30-min take ingested unattended after 30 min idle; pull the stick mid-write (ask the user first); lazy delete on a camera; `docs/phase3-results.md`.
 - Claude's test takes `20261115-171313` and `20261115-172021` are on cam1 (verified, so lazy delete may remove them) and on the stick (the hub never deletes from the drive; the user can delete them on the Mac).
+- Parked idea (user, 2026-11-15: "don't need that yet"): a "Discard take" button on the hub page to delete a bad take from the cameras before ingest. Design notes are in commit 722a567 (reverted).

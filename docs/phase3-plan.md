@@ -116,16 +116,6 @@ User request: a quick way to see what's in each take. The user ruled out extra c
 - **UI:** ▶ buttons per camera on each take that has a camera written to the drive (disabled without the drive), and a player overlay with camera tabs. Switching camera keeps the position.
 - Also fixed: the plug-in fsck is now keyed on the device node's creation time, so a stick pulled without Eject and plugged back in is checked again (it used to be keyed on the device name, which is usually the same).
 
-## Planned addition (2026-11-15): discard a take before ingest
-
-User request: a way to throw away a bad take (false start, test) from the hub page, instead of ingesting it and deleting it on the Mac. Not built yet; build after the M4 tests.
-- **"Discard take" button** on a take that hasn't been ingested yet (none of its cameras written to the drive). A confirmation names the take, its length and its cameras, and says the footage exists nowhere else. On a phone, the confirmation must take a deliberate second tap, never a single one.
-- **hubd** asks each camera to delete the take: a new camnode endpoint `DELETE /takes/<id>`, refused while that take is armed or recording. Offline cameras get the request when they come back (kept in a pending list in hubd), so a camera that was off can't bring the take back.
-- **hub-ingest** skips discarded takes. If ingest has already started on one, discard waits until that step is done or is refused, so it can't race a write. A take with any camera already on the drive can't be discarded (delete it on the Mac).
-- The take log keeps a "discarded" entry (who, when, length), and the page hides discarded takes.
-- The hub still never deletes from the drive; this only touches the cameras.
-- Tests: discard during ingest, an offline camera catching up, refusal while recording, refusal once written.
-
 ## Decisions (answered 2026-11-14)
 
 Answers:
