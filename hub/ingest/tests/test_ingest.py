@@ -392,6 +392,18 @@ class EjectTest(Base):
         self.assertIsNone(self.ing.state["drive"])
 
 
+class RunnerTest(unittest.TestCase):
+    def test_sigstop_reports_pause_and_resume(self):
+        busy, events = [True], []
+        def is_busy():
+            if len(events) >= 1:
+                busy[0] = False          # busy at first, idle after the pause was reported
+            return busy[0]
+        r = ingest.Runner(is_busy, poll=0.1, on_pause=events.append)
+        r.run([sys.executable, "-c", "import time; time.sleep(0.6)"], pause="stop", nice=0)
+        self.assertEqual(events, [True, False])
+
+
 class DriveTest(unittest.TestCase):
     def test_free_gb_none_when_not_mounted(self):
         # The bare mount point lives on the hub's SD card; its free space must

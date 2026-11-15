@@ -116,8 +116,9 @@ class Paused(Exception):
 class Runner:
     """Runs external commands; pauses/kills them when the rig gets busy. Fakeable."""
 
-    def __init__(self, busy, poll=0.5):
+    def __init__(self, busy, poll=0.5, on_pause=None):
         self.busy, self.poll = busy, poll
+        self.on_pause = on_pause or (lambda paused: None)   # status for the UI
 
     def run(self, cmd, pause="kill", nice=19, timeout=None, on_poll=None):
         """pause='kill' (rsync: resumable) or 'stop' (ffmpeg: SIGSTOP/SIGCONT).
@@ -148,8 +149,10 @@ class Runner:
                 raise Paused()
             if b and not stopped:
                 p.send_signal(signal.SIGSTOP); stopped = True
+                self.on_pause(True)
             elif not b and stopped:
                 p.send_signal(signal.SIGCONT); stopped = False
+                self.on_pause(False)
 
 
 # ------------------------------------------------------------------ drive
@@ -233,7 +236,8 @@ class Ingest:
         for d in (self.sd, self.work, self.cmd_dir):
             os.makedirs(d, exist_ok=True)
         self.http = http or HttpJson()
-        self.runner = runner or Runner(self.rig_busy)
+        self.runner = runner or Runner(
+            self.rig_busy, on_pause=lambda paused: self.save(status="paused: rig busy" if paused else "ingesting"))
         self.drive = drive or Drive(cfg)
         self.state = self._load()
         self.last_busy = self.state.get("last_busy", 0)
