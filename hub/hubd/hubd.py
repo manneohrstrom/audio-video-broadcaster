@@ -20,6 +20,9 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import phones  # noqa: E402
+
 VERSION = "0.2.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -34,6 +37,11 @@ DEFAULT_CONFIG = {
     "ingest_dir": "/var/lib/hubd/ingest",
     "drive_mount": "/mnt/studio",       # hub-ingest owns mounting; hubd only reads
     "static_dir": os.path.join(HERE, "static"),
+    # Phone cameras (docs/phone-plan.md): footage staged here during a take.
+    "phones_dir": None,                 # default: <state_dir>/phones
+    # Fixed capture->page delay per phone model (ms), subtracted from first-frame times.
+    # Spike 2026-11-15 on a Pixel 3: ~40 ms. One tested phone stands for all.
+    "phone_capture_delay_ms": {"default": 40},
     "client_head_start_s": 2.0,
     "sync_timeout_s": 20.0,
     # A camera counts as offline only after this many missed polls in a row (2 s apart).
@@ -213,6 +221,7 @@ class Hub:
         self.pool = ThreadPoolExecutor(max_workers=max(4, 2 * len(cfg["nodes"])))
         os.makedirs(cfg["state_dir"], exist_ok=True)
         self.log_path = os.path.join(cfg["state_dir"], "takes.json")
+        self.phones = phones.Phones(cfg, clock=clock)
 
     @property
     def state(self):
@@ -299,7 +308,14 @@ class Hub:
                                   "slow": self.status[n] is not None and self.misses[n] > 0,
                                   "problems": arm_problems(n, self.status[n], self.cfg["checks"])}
                               for n in self.cfg["nodes"]},
+                    "phones": self.phones.snapshot(self.health.get("free_gb")),
                     "last_take": self.last_take()}
+
+    # -- phones
+    def phone_poll(self, body):
+        with self.lock:
+            rig = {"state": self.state, "take_id": (self.take or {}).get("take_id")}
+        return self.phones.poll(body, rig)
 
     # -- take log
     def read_log(self):
@@ -440,7 +456,8 @@ class Hub:
             active = [n for n in names if (self.status[n] or {}).get("mode") in ("armed", "recording")]
         manifests, errors = self._parallel(active, lambda n: self.nodes.post(n, "/take/stop", timeout=40))
         summary = take_summary(take.get("take_id"), manifests, errors, self.cfg["max_sync_difference_us"])
-        summary.update(server=take.get("server"), missing=take.get("missing", []),
+        summary.update(phones=self.phones.phones_in(take.get("take_id")),
+                       server=take.get("server"), missing=take.get("missing", []),
                        started_at=take.get("started_at"),
                        stopped_at=self.clock(), aborted=aborted)
         self.append_log(summary)
@@ -479,6 +496,13 @@ class Hub:
                 "cameras": {n: {"frames": c.get("frames"), "dropped": c.get("dropped_frames") or 0}
                             for n, c in sorted(cams.items())},
             }
+            for part, m in self.phones.manifests(tid).items():
+                done = bool(m and m.get("complete"))
+                takes[tid]["recorded"]["cameras"][part] = {
+                    "frames": m.get("frames") if done else None, "dropped": (m.get("dropped_frames") or 0) if done else 0,
+                    "phone": True, "uploading": not done}
+                if done:
+                    takes[tid]["recorded"]["length_s"] = max(takes[tid]["recorded"]["length_s"], m.get("duration_s") or 0)
         st["takes"] = dict(sorted(takes.items())[-limit:])
         return st
 
@@ -546,7 +570,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "hubd/" + VERSION
 
     def log_message(self, fmt, *args):
-        if not self.path.startswith("/api/status"):
+        if not self.path.startswith(self.QUIET):
             sys.stderr.write("%s %s\n" % (self.command, fmt % args))
 
     def _send(self, code, body, ctype="application/json"):
@@ -563,7 +587,12 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         return json.loads(self.rfile.read(n)) if n else {}
 
-    MEDIA = re.compile(r"^/media/(\d{8}-\d{6})/(cam\d+)\.mov$")
+    MEDIA = re.compile(r"^/media/(\d{8}-\d{6})/(cam\d+|phone\d+(?:-\d+)?)\.mov$")
+    P_CHUNK = re.compile(r"^/api/phone/chunk/([^/]+)/([^/]+)/(\d{1,6})\.(h264|json)$")
+    P_HAVE = re.compile(r"^/api/phone/have/([^/]+)/([^/]+)$")
+    P_FINISH = re.compile(r"^/api/phone/finish/([^/]+)/([^/]+)$")
+    P_LOG = re.compile(r"^/api/phone/log/([^/]+)$")
+    QUIET = ("/api/status", "/api/time", "/api/phone/poll", "/api/phone/chunk", "/api/phone/log")
 
     def do_HEAD(self):
         if self.MEDIA.match(self.path.split("?")[0]):
@@ -631,7 +660,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, h.read_log())
         if self.path == "/api/ingest":
             return self._send(200, h.ingest_state())
-        name = "index.html" if self.path in ("/", "/index.html") else self.path.lstrip("/")
+        if self.path == "/api/time":
+            return self._send(200, {"hub_ns": time.time_ns()})
+        m = self.P_HAVE.match(self.path)
+        if m:
+            try:
+                return self._send(200, h.phones.have(*m.groups()))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
+        path = self.path.split("?")[0]
+        name = {"/": "index.html", "/index.html": "index.html", "/phone": "phone.html"}.get(path, path.lstrip("/"))
         if "/" in name or name.startswith("."):
             return self._send(404, {"error": "not found"})
         p = os.path.join(h.cfg["static_dir"], name)
@@ -641,10 +679,32 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, f.read(), STATIC_TYPES[ext])
         self._send(404, {"error": "not found"})
 
+    def do_PUT(self):
+        m = self.P_CHUNK.match(self.path)
+        if not m:
+            return self._send(404, {"error": "not found"})
+        take, part, seq, ext = m.groups()
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            return self._send(200, self.hub.phones.put_chunk(take, part, int(seq), ext, self.rfile.read, n))
+        except ValueError as e:
+            return self._send(400, {"error": str(e)})
+        except OSError as e:
+            return self._send(507, {"error": "hub storage: %s" % e})
+
     def do_POST(self):
         h = self.hub
         try:
             b = self._body()
+            if self.path == "/api/phone/poll":
+                return self._send(200, h.phone_poll(b))
+            m = self.P_FINISH.match(self.path)
+            if m:
+                return self._send(200, h.phones.finish(m.group(1), m.group(2), b))
+            m = self.P_LOG.match(self.path)
+            if m:
+                h.phones.log(m.group(1), b)
+                return self._send(200, {"ok": True})
             if self.path == "/api/rec":
                 return self._send(200, h.rec(b.get("nodes")))
             if self.path == "/api/stop":

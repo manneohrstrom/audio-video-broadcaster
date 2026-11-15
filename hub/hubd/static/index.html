@@ -151,6 +151,30 @@ function card(name, n) {
   </div>`;
 }
 
+function phoneCard(name, p) {
+  const st = p.status || {};
+  if (!p.online) return `<div class="card off"><h2>${esc(name)} <span class="mode">gone</span></h2>
+    <div class="step">Page closed or phone off ${Math.round(p.age_s)} s ago. REC records without it.</div></div>`;
+  const rec = st.state === "recording";
+  const cls = rec ? "recording" : p.problems.length ? "warn" : "ok";
+  const set = st.settings || {};
+  const pic = st.locked ? `locked · ISO ${set.iso ?? "–"} · ${set.colorTemperature ?? "–"} K` : "<b style='color:var(--warn)'>not locked</b>";
+  const mode = rec ? '<span class="recdot"></span>REC' : {ready: "ready", off: "camera off", finishing: "finishing", uploading: "uploading"}[st.state] || esc(st.state || "–");
+  return `<div class="card ${cls}">
+    <h2>${esc(name)} <span class="mode">${mode} · phone</span></h2>
+    <div class="kv">
+      ${st.take ? `<span>take</span><span>${esc(st.part || name)} · ${esc(st.take)} · ${st.frames ?? 0} fr</span>
+      <span>dropped</span><span class="${st.dropped ? "bad" : "good"}">${st.dropped ? "<b>" + st.dropped + " frames</b>" : "0"}</span>
+      <span>upload</span><span>${st.uploaded ?? 0} pieces${st.queue ? ` · <b style="color:var(--warn)">${st.queue} waiting</b>` : " · up to date"}</span>` : ""}
+      <span>picture</span><span>${pic}</span>
+      <span>battery</span><span>${st.battery ?? "–"}%${st.charging ? " · charging" : st.charging === false ? " · <b class=bad>not charging</b>" : ""}</span>
+      <span>clock</span><span>${st.rtt_ms != null ? "round trip " + st.rtt_ms + " ms" : "–"}</span>
+      <span>model</span><span>${esc(st.model || "–")}</span>
+    </div>
+    ${p.problems.length && !rec ? `<div class="problems">${p.problems.map(esc).join("<br>")}</div>` : ""}
+  </div>`;
+}
+
 function render() {
   if (!snap) return;
   $("#ver").textContent = "hubd " + snap.hub_version;
@@ -164,7 +188,8 @@ function render() {
   $("#stop").disabled = busy || snap.state !== "recording";
   $("#live").disabled = busy || snap.state !== "idle";
   $("#live").textContent = live ? "LIVE OFF" : "LIVE ON";
-  $("#cards").innerHTML = hubCard(snap.hub) + Object.entries(snap.nodes).map(([k, n]) => card(k, n)).join("");
+  $("#cards").innerHTML = hubCard(snap.hub) + Object.entries(snap.nodes).map(([k, n]) => card(k, n)).join("") +
+    Object.entries(snap.phones || {}).map(([k, p]) => phoneCard(k, p)).join("");
   if (!busy && snap.message) msg(snap.message);
 }
 
@@ -278,7 +303,7 @@ function ingestView(st) {
       return `<div class="take waiting"><h4><span>${esc(id)} <small>${[takeStart(id), len ? fmtDur(len) : "",
         rc.length + (rc.length === 1 ? " camera" : " cameras")].filter(Boolean).join(" · ")}</small></span>
         <span style="color:var(--warn)">${label}</span></h4>
-        <div class="camdone">${rc.map(([c, v]) => `${esc(c)}${v.frames != null ? ": " + v.frames + " frames" : ""}` +
+        <div class="camdone">${rc.map(([c, v]) => `${esc(c)}${v.uploading ? ": uploading…" : v.frames != null ? ": " + v.frames + " frames" : ""}` +
           (v.dropped ? ` <span class="bad">(${v.dropped} dropped)</span>` : "")).join(" · ")}` +
         (drops ? "" : ` · <span class="good">no dropped frames</span>`) + `</div>${probs(rec)}</div>`;
     }

@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phone camera</title>
+<style>
+  :root { --bg:#111; --fg:#eee; --dim:#999; --card:#1c1c1e; --rec:#d22; --warn:#e90; --ok:#3c3; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, sans-serif; }
+  header { display:flex; gap:8px; align-items:center; padding:8px 12px; background:var(--card); flex-wrap:wrap; }
+  #state { margin-left:auto; font-weight:700; padding:6px 12px; border-radius:6px; background:#333; }
+  #state.rec { background:var(--rec); } #state.up { background:var(--warn); color:#000; } #state.ready { background:var(--ok); color:#000; }
+  video { width:100%; max-height:55vh; background:#000; display:block; }
+  section { padding:8px 12px; }
+  button, select { font:inherit; padding:8px 12px; border-radius:6px; border:0; background:#333; color:var(--fg); }
+  button.main { background:#2b5; color:#000; font-weight:600; }
+  input { font:inherit; width:6.5em; background:#222; color:var(--fg); border:1px solid #444; border-radius:4px; padding:4px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:6px 0; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; font-variant-numeric:tabular-nums; font-size:14px; }
+  .kv span:nth-child(odd) { color:var(--dim); }
+  #msg { color:var(--warn); min-height:1.4em; white-space:pre-line; }
+  #msg.err { color:#f66; }
+  .dim { color:var(--dim); font-size:13px; }
+  pre { white-space:pre-wrap; word-break:break-all; font-size:11px; background:#000; padding:6px; max-height:30vh; overflow:auto; }
+  details summary { cursor:pointer; color:var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <select id="name"></select>
+  <button id="connect" class="main">Start camera</button>
+  <span id="state">off</span>
+</header>
+<video id="preview" muted playsinline autoplay></video>
+<section>
+  <div id="msg"></div>
+  <div class="kv" id="stats"></div>
+</section>
+<section>
+  <b>Lock the picture</b> <span class="dim">before the take: point at the scene, then tap Auto, then lock (~20 s)</span>
+  <div class="row">
+    <button id="autolock" class="main">Auto, then lock</button>
+    <button id="auto">All auto</button>
+  </div>
+  <details><summary>manual values</summary>
+    <div class="dim">exposure in 100 µs units: 200 = 1/50 s (the rig's shutter)</div>
+    <div class="row">
+      <label>exp <input id="exposureTime" type="number" value="200"></label>
+      <label>ISO <input id="iso" type="number"></label>
+      <label>WB K <input id="colorTemperature" type="number"></label>
+      <label>focus m <input id="focusDistance" type="number" step="0.01"></label>
+      <button id="lock">Lock these</button>
+    </div>
+    <pre id="caps"></pre>
+  </details>
+  <p class="dim">Recording starts and stops from the hub page. Keep this page in front, the screen on and the phone plugged in.
+  First time on this phone: Chrome needs <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> set to
+  <code id="origin"></code>, and the local-network permission.</p>
+</section>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const PAGE = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => (b % 36).toString(36)).join("");
+const S = {
+  name: "", stream: null, track: null, state: "off", take: null, part: null, seq: 0, buf: [], bufFrames: [],
+  encoded: 0, missing: 0, lastTs: null, pendingMeta: new Map(), encoder: null, encCfg: null, reader: null,
+  clock: [], doneCmd: null, queue: [], uploaded: 0, bytesUp: 0, uploading: false, chunkDir: null,
+  battery: null, lastErr: "", hidden: 0, wake: null, opfs: null, maxGapMs: 0, lastArr: null, locked: false,
+  model: null, storageFreeGb: null, rig: null, hubOk: false, recStart: 0,
+};
+$("origin").textContent = location.origin;
+for (let i = 1; i <= 9; i++) $("name").add(new Option("phone" + i, "phone" + i));
+try { $("name").value = localStorage.getItem("phone_name") || "phone1"; } catch (e) {}
+
+function msg(t, err) { $("msg").textContent = t || ""; $("msg").className = err ? "err" : ""; if (t) hublog({ev: "msg", t}); }
+function setState(s) {
+  S.state = s;
+  const label = {off: "off", ready: "READY", recording: "● REC", finishing: "finishing", uploading: "uploading"}[s] || s;
+  $("state").textContent = label;
+  $("state").className = {recording: "rec", uploading: "up", finishing: "up", ready: "ready"}[s] || "";
+}
+async function hublog(o) {
+  if (!S.name) return;
+  try { await fetch("/api/phone/log/" + S.name, {method: "POST", body: JSON.stringify(Object.assign({perf_ms: performance.now(), take: S.take, part: S.part}, o))}); } catch (e) {}
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+// ---------- clock: performance.now() -> hub wall clock
+async function ping() {
+  const t0 = performance.now();
+  const j = await (await fetch("/api/time", {cache: "no-store"})).json();
+  const t1 = performance.now();
+  return {perf_ms: (t0 + t1) / 2, hub_ns: j.hub_ns, rtt_ms: t1 - t0};
+}
+async function pingBurst(n = 5) {
+  const out = [];
+  for (let i = 0; i < n; i++) { try { out.push(await ping()); } catch (e) {} }
+  out.sort((a, b) => a.rtt_ms - b.rtt_ms);
+  if (out.length) S.clock.push(...out.slice(0, 2));
+  return out[0];
+}
+function bestRtt() { const r = S.clock.slice(-10); return r.length ? Math.min(...r.map(c => c.rtt_ms)) : null; }
+
+// ---------- camera
+async function startCamera() {
+  S.name = $("name").value;
+  try { localStorage.setItem("phone_name", S.name); } catch (e) {}
+  if (!window.isSecureContext) { msg("Camera blocked: set the Chrome flag below to " + location.origin + ", then relaunch Chrome.", true); return; }
+  if (!("MediaStreamTrackProcessor" in window) || !("VideoEncoder" in window)) { msg("This Chrome is too old (no WebCodecs). Update Chrome.", true); return; }
+  try { await document.documentElement.requestFullscreen(); await screen.orientation.lock("landscape"); } catch (e) {}
+  try {
+    S.stream = await navigator.mediaDevices.getUserMedia({audio: false, video: {
+      facingMode: {ideal: "environment"}, width: {ideal: 1920}, height: {ideal: 1080}, frameRate: {ideal: 30, max: 30}}});
+  } catch (e) { msg("Camera: " + e.name + " " + e.message, true); return; }
+  S.track = S.stream.getVideoTracks()[0];
+  $("preview").srcObject = S.stream;
+  $("name").disabled = true; $("connect").hidden = true;
+  setState("ready"); msg("");
+  const ts = S.track.getSettings();
+  if (ts.height > ts.width) msg("Video is portrait (" + ts.width + "×" + ts.height + "): turn the phone sideways and reload the page.", true);
+  showCaps(true);
+  wakeLock();
+  if (navigator.getBattery) { try { S.battery = await navigator.getBattery(); } catch (e) {} }
+  try { S.opfs = await navigator.storage.getDirectory(); } catch (e) { S.opfs = null; }
+  try { const h = await navigator.userAgentData.getHighEntropyValues(["model"]); S.model = h.model || null; } catch (e) {}
+  updateStorage();
+  hublog({ev: "start", model: S.model, ua: navigator.userAgent, opfs: !!S.opfs});
+  uploadLeftovers().catch(e => hublog({ev: "leftovers_err", err: String(e)}));
+}
+async function updateStorage() {
+  try { const e = await navigator.storage.estimate(); S.storageFreeGb = (e.quota - e.usage) / 1e9; } catch (e) {}
+}
+function showCaps(log) {
+  const caps = S.track.getCapabilities ? S.track.getCapabilities() : {};
+  const set = S.track.getSettings();
+  $("caps").textContent = "SETTINGS " + JSON.stringify(set, null, 1) + "\nCAPABILITIES " + JSON.stringify(caps, null, 1);
+  if (log) hublog({ev: "caps", caps, settings: set});
+  return {caps, set};
+}
+async function setC(c) {
+  try { await S.track.applyConstraints({advanced: [c]}); return true; }
+  catch (e) { hublog({ev: "apply_fail", c, err: String(e)}); return false; }
+}
+function num(id) { const v = parseFloat($(id).value); return isNaN(v) ? undefined : v; }
+const clamp = (v, r) => Math.min(r.max, Math.max(r.min, v));
+
+async function lockThese() {
+  const caps = S.track.getCapabilities ? S.track.getCapabilities() : {};
+  const r = [];
+  if (caps.exposureMode) r.push(await setC(Object.assign({exposureMode: "manual", exposureTime: num("exposureTime") || 200}, num("iso") ? {iso: num("iso")} : {})) ? "exposure ok" : "exposure FAILED");
+  if (caps.whiteBalanceMode) r.push(await setC({whiteBalanceMode: "manual", colorTemperature: num("colorTemperature") || 4500}) ? "WB ok" : "WB FAILED");
+  if (caps.focusMode && num("focusDistance") !== undefined) r.push(await setC({focusMode: "manual", focusDistance: num("focusDistance")}) ? "focus ok" : "focus FAILED");
+  S.locked = !r.some(x => x.includes("FAILED"));
+  showCaps(false);
+  msg(r.join(" · "));
+}
+async function allAuto() {
+  const caps = S.track.getCapabilities ? S.track.getCapabilities() : {};
+  const c = {};
+  if (caps.exposureMode) c.exposureMode = "continuous";
+  if (caps.whiteBalanceMode) c.whiteBalanceMode = "continuous";
+  if (caps.focusMode) c.focusMode = "continuous";
+  await setC(c);
+  S.locked = false;
+}
+
+// Chrome doesn't report the live auto ISO, WB or focus, so measure the picture itself.
+const cv = document.createElement("canvas");
+function grab(w = 160, h = 90, crop = 1) {
+  const v = $("preview"); if (!v.videoWidth) return null;
+  cv.width = w; cv.height = h;
+  const g = cv.getContext("2d", {willReadFrequently: true});
+  const sw = v.videoWidth * crop, sh = v.videoHeight * crop;
+  g.drawImage(v, (v.videoWidth - sw) / 2, (v.videoHeight - sh) / 2, sw, sh, 0, 0, w, h);
+  return g.getImageData(0, 0, w, h).data;
+}
+function stats() {
+  const d = grab(); if (!d) return {y: 0, rb: 1};
+  let r = 0, gg = 0, b = 0; const n = d.length / 4;
+  for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; }
+  return {y: (0.299 * r + 0.587 * gg + 0.114 * b) / n, rb: (r + 1) / (b + 1)};
+}
+async function avgStats(k = 3) { let y = 0, rb = 0; for (let i = 0; i < k; i++) { const s = stats(); y += s.y; rb += s.rb; await wait(100); } return {y: y / k, rb: rb / k}; }
+function sharpness() {
+  const w = 320, h = 180, d = grab(w, h, 1 / 6); if (!d) return 0;
+  const Y = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) Y[i] = 0.299 * d[4 * i] + 0.587 * d[4 * i + 1] + 0.114 * d[4 * i + 2];
+  let s = 0, s2 = 0, n = 0;
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x, L = 4 * Y[i] - Y[i - 1] - Y[i + 1] - Y[i - w] - Y[i + w];
+    s += L; s2 += L * L; n++;
+  }
+  return s2 / n - (s / n) ** 2;
+}
+async function autoThenLock() {
+  if (S.state === "recording") { msg("Not during a take: settings stay fixed while recording."); return; }
+  const caps = S.track.getCapabilities();
+  const btn = $("autolock"); btn.disabled = true;
+  try {
+    await allAuto();
+    msg("auto for 3 s …"); await wait(3000);
+    const target = await avgStats(5);
+    const log = {target, steps: []};
+    // 1. shutter fixed at the rig's 1/50 s; ISO bisected (log scale) to match auto's brightness
+    const exp = num("exposureTime") || 200;
+    let lo = caps.iso.min, hi = caps.iso.max, iso = 400, bestIso = null, bestErr = 1e9;
+    for (let i = 0; i < 9; i++) {
+      iso = Math.round(Math.sqrt(lo * hi));
+      await setC({exposureMode: "manual", exposureTime: exp, iso}); await wait(900);
+      const st = await avgStats(); log.steps.push({iso, y: +st.y.toFixed(1)});
+      msg(`matching brightness: ISO ${iso}`);
+      const err = Math.abs(st.y - target.y);
+      if (err < bestErr) { bestErr = err; bestIso = iso; }
+      if (err < 0.03 * target.y || hi / lo < 1.08) break;
+      if (st.y < target.y) lo = iso; else hi = iso;
+    }
+    iso = bestIso;
+    await setC({exposureMode: "manual", exposureTime: exp, iso}); await wait(600);
+    $("iso").value = iso;
+    // 2. WB: Chrome maps Kelvin to the camera's AWB presets; keep the one closest to auto's colour
+    if (caps.colorTemperature) {
+      const r = caps.colorTemperature; let bestK = null, bestD = 1e9;
+      for (const k of [2850, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000].filter(k => k >= r.min && k <= r.max)) {
+        await setC({whiteBalanceMode: "manual", colorTemperature: k}); await wait(600);
+        const st = await avgStats(2); log.steps.push({k, rb: +st.rb.toFixed(3)});
+        msg(`matching colour: ${k} K`);
+        const d = Math.abs(Math.log(st.rb / target.rb));
+        if (d < bestD) { bestD = d; bestK = k; }
+      }
+      await setC({whiteBalanceMode: "manual", colorTemperature: bestK}); await wait(500);
+      $("colorTemperature").value = bestK;
+    }
+    // 3. focus: contrast sweep over the lens range, then refine around the best
+    if (caps.focusDistance) {
+      const r = caps.focusDistance, best = {d: null, s: -1};
+      const tryD = async d => { d = +clamp(d, r).toFixed(2); await setC({focusMode: "manual", focusDistance: d}); await wait(350);
+        const s = (sharpness() + sharpness()) / 2; log.steps.push({focus: d, s: Math.round(s)}); if (s > best.s) { best.s = s; best.d = d; } };
+      for (let i = 0; i <= 12; i++) { const d = r.min * Math.pow(r.max / r.min, i / 12); msg(`focusing … ${d.toFixed(2)} m`); await tryD(d); }
+      const f = Math.pow(r.max / r.min, 1 / 12);
+      for (const m of [1 / f, 1 / Math.sqrt(f), Math.sqrt(f), f]) await tryD(best.d * m);
+      await setC({focusMode: "manual", focusDistance: best.d}); await wait(400);
+      $("focusDistance").value = best.d;
+    }
+    S.locked = true;
+    const warn = iso >= caps.iso.max * 0.9 ? " · the room is too dark for 1/50 s: add light" : "";
+    msg(`Locked: 1/${Math.round(10000 / exp)} s, ISO ${iso}, ${$("colorTemperature").value} K, focus ${$("focusDistance").value} m${warn}`);
+    hublog({ev: "autolock", log, settings: showCaps(false).set});
+  } finally { btn.disabled = false; }
+}
+
+async function wakeLock() {
+  try { if ("wakeLock" in navigator) S.wake = await navigator.wakeLock.request("screen"); } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") wakeLock();
+  else if (S.state === "recording") { S.hidden++; hublog({ev: "hidden_during_take"}); }
+});
+
+// ---------- recording (driven by the hub)
+async function pickEncoder(w, h) {
+  for (const codec of ["avc1.640028", "avc1.4d0028", "avc1.42e028"]) {
+    for (const hw of ["prefer-hardware", "no-preference"]) {
+      const cfg = {codec, width: w, height: h, bitrate: 16e6, framerate: 30, hardwareAcceleration: hw,
+                   latencyMode: "quality", avc: {format: "annexb"}};
+      try { const s = await VideoEncoder.isConfigSupported(cfg); if (s.supported) return s.config || cfg; } catch (e) {}
+    }
+  }
+  return null;
+}
+async function startRec(takeId, part) {
+  if (S.state !== "ready") return;
+  Object.assign(S, {take: takeId, part: part || S.name, seq: 0, buf: [], bufFrames: [], encoded: 0, missing: 0, lastTs: null,
+                    uploaded: 0, bytesUp: 0, clock: [], hidden: 0, maxGapMs: 0, lastArr: null, queue: [], lastErr: ""});
+  S.pendingMeta.clear();
+  setState("recording");
+  await pingBurst(8);
+  const ts = S.track.getSettings();
+  S.encCfg = await pickEncoder(ts.width, ts.height);     // before reading frames: configuring later stalls capture
+  if (!S.encCfg) { msg("No H.264 encoder on this phone", true); setState("ready"); return; }
+  S.encoder = new VideoEncoder({output: onChunk, error: e => { S.lastErr = "encoder: " + e.message; hublog({ev: "enc_err", err: String(e)}); }});
+  S.encoder.configure(S.encCfg);
+  S.chunkDir = null;
+  if (S.opfs) { try { S.chunkDir = await S.opfs.getDirectoryHandle(S.take + "_" + S.part, {create: true}); } catch (e) {} }
+  S.settingsAtRec = S.track.getSettings();
+  const proc = new MediaStreamTrackProcessor({track: S.track.clone()});
+  S.reader = proc.readable.getReader();
+  S.recStart = performance.now();
+  hublog({ev: "rec", settings: S.settingsAtRec, encoder: S.encCfg, locked: S.locked});
+  readLoop().catch(e => { S.lastErr = "capture: " + e.message; hublog({ev: "capture_err", err: String(e)}); });
+}
+async function readLoop() {
+  const reader = S.reader;
+  while (true) {
+    const {value: f, done} = await reader.read();
+    if (done) break;
+    const arr = performance.now();
+    if (arr - S.recStart < 500) { f.close(); continue; }     // the camera pipeline settles after REC
+    if (S.lastArr !== null) S.maxGapMs = Math.max(S.maxGapMs, arr - S.lastArr);
+    S.lastArr = arr;
+    if (S.encoder.encodeQueueSize > 8) { f.close(); continue; }   // shows up as a gap
+    S.pendingMeta.set(f.timestamp, arr);
+    S.encoder.encode(f, {keyFrame: S.encoded % 30 === 0});
+    S.encoded++;
+    f.close();
+  }
+}
+function onChunk(chunk) {
+  const data = new Uint8Array(chunk.byteLength); chunk.copyTo(data);
+  const arr = S.pendingMeta.get(chunk.timestamp); S.pendingMeta.delete(chunk.timestamp);
+  if (S.lastTs !== null && chunk.timestamp - S.lastTs > 50000) S.missing += Math.round((chunk.timestamp - S.lastTs) / 33333) - 1;
+  S.lastTs = chunk.timestamp;
+  const key = chunk.type === "key";
+  if (key && S.bufFrames.length >= 60) flushChunk();
+  S.buf.push(data);
+  S.bufFrames.push({ts_us: chunk.timestamp, arr_ms: arr, key});
+}
+function flushChunk() {
+  if (!S.bufFrames.length) return;
+  const item = {take: S.take, part: S.part, seq: S.seq++, blob: new Blob(S.buf), meta: JSON.stringify({frames: S.bufFrames})};
+  S.buf = []; S.bufFrames = [];
+  S.queue.push(item);
+  saveLocal(item);
+  if (item.seq % 5 === 0) pingBurst(5);     // a clock sample every ~10 s
+  pump();
+}
+async function saveLocal(item) {
+  if (!S.chunkDir) return;
+  try {
+    for (const [n, d] of [[item.seq + ".h264", item.blob], [item.seq + ".json", item.meta]]) {
+      const w = await (await S.chunkDir.getFileHandle(n, {create: true})).createWritable(); await w.write(d); await w.close();
+    }
+    item.saved = true;
+    if (item.seq % 15 === 0) await writeMeta(S.chunkDir, finishBody());
+  } catch (e) { if (!S.saveErr) { S.saveErr = String(e); hublog({ev: "opfs_err", err: S.saveErr}); } }
+}
+async function writeMeta(dir, body) {
+  const w = await (await dir.getFileHandle("finish.json", {create: true})).createWritable(); await w.write(JSON.stringify(body)); await w.close();
+}
+async function putChunk(take, part, seq, blob, meta) {
+  const base = `/api/phone/chunk/${take}/${part}/${seq}`;
+  let r = await fetch(base + ".h264", {method: "PUT", body: blob}); if (!r.ok) throw new Error("upload " + r.status);
+  r = await fetch(base + ".json", {method: "PUT", body: meta}); if (!r.ok) throw new Error("upload " + r.status);
+}
+async function pump() {
+  if (S.uploading) return;
+  S.uploading = true;
+  try {
+    while (S.queue.length) {
+      const it = S.queue[0];
+      try { await putChunk(it.take, it.part, it.seq, it.blob, it.meta); }
+      catch (e) { S.lastErr = "upload: " + e.message; await wait(2000); continue; }
+      S.queue.shift(); S.uploaded++; S.bytesUp += it.blob.size; S.lastErr = "";
+    }
+  } finally { S.uploading = false; }
+}
+function finishBody() {
+  return {clock: S.clock, settings: S.settingsAtRec, settings_end: S.track && S.track.getSettings(), encoder: S.encCfg, chunks: S.seq,
+          info: {model: S.model, ua: navigator.userAgent, battery: S.battery && {level: S.battery.level, charging: S.battery.charging}},
+          stats: {encoded: S.encoded, missing: S.missing, max_arrival_gap_ms: Math.round(S.maxGapMs), hidden: S.hidden, locked: S.locked}};
+}
+async function stopRec() {
+  if (S.state !== "recording") return;
+  setState("finishing");
+  try { await S.reader.cancel(); } catch (e) {}
+  if (S.encoder) { try { await S.encoder.flush(); } catch (e) {} S.encoder.close(); S.encoder = null; }
+  flushChunk();
+  await pingBurst(8);
+  const body = finishBody();
+  if (S.chunkDir) { try { await writeMeta(S.chunkDir, body); } catch (e) {} }
+  setState("uploading");
+  while (S.queue.length || S.uploading) { pump(); await wait(500); }
+  await finish(S.take, S.part, body, S.chunkDir ? S.take + "_" + S.part : null);
+  setState("ready");
+  updateStorage();
+}
+async function finish(take, part, body, opfsName) {
+  try {
+    const r = await fetch(`/api/phone/finish/${take}/${part}`, {method: "POST", body: JSON.stringify(body)});
+    const m = await r.json();
+    if (!r.ok) throw new Error(m.error || r.status);
+    if (m.complete) {
+      msg(`Take ${take} is on the hub: ${hms(m.duration_s)}, ${m.frames} frames${m.dropped_frames ? ", " + m.dropped_frames + " dropped" : ""}.`);
+      if (opfsName) { try { await S.opfs.removeEntry(opfsName, {recursive: true}); } catch (e) {} }
+    } else msg(`Take ${take}: ${m.missing_chunks.length} pieces still to send; they'll go when the hub is reachable.`);
+  } catch (e) { msg("Couldn't finish take " + take + " on the hub (" + e.message + "); it's kept on the phone and retried.", true); }
+}
+function hms(s) { s = Math.floor(s || 0); return [s / 3600 | 0, (s / 60 | 0) % 60, s % 60].map(x => String(x).padStart(2, "0")).join(":"); }
+
+// ---------- leftovers from a crash, reload or Wi-Fi drop: send them, then delete them here
+async function uploadLeftovers() {
+  if (!S.opfs) return;
+  const names = [];
+  for await (const [n, h] of S.opfs.entries()) if (h.kind === "directory") names.push(n);
+  for (const n of names) {
+    if (S.state === "recording" && n === S.take + "_" + S.part) continue;
+    const [take, part] = n.split("_");
+    const dir = await S.opfs.getDirectoryHandle(n);
+    const have = await (await fetch(`/api/phone/have/${take}/${part}`)).json();
+    if (have.complete) { await S.opfs.removeEntry(n, {recursive: true}); continue; }
+    const got = new Set(have.have || []);
+    let body = null; const seqs = [];
+    for await (const [f, h] of dir.entries()) {
+      if (f === "finish.json") body = JSON.parse(await (await h.getFile()).text());
+      else if (f.endsWith(".json")) seqs.push(parseInt(f));
+    }
+    for (const seq of seqs.sort((a, b) => a - b)) {
+      if (got.has(seq)) continue;
+      msg(`sending a leftover piece of take ${take} (${seq})`);
+      const blob = await (await dir.getFileHandle(seq + ".h264")).getFile();
+      const meta = await (await (await dir.getFileHandle(seq + ".json")).getFile()).text();
+      await putChunk(take, part, seq, blob, meta);
+    }
+    if (!body) { await pingBurst(8); body = {clock: S.clock.slice(-8), info: {model: S.model}}; }
+    if (!body.chunks || body.chunks < seqs.length) body.chunks = seqs.length ? Math.max(...seqs) + 1 : 0;
+    await finish(take, part, body, n);
+  }
+}
+
+// ---------- the hub tells this page what to do
+async function pollHub() {
+  if (S.state === "off") return;
+  const st = {phone: S.name, page: PAGE, state: S.state, take: S.take, part: S.part, frames: S.encoded, dropped: S.missing,
+              queue: S.queue.length, uploaded: S.uploaded, battery: S.battery && Math.round(S.battery.level * 100),
+              charging: S.battery ? S.battery.charging : null, rtt_ms: bestRtt() && Math.round(bestRtt()),
+              visible: document.visibilityState, done_cmd: S.doneCmd, err: S.lastErr, locked: S.locked, model: S.model,
+              storage_free_gb: S.storageFreeGb && +S.storageFreeGb.toFixed(1),
+              settings: S.track && (({iso, exposureTime, colorTemperature, focusDistance}) => ({iso, exposureTime, colorTemperature, focusDistance}))(S.track.getSettings())};
+  try {
+    const r = await fetch("/api/phone/poll", {method: "POST", body: JSON.stringify(st)});
+    const j = await r.json();
+    if (!r.ok) { S.hubOk = false; msg(j.error || "hub refused", true); return; }
+    S.hubOk = true; S.rig = j.rig;
+    if (j.cmd && j.cmd.id !== S.doneCmd) {
+      S.doneCmd = j.cmd.id;
+      if (j.cmd.action === "rec") startRec(j.cmd.take_id, j.cmd.part);
+      if (j.cmd.action === "stop") stopRec();
+    }
+  } catch (e) { S.hubOk = false; }
+}
+setInterval(pollHub, 1000);
+let leftBusy = false;     // retry leftovers (a finish that failed, a reload mid-upload) once a minute
+setInterval(async () => {
+  if (leftBusy || S.state !== "ready" || !S.hubOk) return;
+  leftBusy = true;
+  try { await uploadLeftovers(); } catch (e) {} finally { leftBusy = false; }
+}, 60000);
+setInterval(() => { if (S.state === "ready" && S.clock.length < 3) pingBurst(3); }, 5000);
+setInterval(() => {
+  const rows = [
+    ["hub", S.hubOk ? (S.rig && S.rig.state === "recording" ? "recording " + S.rig.take_id : "connected · " + (S.rig ? S.rig.state : "")) : "<b style='color:#f66'>not reachable</b>"],
+    ["take", S.take ? S.part + " · " + S.take : "–"],
+    ["frames", S.encoded + (S.missing ? `  (${S.missing} dropped)` : "")],
+    ["upload", `${S.uploaded} pieces · ${(S.bytesUp / 1e6).toFixed(0)} MB${S.queue.length ? " · " + S.queue.length + " waiting" : ""}`],
+    ["picture", S.locked ? "locked" : "<b style='color:var(--warn)'>not locked</b>"],
+    ["battery", S.battery ? Math.round(S.battery.level * 100) + "%" + (S.battery.charging ? " charging" : " <b style='color:var(--warn)'>not charging</b>") : "–"],
+    ["clock", bestRtt() ? "round trip " + bestRtt().toFixed(0) + " ms" : "–"],
+  ];
+  if (S.lastErr) rows.push(["error", S.lastErr]);
+  $("stats").innerHTML = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join("");
+}, 500);
+
+$("connect").onclick = startCamera;
+$("lock").onclick = lockThese;
+$("autolock").onclick = autoThenLock;
+$("auto").onclick = () => allAuto().then(() => msg("All auto: not locked."));
+</script>
+</body>
+</html>

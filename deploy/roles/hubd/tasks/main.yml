@@ -18,6 +18,13 @@
     mode: "0755"
   notify: Restart hubd
 
+- name: hubd phone cameras module
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/hubd/phones.py"
+    dest: /opt/hubd/phones.py
+    mode: "0644"
+  notify: Restart hubd
+
 - name: hubd web UI (static, no restart needed)
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../hub/hubd/static/"
