@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tempfile
@@ -355,6 +356,21 @@ class HubTest(unittest.TestCase):
         self.assertIsNotNone(h["free_gb"])
         empty = hubd.hub_health(root, sysfs=os.path.join(root, "missing"), vcgencmd="/nonexistent/vcgencmd")
         self.assertIsNone(empty["temp_c"])
+
+    def test_ingest_list_includes_takes_only_on_cameras(self):
+        self.cfg["ingest_dir"] = os.path.join(self.cfg["state_dir"], "ingest")
+        os.makedirs(self.cfg["ingest_dir"])
+        with open(os.path.join(self.cfg["ingest_dir"], "state.json"), "w") as f:
+            json.dump({"status": "waiting", "takes": {"20261115-100000": {"cam1": {"done": ["pulled"]}}}}, f)
+        t = self.hub.rec()
+        self.hub.stop()
+        st = self.hub.ingest_state()
+        self.assertEqual(st["takes"]["20261115-100000"]["cam1"]["done"], ["pulled"])
+        rec = st["takes"][t["take_id"]]
+        self.assertEqual(sorted(rec), ["recorded"])              # no ingest steps yet
+        self.assertEqual(sorted(rec["recorded"]["cameras"]), ["cam1", "cam2", "cam3", "cam4"])
+        self.assertEqual(rec["recorded"]["length_s"], 30.0)
+        self.assertEqual(rec["recorded"]["cameras"]["cam1"]["frames"], 900)
 
     def test_snapshot_shows_problems(self):
         self.rig.offline.add("cam4")

@@ -45,6 +45,7 @@
   #ingest-status { margin-bottom:8px; } #ingest-status b { font-weight:600; }
   .take { background:var(--card); border-radius:10px; padding:10px 12px; margin-bottom:8px; max-width:720px; border-left:5px solid #333; }
   .take.active { border-color:var(--live); } .take.done { border-color:var(--ok); } .take.error { border-color:var(--bad); }
+  .take.waiting { border-color:var(--warn); }
   .take h4 { margin:0 0 6px; font-size:14px; display:flex; justify-content:space-between; gap:4px 12px; flex-wrap:wrap; }
   .take h4 small { color:var(--dim); font-weight:normal; }
   .camrow { display:grid; grid-template-columns:44px 1fr; gap:6px; align-items:start; margin:6px 0 2px; }
@@ -246,16 +247,29 @@ function camSteps(cs, paused) {
     return `<span class="st">○ ${name}</span>`;
   }).join("");
 }
+const isCam = c => /^cam\d+$/.test(c);
+const camsOf = t => Object.entries(t).filter(([c, v]) => isCam(c) && v && typeof v === "object");
+// Nothing done or running yet: the take is still only on the cameras.
+const notIngested = t => camsOf(t).every(([, v]) => !(v.done || []).length && !v.step && !v.error);
+function takeStart(id) {            // take ids are local start times: YYYYMMDD-HHMMSS
+  const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})/.exec(id);
+  if (!m) return "";
+  const d = new Date(+m[1], m[2] - 1, +m[3]), today = new Date();
+  const day = d.toDateString() === today.toDateString() ? "" :
+    d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) + " ";
+  return `${day}${m[4]}:${m[5]}`;
+}
 function ingestView(st) {
   const paused = /^paused/.test(st.status || "");
   const running = (st.status || "") === "ingesting";
   const takes = Object.entries(st.takes || {});
   const total = takes.length;
-  const doneN = takes.filter(([, cams]) => cams.complete ||
-    Object.entries(cams).every(([c, cs]) => c === "complete" || (cs.done || []).includes("marked"))).length;
+  const doneN = takes.filter(([, t]) => t.complete ||
+    (camsOf(t).length && camsOf(t).every(([, v]) => (v.done || []).includes("marked")))).length;
+  const waitingN = takes.filter(([, t]) => notIngested(t)).length;
   const ejected = st.drive === "ejected" && /^no .* drive/.test(st.status || "");
   let s = ejected ? '<b class="good">Drive ejected: safe to unplug</b>' : `<b>${esc(st.status || "–")}</b>`;
-  if (total) s += ` · ${doneN} of ${total} takes done`;
+  if (total) s += ` · ${doneN} of ${total} takes ingested` + (waitingN ? `, <b style="color:var(--warn)">${waitingN} only on the cameras</b>` : "");
   if ((running || paused) && st.eta_s != null) s += ` · ${fmtEta(st.eta_s)} left`;
   if (st.drive_free_gb != null) s += ` · drive ${st.drive_free_gb} GB free`;
   $("#ingest-status").innerHTML = s;
@@ -268,18 +282,32 @@ function ingestView(st) {
       data-play="${esc(id)}" data-cam="${esc(c)}" data-cams="${esc(ready.join(","))}">▶ ${esc(c)}</button>`).join("") + "</div>";
   };
   $("#ingest-takes").innerHTML = takes.reverse().map(([id, cams]) => {
-    const cs = Object.entries(cams).filter(([c, v]) => c !== "complete" && v && typeof v === "object");
+    const cs = camsOf(cams);
+    const rec = cams.recorded;
+    if (notIngested(cams)) {
+      // Recorded, not ingested yet: what was done in the session, at a glance.
+      const rc = rec ? Object.entries(rec.cameras) : cs.map(([c, v]) => [c, { frames: v.frames_cam, dropped: v.dropped }]);
+      const len = rec ? rec.length_s : Math.max(0, ...cs.map(([, v]) => v.duration_s || 0));
+      const drops = rc.reduce((a, [, v]) => a + (v.dropped || 0), 0);
+      const label = cs.length && (running || paused) ? "queued for ingest" : "on cameras · not ingested yet";
+      return `<div class="take waiting"><h4><span>${esc(id)} <small>${[takeStart(id), len ? fmtDur(len) : "",
+        rc.length + (rc.length === 1 ? " camera" : " cameras")].filter(Boolean).join(" · ")}</small></span>
+        <span style="color:var(--warn)">${label}</span></h4>
+        <div class="camdone">${rc.map(([c, v]) => `${esc(c)}${v.frames != null ? ": " + v.frames + " frames" : ""}` +
+          (v.dropped ? ` <span class="bad">(${v.dropped} dropped)</span>` : "")).join(" · ")}` +
+        (drops ? "" : ` · <span class="good">no dropped frames</span>`) + `</div></div>`;
+    }
     const allDone = cs.length && cs.every(([, v]) => (v.done || []).includes("marked"));
     const active = cs.some(([, v]) => v.step);
     const err = cs.some(([, v]) => v.error);
-    const dur = Math.max(0, ...cs.map(([, v]) => v.duration_s || 0));
+    const dur = Math.max(rec ? rec.length_s : 0, ...cs.map(([, v]) => v.duration_s || 0));
     const etas = cs.map(([, v]) => v.eta_s).filter(x => x != null);
     // Size: what's on the drive once written, otherwise what will be pulled from the cameras.
     const onDrive = cs.reduce((a, [, v]) => a + (v.mov_bytes || 0), 0);
     const toPull = cs.reduce((a, [, v]) => a + ((v.done || []).includes("written") ? 0 : (v.src_bytes || 0)), 0);
     const size = [onDrive ? fmtBytes(onDrive) + " on drive" : "", toPull ? fmtBytes(toPull) + " from cameras" : ""]
       .filter(Boolean).join(" + ");
-    let head = `${esc(id)} <small>${[dur ? fmtDur(dur) + " of video" : "", size].filter(Boolean).join(" · ")}</small>`;
+    let head = `${esc(id)} <small>${[takeStart(id), dur ? fmtDur(dur) + " of video" : "", size].filter(Boolean).join(" · ")}</small>`;
     let right = allDone ? '<span class="good">✓ done</span>' : err ? '<span class="bad">needs attention</span>' :
       active ? `<span>${etas.length ? fmtEta(Math.max(...etas)) + " left" : "working"}</span>` : '<small>queued</small>';
     let body;

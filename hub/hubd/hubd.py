@@ -450,14 +450,30 @@ class Hub:
         return summary
 
     # -- ingest (separate service; files only)
-    def ingest_state(self):
+    def ingest_state(self, limit=20):
+        """hub-ingest's state, merged with the take log so that takes still only on
+        the cameras are listed too (with recorded=..., and no ingest steps yet)."""
         try:
             with open(os.path.join(self.cfg["ingest_dir"], "state.json")) as f:
                 st = json.load(f)
         except (OSError, ValueError):
-            return {"status": "ingest service not running", "takes": {}}
-        recent = dict(sorted(st.get("takes", {}).items())[-10:])
-        st["takes"] = recent
+            st = {"status": "ingest service not running", "takes": {}}
+        takes = st.setdefault("takes", {})
+        for e in self.read_log():                   # later entries win (adopted duplicates)
+            tid = e.get("take_id")
+            if not tid or e.get("aborted"):
+                continue
+            cams = e.get("cameras") or {}
+            if not cams and "recorded" in takes.get(tid, {}):
+                continue                            # an empty duplicate never hides real data
+            wc = [c.get("first_frame_wallclock_ns") for c in cams.values() if c.get("first_frame_wallclock_ns")]
+            takes.setdefault(tid, {})["recorded"] = {
+                "started_at": min(wc) / 1e9 if wc else e.get("started_at"),
+                "length_s": max([c.get("duration_s") or 0 for c in cams.values()] or [0]),
+                "cameras": {n: {"frames": c.get("frames"), "dropped": c.get("dropped_frames") or 0}
+                            for n, c in sorted(cams.items())},
+            }
+        st["takes"] = dict(sorted(takes.items())[-limit:])
         return st
 
     # -- playback from the STUDIO drive (read-only mount, managed by hub-ingest)
