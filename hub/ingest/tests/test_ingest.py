@@ -462,6 +462,28 @@ class PlaybackTest(Base):
         self.assertFalse(self.drive.mounted())
 
 
+class ReplugTest(Base):
+    def test_drive_damaged_mid_round_is_not_written(self):
+        """Pulled mid-write and plugged back in damaged while the next camera converts."""
+        self.rig.add_take("cam1")
+        self.rig.add_take("cam2")
+        self.command("start")
+        orig = self.ing.conform
+
+        def conform(take_id, cam, man):
+            orig(take_id, cam, man)
+            if cam == "cam2":
+                self.drive.clean = False      # replugged, fsck now fails
+        self.ing.conform = conform
+        self.ing.tick()
+        cams = self.ing.state["takes"][TAKE]
+        self.assertIn("written", cams["cam1"]["done"])
+        self.assertNotIn("written", cams["cam2"]["done"])
+        self.assertIn("needs repair", cams["cam2"]["error"])
+        self.assertFalse(os.path.exists(os.path.join(self.folder(), "cam2.mov")))
+        self.assertNotIn("complete", self.ing.state["takes"][TAKE])
+
+
 class DriveTest(unittest.TestCase):
     def test_free_gb_none_when_not_mounted(self):
         # The bare mount point lives on the hub's SD card; its free space must

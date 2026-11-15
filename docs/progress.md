@@ -429,3 +429,18 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - Remaining M4: a 30-min take ingested unattended after 30 min idle; pull the stick mid-write (ask the user first); lazy delete on a camera; `docs/phase3-results.md`.
 - Claude's test takes `20261115-171313` and `20261115-172021` are on cam1 (verified, so lazy delete may remove them) and on the stick (the hub never deletes from the drive; the user can delete them on the Mac).
 - Parked idea (user, 2026-11-15: "don't need that yet"): a "Discard take" button on the hub page to delete a bad take from the cameras before ingest. Design notes are in commit 722a567 (reverted).
+
+## 2026-11-15 evening: cameras in the studio, lazy delete, unplug test
+- All four cameras moved to their final spots and power supplies: `throttled=0x0`, 30–32 °C, clocks synced, power save off. Wi-Fi: cam1 −56 to −63, cam2 −64, cam3 −50, cam4 −61 dBm (cam2/cam4 slightly below the −60 target). camnode (LED, lint) deployed to cam2–cam4.
+- **Lazy delete: passed** (user chose all nine cam1 takes). With `delete_below_gb` 30 on cam1, housekeeping at 18:03 deleted all 9 verified takes oldest first, logged each in `deleted.jsonl`, and stopped when none were left. Config restored (default 10 GB).
+- Read-only playback mount dropped 5¾ min after the last request (lease 5 min + poll).
+- hubd: a camera counts as offline only after 3 missed polls (it flickered offline while cam2–4 pulls filled the channel; REC would also have skipped a camera that missed the one poll REC makes). Changes are logged; cards show "slow to respond". Take adoption uses fresh answers only.
+- Take sizes on the page ("on drive" from `mov_bytes`, recorded since now; "from cameras" from `src_bytes`).
+- **Unplug test: passed, and found a bug.** The user pulled the stick at 18:43:49 during cam2's copy of `20261114-202934`: kernel I/O errors, exFAT set read-only, cam2's step failed, the stale mount was unmounted, and the stick held only `cam2.mov.part` (243 MB), no `cam2.mov`. fsck afterwards: "corrupted", the `.part` has extra clusters allocated.
+  - **Bug:** fsck only ran at the start of an ingest round, so the next camera's write (cam3, ~15 min later) would have mounted the damaged stick read-write. Fixed: `writing()` re-checks presence and fsck (per plug-in) before every write. Regression test `ReplugTest` fails without the fix. Deployed; the hub now refuses the stick: "drive needs repair (fsck)". (The deploy restarted ingest, killing cam3's conform: "ffmpeg failed (255)"; it redoes it.)
+  - User to repair the stick on the Mac (Disk Utility First Aid), eject, and replug; ingest then redoes cam2's copy and continues with cam3/cam4.
+
+### Next
+- After the stick repair: check the hub accepts it and finishes cam2–4 of the 14 Nov takes; confirm merged `take.json` (4 cameras) on the stick.
+- Steps 3+4 with the user: a 30-min 4-camera take with the DAW recording and claps at start/middle/end; unattended ingest after 30 min idle; sync check on the Mac. Then `docs/phase3-results.md`.
+- Possible later: let the hub repair a damaged stick itself (`fsck.exfat -y` only truncates broken files), with the user's OK, since it touches the drive.

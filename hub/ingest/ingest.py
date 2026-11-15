@@ -427,6 +427,12 @@ class Ingest:
     @contextlib.contextmanager
     def writing(self):
         with self.drive_lock:
+            # Re-check here, not only at the start of a round: the drive may have been
+            # pulled and plugged back in (possibly damaged) while a long conform ran.
+            if not self.drive.present():
+                raise RuntimeError("no %s drive" % self.cfg["drive_label"])
+            if not self.drive.check():
+                raise RuntimeError("drive needs repair (fsck): not writing to it")
             self.writing_n += 1
             try:
                 self.drive.mount(rw=True)
