@@ -296,6 +296,48 @@ class HubTest(unittest.TestCase):
         self.hub.media_file = lambda t, c: orig(t, c, wait_s=0.3)
         self.assertEqual(get("/media/20261115-171313/cam1.mov")[0], 503)
 
+    def test_one_missed_poll_is_slow_not_offline(self):
+        self.hub.poll_once()
+        self.rig.offline.add("cam2")
+        self.hub.poll_once()
+        n = self.hub.snapshot()["nodes"]["cam2"]
+        self.assertTrue(n["online"])
+        self.assertTrue(n["slow"])
+        self.rig.offline.discard("cam2")
+        self.hub.poll_once()
+        n = self.hub.snapshot()["nodes"]["cam2"]
+        self.assertEqual((n["online"], n["slow"]), (True, False))
+
+    def test_offline_after_three_missed_polls(self):
+        self.hub.poll_once()
+        self.rig.offline.add("cam2")
+        for i in range(3):
+            self.hub.poll_once()
+            self.assertEqual(self.hub.snapshot()["nodes"]["cam2"]["online"], i < 2)
+
+    def test_rec_keeps_a_camera_that_missed_one_poll(self):
+        self.hub.poll_once()
+        self.rig.offline.add("cam3")          # misses the poll REC makes...
+        orig = self.rig.post
+
+        def post(n, path, body=None, timeout=None):
+            self.rig.offline.discard("cam3")  # ...but answers the arm request
+            return orig(n, path, body, timeout)
+        self.rig.post = post
+        t = self.hub.rec()
+        self.assertEqual(sorted(t["nodes"]), ["cam1", "cam2", "cam3", "cam4"])
+        self.assertEqual(t["missing"], [])
+
+    def test_kept_status_never_readopts_a_take(self):
+        self.hub.rec()
+        self.hub.poll_once()                  # every camera seen recording
+        self.hub.stop()
+        self.rig.offline.add("cam1")          # cam1's last kept status says "recording"
+        self.hub.status["cam1"] = dict(self.hub.status["cam1"], mode="recording",
+                                       take={"take_id": "x", "role": "server"})
+        self.hub.poll_once()
+        self.assertEqual(self.hub.snapshot()["state"], "idle")
+
     def test_snapshot_shows_problems(self):
         self.rig.offline.add("cam4")
         self.hub.poll_once()

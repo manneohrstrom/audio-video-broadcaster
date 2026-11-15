@@ -108,7 +108,7 @@ function card(name, n) {
   const mode = n.online ? st.mode : "offline";
   if (!n.online) return `<div class="card off"><h2>${esc(name)} <span class="mode">offline</span></h2>
     <div class="step">Not reachable: powered off or not on Wi-Fi. REC records without it.</div></div>`;
-  const cls = mode === "recording" ? "recording" : mode === "live" ? "live" : n.problems.length ? "warn" : "ok";
+  const cls = mode === "recording" ? "recording" : mode === "live" ? "live" : (n.problems.length || n.slow) ? "warn" : "ok";
   const sd = st.take && st.take.sync_difference_us;
   const dr = st.take ? (st.take.dropped_so_far || 0) : 0;
   const take = st.take ? `<span>take</span><span>${esc(st.take.take_id)} · ${hms(st.take.elapsed_s)} · ${st.take.frames ?? st.take.frames_est} fr</span>
@@ -125,6 +125,7 @@ function card(name, n) {
       <span>Wi-Fi</span><span>${fmt(st.wifi_dbm, " dBm", 0)} · PS ${st.wifi_powersave === false ? "off" : "<b class=bad>on</b>"}</span>
       ${st.last_error ? `<span>error</span><span class="bad">${esc(st.last_error)}</span>` : ""}
     </div>
+    ${n.slow ? `<div class="problems">Slow to respond (Wi-Fi busy?); showing its last status.</div>` : ""}
     ${n.problems.length && mode !== "recording" ? `<div class="problems">${n.problems.map(esc).join("<br>")}</div>` : ""}
     <div class="url"><input readonly value="${url}"><button data-copy="${url}">copy</button>
       <a class="pv${mode === "live" ? "" : " off"}" href="http://${name}.local:8889/cam/" target="_blank" rel="noopener"

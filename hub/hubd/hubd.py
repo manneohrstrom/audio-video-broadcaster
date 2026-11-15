@@ -33,6 +33,9 @@ DEFAULT_CONFIG = {
     "static_dir": os.path.join(HERE, "static"),
     "client_head_start_s": 2.0,
     "sync_timeout_s": 20.0,
+    # A camera counts as offline only after this many missed polls in a row (2 s apart).
+    # One slow answer (e.g. Wi-Fi busy with ingest pulls) just marks it "slow".
+    "offline_after_misses": 3,
     "checks": {"max_offset_ms": 5.0, "max_temp_c": 70.0, "min_free_hours": 1.0},
     # A client can report "Sync achieved" while starting late (S2: up to 969 ms).
     "max_sync_difference_us": 1000,
@@ -92,6 +95,11 @@ class Refused(Exception):
     def __init__(self, reasons):
         super().__init__("; ".join(reasons))
         self.reasons = reasons
+
+
+def log(msg):
+    """One line to the journal (stderr)."""
+    sys.stderr.write(msg + "\n")
 
 
 def arm_problems(name, st, checks):
@@ -162,6 +170,7 @@ class Hub:
         self.op_lock = threading.Lock()     # one REC/STOP/LIVE at a time
         self.status = {n: None for n in cfg["nodes"]}
         self.seen = {n: None for n in cfg["nodes"]}
+        self.misses = {n: 0 for n in cfg["nodes"]}
         self._state = "idle"                # idle | starting | recording | stopping
         self.gen = 0                        # bumped on every state change (see poll_once)
         self.take = None
@@ -198,18 +207,34 @@ class Hub:
             if self.gen != gen:
                 return
             for n, st in results:
-                self.status[n] = st
-                if st is not None:
-                    self.seen[n] = self.clock()
+                self._record(n, st)
             self._adopt()
+
+    def _record(self, n, st):
+        """Store one poll answer. A missed answer keeps the last good status until
+        offline_after_misses polls in a row have failed. Changes are logged."""
+        if st is not None:
+            if self.status[n] is None or self.misses[n]:
+                log("%s online%s" % (n, " again after %d missed polls" % self.misses[n] if self.misses[n] else ""))
+            self.status[n], self.misses[n], self.seen[n] = st, 0, self.clock()
+            return
+        self.misses[n] += 1
+        if self.status[n] is None:
+            return
+        if self.misses[n] >= self.cfg["offline_after_misses"]:
+            log("%s offline (%d missed polls)" % (n, self.misses[n]))
+            self.status[n] = None
+        elif self.misses[n] == 1:
+            log("%s slow: no answer within the poll timeout" % n)
 
     def _adopt(self):
         """After a hubd restart, take over a take the cameras are still recording."""
         with self.lock:
             if self.state != "idle":
                 return
+            # Fresh answers only: a status kept through missed polls may predate a STOP.
             active = {n: st["take"] for n, st in self.status.items()
-                      if st and st.get("mode") in ("armed", "recording") and st.get("take")}
+                      if st and not self.misses[n] and st.get("mode") in ("armed", "recording") and st.get("take")}
             if not active:
                 return
             take_id = max(t["take_id"] for t in active.values())
@@ -235,6 +260,7 @@ class Hub:
                     "message": self.message, "sync_server": self.cfg["sync_server"],
                     "nodes": {n: {"online": self.status[n] is not None, "status": self.status[n],
                                   "last_seen": self.seen[n],
+                                  "slow": self.status[n] is not None and self.misses[n] > 0,
                                   "problems": arm_problems(n, self.status[n], self.cfg["checks"])}
                               for n in self.cfg["nodes"]},
                     "last_take": self.last_take()}
