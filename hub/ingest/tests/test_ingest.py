@@ -165,7 +165,8 @@ class Base(unittest.TestCase):
 
     def make(self):
         cfg = ingest.load_config(None)
-        cfg.update(state_dir=os.path.join(self.tmp, "state"), nodes=["cam1", "cam2"])
+        cfg.update(state_dir=os.path.join(self.tmp, "state"), nodes=["cam1", "cam2"],
+                   phones_dir=os.path.join(self.tmp, "phones"))
         ref = []
         self.runner = FakeRunner(self.rig, ref)
         self.ing = ingest.Ingest(cfg, runner=self.runner, drive=self.drive, http=self.rig,
@@ -566,6 +567,74 @@ class DriveTest(unittest.TestCase):
             open(dev, "w").close()
             self.assertTrue(d.check())
             self.assertEqual(len(calls), 2)
+
+
+
+def add_phone(root, part="pauls-pixel", take=TAKE, frames=300, complete=True, wc0=WC0 + 5_000_000, gaps=()):
+    """A phone recording as hubd stages it (docs/phone-plan.md)."""
+    d = os.path.join(root, take, part)
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "video.h264"), "wb") as f:
+        f.write(part.encode() * 1000)
+    pts, t = [], 0.0
+    for i in range(frames):
+        pts.append(t)
+        t += 33.34 * (3 if i in gaps else 1)
+    with open(os.path.join(d, "video.pts"), "w") as f:
+        f.write("# timecode format v2\n" + "".join("%.3f\n" % p for p in pts))
+    man = {"camera": part, "label": "Paul's Pixel", "take_id": take, "source": "phone", "complete": complete,
+           "frames": frames if complete else None, "first_frame_wallclock_ns": wc0, "fps_measured": 29.99,
+           "duration_s": pts[-1] / 1000, "dropped_frames": 2 * len(gaps), "files": {"video.h264": 1, "video.pts": 1}}
+    with open(os.path.join(d, "manifest.json"), "w") as f:
+        json.dump(man, f)
+    return d
+
+
+class PhoneIngestTest(Base):
+    def test_phone_take_alongside_cameras(self):
+        self.rig.add_take("cam1")
+        src = add_phone(self.ing.cfg["phones_dir"], gaps=(50,))
+        self.command("start")
+        self.assertEqual(self.ing.tick(), "ingested")
+        self.assertEqual(sorted(os.listdir(self.folder())), ["cam1.mov", "pauls-pixel.mov", "take.json"])
+        doc = self.load_take()
+        self.assertEqual(doc["cameras"]["pauls-pixel"]["timecode"], doc["cameras"]["cam1"]["timecode"])
+        self.assertEqual(doc["manifests"]["pauls-pixel"]["label"], "Paul's Pixel")
+        self.assertEqual(doc["cameras"]["pauls-pixel"]["dropped"], 2)
+        self.assertEqual(self.runner.calls.count("rsync"), 1)                         # cam1 only; the phone is linked
+        self.assertEqual(set(self.rig.verified), {("cam1", TAKE)})                    # no HTTP for the phone
+        self.assertFalse(os.path.exists(src))                                          # staging copy freed
+        self.assertFalse(os.path.exists(os.path.dirname(src)))
+        self.assertEqual(self.ing.tick(), "nothing to ingest")
+
+    def test_incomplete_phone_waits(self):
+        add_phone(self.ing.cfg["phones_dir"], complete=False)
+        self.command("start")
+        self.assertEqual(self.ing.tick(), "nothing to ingest")
+        add_phone(self.ing.cfg["phones_dir"])                                          # the phone sent the rest
+        self.command("start")
+        self.assertEqual(self.ing.tick(), "ingested")
+        self.assertIn("pauls-pixel.mov", os.listdir(self.folder()))
+
+    def test_phone_frame_count_mismatch_is_an_error(self):
+        d = add_phone(self.ing.cfg["phones_dir"])
+        with open(os.path.join(d, "manifest.json")) as f:
+            m = json.load(f)
+        m["frames"] = 999
+        with open(os.path.join(d, "manifest.json"), "w") as f:
+            json.dump(m, f)
+        self.command("start")
+        self.ing.tick()
+        cs = self.ing.state["takes"][TAKE]["pauls-pixel"]
+        self.assertIn("999", cs["error"])
+        self.assertTrue(os.path.exists(d))                                             # kept for another try
+
+    def test_rejoined_parts_are_separate_clips(self):
+        add_phone(self.ing.cfg["phones_dir"])
+        add_phone(self.ing.cfg["phones_dir"], part="pauls-pixel-part2", wc0=WC0 + 60 * 10**9)
+        self.command("start")
+        self.ing.tick()
+        self.assertEqual(sorted(os.listdir(self.folder())), ["pauls-pixel-part2.mov", "pauls-pixel.mov", "take.json"])
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@
       idle_minutes: "{{ ingest_idle_minutes }}"
       x264_preset: "{{ ingest_x264_preset }}"
       x264_crf: "{{ ingest_x264_crf }}"
+      phones_dir: /var/lib/hubd/phones
   notify: Restart hub-ingest
 
 - name: hub-ingest systemd unit

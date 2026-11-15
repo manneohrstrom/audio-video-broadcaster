@@ -505,3 +505,9 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - Tests: `hub/hubd/tests/test_phones.py` (12 new); all 39 hubd tests and the ingest tests pass. Deployed with `site.yml --limit hub`; smoke-tested on the hub with a fake phone/take (deleted).
 - Not yet: a real-phone test of P1 (user: open `http://studio-hub.local/phone`, note the Chrome flag must now list `http://studio-hub.local` without :8090), then P2 hub-space display, P3 ingest, P4 markers, P5 docs.
 - Phones get free-text names (user, 2026-11-15: "Paul's Pixel"); id for files from it (`pauls-pixel.mov`, rejoin `-part2`); deployed, 40 hubd tests pass. iPhones won't work (Safari lacks MediaStreamTrackProcessor): noted under "Not in this plan".
+
+## 2026-11-15 (late): phone plan P3, phones through ingest
+- First real-phone take (user, Pixel 9a "Manne's pixel 9a", take 20261115-231111): 612 frames, 20 s, 0 dropped, 29.99 fps; user: "seems great".
+- `hub/ingest/ingest.py`: `pending()` also lists complete phone recordings from `phones_dir` (incomplete ones wait); pull = hard link into the work folder (same filesystem); check = frame times agree with the manifest; verify uses the phone's measured fps; title metadata uses the label; mark deletes the hub's staging copy (never the drive). Ingest keeps each phone's label. Output `<id>.mov` next to `camN.mov`; rejoin parts are separate clips. 4 new tests; 37 ingest tests pass.
+- Hub page: ingest list shows phones by name (not only `camN`); play buttons too.
+- User, 2026-11-15: all rig data so far is throwaway; deleted test take 20261115-215022 from cam1–cam4 and ingest so the phone take wasn't queued behind 2 h of conform.

@@ -48,7 +48,7 @@
   .take.waiting { border-color:var(--warn); }
   .take h4 { margin:0 0 6px; font-size:14px; display:flex; justify-content:space-between; gap:4px 12px; flex-wrap:wrap; }
   .take h4 small { color:var(--dim); font-weight:normal; }
-  .camrow { display:grid; grid-template-columns:44px 1fr; gap:6px; align-items:start; margin:6px 0 2px; }
+  .camrow { display:grid; grid-template-columns:minmax(44px, max-content) 1fr; gap:6px; align-items:start; margin:6px 0 2px; }
   .camname { font-weight:600; font-size:13px; padding-top:3px; }
   .steps { display:flex; gap:5px; flex-wrap:wrap; }
   .st { font-size:12px; padding:3px 8px; border-radius:6px; background:#262628; color:var(--dim); display:inline-flex; gap:6px; align-items:center; white-space:nowrap; }
@@ -257,7 +257,8 @@ function camSteps(cs, paused) {
     return `<span class="st">○ ${name}</span>`;
   }).join("");
 }
-const isCam = c => /^cam\d+$/.test(c);
+const isCam = c => c !== "recorded";       // Pi cameras (camN) and phones (their file ids)
+const labelOf = (t, c) => (t[c] && t[c].label) || (t.recorded && t.recorded.cameras && t.recorded.cameras[c] && t.recorded.cameras[c].label) || c;
 const camsOf = t => Object.entries(t).filter(([c, v]) => isCam(c) && v && typeof v === "object");
 // Nothing done or running yet: the take is still only on the cameras.
 const notIngested = t => camsOf(t).every(([, v]) => !(v.done || []).length && !v.step && !v.error);
@@ -289,13 +290,14 @@ function ingestView(st) {
     const ready = cs.filter(([, v]) => (v.done || []).includes("written")).map(([c]) => c);
     if (!ready.length) return "";
     return `<div class="plays">` + ready.map(c => `<button class="play" ${driveOk ? "" : "disabled title='STUDIO drive not in the hub'"}
-      data-play="${esc(id)}" data-cam="${esc(c)}" data-cams="${esc(ready.join(","))}">▶ ${esc(c)}</button>`).join("") + "</div>";
+      data-play="${esc(id)}" data-cam="${esc(c)}" data-cams="${esc(ready.join(","))}">▶ ${esc(labelOf(st.takes[id] || {}, c))}</button>`).join("") + "</div>";
   };
   const probs = rec => rec && rec.problems && rec.problems.length ?
     `<div class="camerr" style="margin-left:0">⚠ ${rec.problems.map(esc).join(" · ")}</div>` : "";
   $("#ingest-takes").innerHTML = takes.reverse().map(([id, cams]) => {
     const cs = camsOf(cams);
     const rec = cams.recorded;
+    const L = c => esc(labelOf(cams, c));
     if (notIngested(cams)) {
       // Recorded, not ingested yet: what was done in the session, at a glance.
       const rc = rec ? Object.entries(rec.cameras) : cs.map(([c, v]) => [c, { frames: v.frames_cam, dropped: v.dropped }]);
@@ -324,10 +326,10 @@ function ingestView(st) {
       active ? `<span>${etas.length ? fmtEta(Math.max(...etas)) + " left" : "working"}</span>` : '<small>queued</small>';
     let body;
     if (allDone) {
-      body = `<div class="camdone">` + cs.map(([c, v]) => `${esc(c)}: ${v.frames_out != null ? v.frames_out + " frames" : "done"}` +
+      body = `<div class="camdone">` + cs.map(([c, v]) => `${L(c)}: ${v.frames_out != null ? v.frames_out + " frames" : "done"}` +
         (v.repeated > 0 ? ` (${v.repeated} repeated)` : v.repeated < 0 ? ` (${-v.repeated} skipped to fit 30 fps)` : "") + (v.dropped ? `, ${v.dropped} dropped on camera` : "")).join(" · ") + "</div>";
     } else {
-      body = cs.map(([c, v]) => `<div class="camrow"><span class="camname">${esc(c)}</span><div class="steps">${camSteps(v, paused)}</div></div>` +
+      body = cs.map(([c, v]) => `<div class="camrow"><span class="camname" title="${L(c)}">${L(c)}</span><div class="steps">${camSteps(v, paused)}</div></div>` +
         (v.error ? `<div class="camerr">${esc(v.error)}</div>` : "")).join("");
     }
     const cls = allDone ? "done" : err ? "error" : active ? "active" : "";

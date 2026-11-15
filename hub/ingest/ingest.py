@@ -70,7 +70,11 @@ DEFAULT_CONFIG = {
     "playback_idle_s": 300,     # read-only mount kept this long after the last playback request
     "x264_preset": "veryfast",
     "x264_crf": "16",
+    # Phone cameras (docs/phone-plan.md): hubd stages their takes here, already in the
+    # camera layout, so a phone's "pull" is a hard link and its "mark" deletes the staging copy.
+    "phones_dir": "/var/lib/hubd/phones",
 }
+TAKE_RE = re.compile(r"^\d{8}-\d{6}$")
 
 
 def load_config(path):
@@ -385,6 +389,8 @@ class Ingest:
                 cs["duration_s"] = m.get("duration_s") or (m.get("frames") or 0) / 30.0
                 cs["frames_cam"] = m.get("frames")
                 cs["dropped"] = m.get("dropped_frames")
+                if m.get("label"):
+                    cs["label"] = m["label"]
                 files = m.get("files") or {}
                 cs["src_bytes"] = sum(files.get(n, 0) for n in ("video.h264", "video.pts")) or None
 
@@ -518,7 +524,36 @@ class Ingest:
                 if "marked" in cs.get("done", []):
                     continue
                 out.setdefault(m["take_id"], {})[cam] = m
+        for take_id, part, m in self.phone_takes():
+            if "marked" not in self.state["takes"].get(take_id, {}).get(part, {}).get("done", []):
+                out.setdefault(take_id, {})[part] = m
         return dict(sorted(out.items()))
+
+    def phone_takes(self):
+        """(take_id, part, manifest) for every complete phone recording staged by hubd.
+        Incomplete ones (pieces still on the phone) wait until the phone sends the rest."""
+        root = self.cfg.get("phones_dir")
+        if not root or not os.path.isdir(root):
+            return []
+        out = []
+        for take_id in sorted(os.listdir(root)):
+            if not TAKE_RE.match(take_id):
+                continue
+            for part in sorted(os.listdir(os.path.join(root, take_id))):
+                try:
+                    with open(os.path.join(root, take_id, part, "manifest.json")) as f:
+                        m = json.load(f)
+                except (OSError, ValueError):
+                    continue
+                if m.get("source") == "phone" and m.get("complete") and m.get("frames"):
+                    out.append((take_id, part, m))
+        return out
+
+    def phone_src(self, take_id, cam):
+        """The staging folder if this camera-take is a phone's, else None."""
+        root = self.cfg.get("phones_dir")
+        d = os.path.join(root, take_id, cam) if root else None
+        return d if d and os.path.isfile(os.path.join(d, "manifest.json")) and not cam.startswith("cam") else None
 
     # -- steps
     def cam_dir(self, take_id, cam):
@@ -527,6 +562,9 @@ class Ingest:
         return d
 
     def pull(self, take_id, cam):
+        src = self.phone_src(take_id, cam)
+        if src:
+            return self.pull_phone(take_id, cam, src)
         ssh = "ssh -i %s -o BatchMode=yes -o ConnectTimeout=10" % self.cfg["ssh_key"]
         # rrsync on the camera roots paths at /var/lib/camnode/takes.
         d = self.cam_dir(take_id, cam)
@@ -542,7 +580,26 @@ class Ingest:
                         pause="kill", on_poll=poll)
         self.mark(take_id, cam, "pulled")
 
+    def pull_phone(self, take_id, cam, src):
+        """Already on the hub: hard-link into the work folder (same filesystem, no copy)."""
+        d = self.cam_dir(take_id, cam)
+        for n in ("video.h264", "video.pts", "manifest.json"):
+            dst = os.path.join(d, n)
+            if os.path.exists(dst):
+                os.remove(dst)
+            try:
+                os.link(os.path.join(src, n), dst)
+            except OSError:
+                shutil.copy2(os.path.join(src, n), dst)
+        self.mark(take_id, cam, "pulled")
+
     def check_source(self, take_id, cam, man):
+        if man.get("source") == "phone":
+            # No transfer to check: the hub joined these files itself. Check they agree.
+            n = len(read_pts(os.path.join(self.cam_dir(take_id, cam), "video.pts")))
+            if n != man.get("frames"):
+                raise RuntimeError("phone take has %d frame times, manifest says %s" % (n, man.get("frames")))
+            return self.mark(take_id, cam, "checked")
         want = (man.get("sha256") or {}).get("video.h264")
         if not want:
             raise RuntimeError("camera has not finished hashing yet")
@@ -571,7 +628,7 @@ class Ingest:
                          "-i", mkv, "-map", "0:v", "-vf", vf,
                          "-c:v", "libx264", "-preset", self.cfg["x264_preset"], "-crf", self.cfg["x264_crf"],
                          "-pix_fmt", "yuv420p", "-r", str(FPS), "-video_track_timescale", "30000",
-                         "-timecode", tc, "-metadata", "title=%s %s" % (take_id, cam),
+                         "-timecode", tc, "-metadata", "title=%s %s" % (take_id, man.get("label") or cam),
                          "-metadata", "comment=studio-multicam %s; conformed to 30.000 fps" % VERSION,
                          "-movflags", "+faststart", "-f", "mov", out + ".tmp"], pause="stop",
                         on_poll=lambda: self.progress(take_id, cam, ffmpeg_progress(prog, dur)))
@@ -584,7 +641,9 @@ class Ingest:
         out = self.out_name(take_id, cam)
         tc, origin, residual = grid_origin(man["first_frame_wallclock_ns"])
         pts = read_pts(os.path.join(d, "video.pts"))
-        want = expected_frames(residual, pts[-1])
+        # A phone's frame period is its own (measured), not the Pi sensor's.
+        fps_in = man.get("fps_measured") if man.get("source") == "phone" else None
+        want = expected_frames(residual, pts[-1], 1000 / fps_in) if fps_in else expected_frames(residual, pts[-1])
         info = json.loads(self.runner.run(
             ["ffprobe", "-v", "error", "-count_packets", "-select_streams", "v:0", "-show_entries",
              "stream=nb_read_packets,avg_frame_rate:stream_tags=timecode", "-of", "json", out], pause="stop"))
@@ -697,8 +756,17 @@ class Ingest:
         with open(path + ".tmp", "w") as f:
             json.dump(man, f)
         os.replace(path + ".tmp", path)
-        self.http.post(self.node_url(cam, "/takes/%s/verified" % take_id),
-                       {"mov_sha256": cs["sha256"], "path": cs["path"]})
+        src = self.phone_src(take_id, cam)
+        if src:
+            # Safe on the drive: free the hub's SD (the staging copy is the hub's own, not the drive).
+            shutil.rmtree(src, ignore_errors=True)
+            try:
+                os.rmdir(os.path.dirname(src))       # the take folder, once no phone part is left
+            except OSError:
+                pass
+        else:
+            self.http.post(self.node_url(cam, "/takes/%s/verified" % take_id),
+                           {"mov_sha256": cs["sha256"], "path": cs["path"]})
         self.mark(take_id, cam, "marked")
         shutil.rmtree(os.path.join(self.work, take_id, cam), ignore_errors=True)
         try:
