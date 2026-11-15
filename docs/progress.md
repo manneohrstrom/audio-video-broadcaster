@@ -413,3 +413,18 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - Eject tested 2026-11-15 (API, same as the button): unmount, SYNCHRONIZE CACHE + START STOP UNIT, USB port powered off; the page now says "Drive ejected: safe to unplug" and the flag clears on replug. To check: after a replug the stick reappears, gets fsck'd and is accepted.
 - Remaining M4 acceptance: 30-min take ingested unattended after 30 min idle; REC during ingest pauses then resumes; pull the stick mid-write (ask the user first); lazy delete on a camera; `docs/phase3-results.md`.
 - Recheck cam1 `get_throttled` during a take on the new supply.
+
+## 2026-11-15: M4 tests, UI fixes, playback from the drive
+- Test takes (Claude's, on cam1): `20261115-171313` (3:13, 5781 fr, 0 dropped) and `20261115-172021` (0:43, 1291 fr, 0 dropped). cam1 on the new supply: `throttled=0x0`, 39 °C while recording. Both ingested and verified; learned rates: pull 0.61, conform 0.92, verify 0.15, write 0.02 s per video second.
+- **REC during ingest: passed.** ffmpeg was SIGSTOPped at 37% (state T) and resumed after STOP. The UI now says "paused: rig busy" while suspended (`Runner(on_pause=...)`).
+- **Eject: passed** (unmount, cache flush, USB power-off; "Drive ejected: safe to unplug"; flag clears on replug; replugged stick passed fsck).
+- The stick was read on the Mac: all 7 cam1 `.mov` sha256 match `take.json`, H.264 1920x1080 30/1, timecodes as stamped, no `.part` files. The user pulled it from the Mac without ejecting; it still passed fsck on the hub.
+- UI: offline cameras are now grey and dashed (they looked like recording ones); recording cards are red-tinted with a pulsing ● REC.
+- **Playback from the STUDIO drive** (user decision: changes the settled storage rule; CLAUDE.md updated; details in `docs/phase3-plan.md`, "Addition"). hub-ingest 0.3.0 / hubd 0.2.0. Verified on the hub: first range in 0.6 s including the read-only mount, `ro` in `/proc/mounts`, ~11 MB/s to the Mac, 404 for a camera not on the drive; headless Chrome decodes (1920x1080) and seeks.
+- fsck on plug-in is now keyed on the device node's ctime (a stick replugged without Eject used to skip the check).
+- Lint: pycodestyle + pyflakes clean at 120 columns (`setup.cfg`). Tests: ingest 29, hubd 21, camnode 21. camnode lint changes are not deployed yet (no behaviour change; next normal deploy).
+
+### Next
+- Check the read-only mount drops 5 min after the last playback.
+- Remaining M4: a 30-min take ingested unattended after 30 min idle; pull the stick mid-write (ask the user first); lazy delete on a camera; `docs/phase3-results.md`.
+- Claude's test takes `20261115-171313` and `20261115-172021` are on cam1 (verified, so lazy delete may remove them) and on the stick (the hub never deletes from the drive; the user can delete them on the Mac).
