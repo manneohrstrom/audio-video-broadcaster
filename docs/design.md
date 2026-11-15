@@ -206,6 +206,7 @@ Four phases, each ending in something usable. Phase 1 is a go/no-go on the two r
      - The result doesn't have to be perfect. If the match points disagree or confidence is low, the take is marked "needs sync" and falls back to a clap marked by hand, or to LTC. It never guesses silently.
      - Known weak case: mostly-DI sessions in a quiet room. The stem upload or LTC covers it.
      - Needs the bounce upload (see the next item).
+     - **Acceptance test (user, 2026-11-15):** a real session with claps at regular intervals (say every 5 minutes), visible to all cameras and audible in the bounce. The claps are ground truth: the automatic scratch-mic match must agree with them within one frame at every clap, start to end. This also measures the audio interface's clock drift over a long take. Use the clap finder from the Phase 3 sync check (audio onsets, per-camera motion peaks), kept in the repo for this.
    - **Add media to a take from the web page** (added 2026-11-15): phone or handheld video, the DAW bounce, and stems. An "Add media" button on the hub page works from a phone or the DAW computer. Files land in the take's folder on `STUDIO` (`cameras/`, `handheld/`, `audio/`), so each take keeps all its media in one place.
      - The take is picked automatically from the file's recording time; the user confirms.
      - Uploads go in resumable chunks (phone browsers drop uploads when the screen locks) and stream straight to disk (the hub has 1 GB of RAM). They pause during takes and live sessions, like ingest. The hub never deletes from the drive.
