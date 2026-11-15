@@ -450,3 +450,13 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - So no frame-rate setting gets within the user's 0.5 s/h (or even 1 s/h); gapless takes can't skip conversion that way. Other option noted: copy at the native measured rate (Path A), depends on the editor; untested (no editor yet).
 - **User decision 2026-11-15: keep the current implementation (convert everything).** Cameras unchanged.
 - S2 quality check done (see `docs/phase3-plan.md`): VMAF 96.5, SSIM 0.995, PSNR 51.5 dB. Visually transparent.
+
+## 2026-11-15 late: sync check on the final files, Phase 3 results
+- 14 Nov takes ingested from cam2–cam4 and merged: all 5 takes complete with 4 cameras; S1 take `20261114-202934` has 27518 frames on every camera (cam2/cam4 dropped 3/5 on camera), `take.json` lists all four, timecode 20:29:40:06 on all.
+- Clap check on the final `.mov` files against `claptest.mp3`: every camera within 1 frame (−31 to +29 ms) at +389/+465 s; clap frames agree across cameras (±1). Tool kept as `hub/tools/clap_check.py`.
+- The user's take `20261115-192629` (40 s, 4 cameras) was ingested unattended after 30 min idle: 1201 frames each, same timecode.
+- Hub card on the page; smartmontools tried and removed (the Acer stick has no SMART/temperature).
+- `docs/phase3-results.md` written: all five exit criteria pass, with deviations (15 not 30 min; no Premiere; no power-cut test). **Waiting for the user's GO on Phase 3.**
+
+### Next
+- The user's GO on Phase 3, then the Phase 4 plan for their OK (nothing built before that).
