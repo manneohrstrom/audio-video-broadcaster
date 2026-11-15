@@ -6,7 +6,7 @@ The full design is in `docs/design.md`. Read it before proposing any architectur
 
 ## Current phase
 
-**Phone cameras first: plan accepted 2026-11-15 (`docs/phone-plan.md`), after the spike's GO (`docs/phone-spike-results.md`). P1 (phones in hubd) and P3 (phones through ingest) are done; P4 (rough sections, now as editor data) and P5 (docs) are next. Then Phase 4 (plan accepted 2026-11-15, `docs/phase4-plan.md`): Track B (visuals), then A (audio sync), then C (polish).** Phase 3 is done: GO on 2026-11-15 (`docs/phase3-results.md`). Stay within the plans; ask before adding scope.
+**Phone cameras first: plan accepted 2026-11-15 (`docs/phone-plan.md`), after the spike's GO (`docs/phone-spike-results.md`). P1–P5 are built and deployed (2026-11-15); left: robustness tests on the rig and the ingest-time question. Then Phase 4 (plan accepted 2026-11-15, `docs/phase4-plan.md`): Track B (visuals), then A (audio sync), then C (polish).** Phase 3 is done: GO on 2026-11-15 (`docs/phase3-results.md`). Stay within the plans; ask before adding scope.
 
 Earlier phases: Phase 1 GO on 2026-11-14 (`docs/phase1-results.md`); its five conditions still apply. Phase 2 passed on 2026-11-14 (`docs/phase2-results.md`). Phase 3 scope, kept for reference:
 - pull takes from the nodes;

@@ -1,6 +1,6 @@
 # Phone cameras: build plan
 
-Status: **accepted 2026-11-15** (questions answered below). Next session starts with P1. After the spike's GO (`docs/phone-spike-results.md`), the user made this the next item, before Phase 4 Track B. Track B moves back by however long this takes (estimate: 2 days).
+Status: **accepted 2026-11-15; P1–P5 built and deployed 2026-11-15.** Open: the ingest-time question (below), P1 robustness tests on the rig (Wi-Fi drop mid-take, reload mid-take), and the 128 GB hub card swap. After the spike's GO (`docs/phone-spike-results.md`), the user made this the next item, before Phase 4 Track B. Track B moves back by however long this takes (estimate: 2 days).
 
 ## Goal
 

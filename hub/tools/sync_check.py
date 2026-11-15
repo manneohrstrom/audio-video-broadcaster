@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phone spike: offset of each camera from a reference camera at every clap.
+"""Sync check: offset of each camera from a reference camera at every clap (phone spike, 2026-11-15).
 
 Works on raw take folders (video.h264 + video.pts + manifest.json), the Pi layout
 and the phone spike layout alike. Every frame gets a hub-clock time:

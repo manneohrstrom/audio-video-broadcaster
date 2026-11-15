@@ -10,6 +10,7 @@
   body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, sans-serif; }
   h1 { font-size:18px; margin:0 0 12px; display:flex; gap:12px; align-items:baseline; }
   h1 small { color:var(--dim); font-weight:normal; }
+  h1 a.phonelink { margin-left:auto; font-size:14px; font-weight:600; color:#fff; background:#333; padding:6px 12px; border-radius:8px; text-decoration:none; }
   .controls { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
   button { font:inherit; font-size:20px; font-weight:600; padding:16px 28px; border:0; border-radius:10px; color:#fff; cursor:pointer; min-width:140px; }
   button:disabled { opacity:.35; cursor:default; }
@@ -72,7 +73,7 @@
 </style>
 </head>
 <body>
-<h1>Studio Multicam <small id="ver"></small></h1>
+<h1>Studio Multicam <small id="ver"></small><a class="phonelink" href="/phone" title="Open on an Android phone to use it as an extra camera">📱 Use a phone as a camera</a></h1>
 <div class="controls">
   <button id="rec">● REC</button>
   <button id="stop">■ STOP</button>

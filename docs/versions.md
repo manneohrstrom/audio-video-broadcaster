@@ -53,3 +53,8 @@ Setup: `cd deploy && /opt/homebrew/bin/python3.14 -m venv .venv && .venv/bin/pip
 - MediaMTX v1.21.3 enables MoQ by default, which writes `auto.key`/`auto.crt` to the working directory. Under systemd that's `/` (not writable by `studio`), and shutdown then hangs in `moq.(*Server).Close` until systemd kills it. Fixed with `moq: false` in the template.
 - `rpicam-vid --sync client` can report `Sync achieved! Difference -183870us`: it starts recording even though it's that far behind the server. Seen on cam4 only, 6 of 150 takes, up to 969 ms. camnode records the value and hubd warns.
 - The default video denoise (`cdn_fast`) can't sustain 1080p30 on the Zero 2 W at normal clocks. Use `--denoise cdn_off`.
+
+## Phones (browser cameras, 2026-11-15)
+
+No software installed; the page runs in Chrome. Tested: Pixel 3 (Chrome 157) and Pixel 9a (Chrome, user test 2026-11-15). Needs WebCodecs (`VideoEncoder`), `MediaStreamTrackProcessor` and OPFS; the page says so if Chrome is too old.
+
