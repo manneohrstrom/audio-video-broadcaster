@@ -5,6 +5,11 @@ pinned_packages_group:
   python3-opencv: "4.10.0+dfsg-5"
 hubd_port: 80
 hubd_sync_server: cam1
+# Recording light (Phase 4 C1, hub/hubd/lamp.py). type: tasmota | esphome | log | null.
+# Fill in when the bulb is set up: firmware type and its reserved IP (esphome also needs light_id).
+hubd_lamp:
+  type: null
+  address: null
 # Ingest (docs/phase3-plan.md): starts after this long idle, or "Ingest now".
 ingest_idle_minutes: 30
 ingest_x264_preset: veryfast

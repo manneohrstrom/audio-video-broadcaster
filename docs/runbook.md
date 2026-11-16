@@ -28,3 +28,16 @@ Any Android phone with an up-to-date Chrome works (tested: Pixel 3, Pixel 9a). i
 - "already in use by another phone": two phones have the same name; change one.
 - Hub space: each phone uses ~7 GB per hour on the hub's SD until ingest has run. The phone card warns when space is short.
 - Dropped frames are kept and marked: the take list shows "rough sections" per camera, to avoid in the edit.
+
+## Recording light (smart bulb)
+
+hubd drives a LocalBytes RGB bulb from the rig state (`hub/hubd/lamp.py`, Phase 4 C1): dim green ready, amber arming, red recording, blue live, pulsing cyan ingest running, purple ingest done (safe to eject), flashing red error (camera offline, REC failed, new dropped frames, drive full or needing repair). The bulb is only ever told what to show; if it's off or unreachable, hubd logs it once and carries on.
+
+Setting it up (once):
+1. Join the bulb to the studio Wi-Fi (its own setup AP: Tasmota `tasmota-XXXX`, ESPHome a captive portal), then open `http://<bulb-ip>/` to see which firmware it runs.
+2. Give it a DHCP reservation on the router.
+3. In `deploy/group_vars/hub.yml` set `hubd_lamp`: `type: tasmota` (or `esphome` plus `light_id`, the light's id as shown on its web page) and `address: <ip>`. Deploy the hub.
+4. Check each look: `curl -X POST studio-hub.local/api/lamp/preview -d '{"look":"recording","seconds":5}'` (looks: ready, arming, recording, live, ingest, ingest_done, error, off). `curl studio-hub.local/api/lamp` shows the current look, why, and whether the bulb answers.
+5. Keep the lamp out of shot or dim: coloured light spills onto the scene, and white balance is fixed per take. Brightness per look can be changed under `hubd_lamp.looks` (e.g. `ready: {dim: 5}`).
+
+Dry run without a bulb: `type: log` writes what it would send to the hubd journal.

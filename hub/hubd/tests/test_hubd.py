@@ -117,6 +117,22 @@ class HubTest(unittest.TestCase):
         with self.assertRaises(hubd.Refused) as cm:
             self.hub.rec()
         self.assertEqual(cm.exception.reasons, ["no cameras online"])
+        look, why = self.hub.lamp.light.decide(*self.hub.lamp_inputs())
+        self.assertEqual(look, "error")                          # recording light flashes
+        self.assertIn("no cameras online", why)
+
+    def test_lamp_follows_rig_state(self):
+        decide = lambda: self.hub.lamp.light.decide(*self.hub.lamp_inputs())[0]  # noqa: E731
+        self.hub.poll_once()
+        self.assertEqual(decide(), "ready")
+        self.hub.rec()
+        self.assertEqual(decide(), "recording")
+        with self.assertRaises(hubd.Refused):
+            self.hub.rec()                                       # second press: no alert
+        self.assertEqual(decide(), "recording")
+        self.hub.stop()
+        self.assertEqual(decide(), "ready")
+        self.assertFalse(self.hub.snapshot()["lamp"]["enabled"])
 
     def test_explicit_names_stay_strict(self):
         self.rig.offline.add("cam2")

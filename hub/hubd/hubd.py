@@ -25,9 +25,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import budget  # noqa: E402
 import calib  # noqa: E402
 import calibrate  # noqa: E402
+import lamp  # noqa: E402
 import phones  # noqa: E402
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -59,6 +60,8 @@ DEFAULT_CONFIG = {
     # measured rates take over after a minute.
     "budget": {"hub_reserve_gb": 15.0, "node_reserve_gb": 1.0, "pi_mbps": 10.0, "phone_mbps": 15.0,
                "warn_s": 300, "min_rec_s": 120, "auto_stop": True},
+    # Recording light (lamp.py, Phase 4 C1). type null = no bulb. See lamp.DEFAULT_LAMP.
+    "lamp": {"type": None},
 }
 
 # vcgencmd get_throttled: bits 0-3 are "now" (under-voltage, freq capped,
@@ -106,6 +109,7 @@ def load_config(path):
         bud = dict(cfg["budget"], **user.pop("budget", {}))
         cfg.update(user)
         cfg["checks"], cfg["budget"] = checks, bud
+    cfg["lamp"] = lamp.merge_config(cfg.get("lamp"))
     return cfg
 
 
@@ -267,6 +271,7 @@ class Hub:
         self.phones.calib_watch = self.calibrator.watching
         # Background work started from the poll loop (tests run it inline).
         self.spawn = lambda fn, *a: threading.Thread(target=fn, args=a, daemon=True).start()
+        self.lamp = lamp.Lamp(cfg.get("lamp"), self.lamp_inputs, log)
 
     @property
     def state(self):
@@ -276,6 +281,8 @@ class Hub:
     def state(self, value):
         self._state = value
         self.gen += 1
+        if getattr(self, "lamp", None):
+            self.lamp.poke()
 
     # -- polling
     def poll_once(self):
@@ -337,6 +344,13 @@ class Hub:
             self.state = "recording"
             self.message = "Hub restarted during take %s; it is still recording." % take_id
 
+    def lamp_inputs(self):
+        """What the recording light needs: (rig, hub-ingest state). Cheap; called often."""
+        with self.lock:
+            rig = {"state": self.state, "take_id": (self.take or {}).get("take_id"),
+                   "nodes": dict(self.status)}
+        return rig, lamp.read_ingest_state(os.path.join(self.cfg["ingest_dir"], "state.json"))
+
     def poll_forever(self, stop):
         while not stop.is_set():
             t = time.monotonic()
@@ -357,7 +371,7 @@ class Hub:
                               for n in self.cfg["nodes"]},
                     "phones": self.phones.snapshot(self.health.get("free_gb")),
                     "budget": self.budget, "camera_settings": self.cam_settings,
-                    "calibration": self.calibrator.status(),
+                    "calibration": self.calibrator.status(), "lamp": self.lamp.status(),
                     "last_take": self.last_take()}
 
     # -- phones
@@ -610,6 +624,10 @@ class Hub:
         try:
             with self.holding_cameras():
                 return self._rec(names)
+        except (Refused, NodeError) as e:
+            if self.state == "idle":    # not a second press during a take
+                self.lamp.alert("REC failed: %s" % e)
+            raise
         finally:
             self.op_lock.release()
 
@@ -932,6 +950,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, h.read_log())
         if self.path == "/api/ingest":
             return self._send(200, h.ingest_state())
+        if self.path == "/api/lamp":
+            return self._send(200, h.lamp.status())
         if self.path == "/api/time":
             return self._send(200, {"hub_ns": time.time_ns()})
         m = self.P_HAVE.match(self.path)
@@ -1028,6 +1048,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, h.ingest_command("start"))
             if self.path == "/api/drive/eject":
                 return self._send(200, h.ingest_command("eject"))
+            if self.path == "/api/lamp/preview":       # {"look": "recording", "seconds": 5}
+                return self._send(200, h.lamp.preview(b.get("look"), b.get("seconds", 5)))
         except Refused as e:
             return self._send(409, {"error": str(e), "reasons": e.reasons})
         except NodeError as e:
@@ -1069,6 +1091,7 @@ def main():
     Handler.hub = hub
     stop = threading.Event()
     threading.Thread(target=hub.poll_forever, args=(stop,), daemon=True).start()
+    threading.Thread(target=hub.lamp.run, args=(stop,), daemon=True).start()
     srv = make_server(cfg["bind"], cfg["port"])
 
     def shutdown(*_):

@@ -25,6 +25,13 @@
     mode: "0644"
   notify: Restart hubd
 
+- name: hubd recording light module
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/hubd/lamp.py"
+    dest: /opt/hubd/lamp.py
+    mode: "0644"
+  notify: Restart hubd
+
 - name: hubd record-time estimate module
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../hub/hubd/budget.py"
@@ -62,6 +69,7 @@
       sync_server: "{{ hubd_sync_server }}"
       static_dir: /opt/hubd/static
       state_dir: /var/lib/hubd
+      lamp: "{{ hubd_lamp }}"
   notify: Restart hubd
 
 - name: hubd systemd unit
