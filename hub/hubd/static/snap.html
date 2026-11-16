@@ -97,7 +97,7 @@ function layout() {
 }
 
 async function status() {
-  try { snap = await (await fetch("/api/status")).json(); layout(); }
+  try { snap = await (await fetch("/api/status" + (document.hidden ? "" : "?watch=1"))).json(); layout(); }
   catch (e) { $("#msg").textContent = "Hub not reachable: " + e.message; }
 }
 

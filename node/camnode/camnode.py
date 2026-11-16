@@ -18,7 +18,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 NOMINAL_MS = 1000.0 / 30
 TAKE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WC_RE = re.compile(rb'"FrameWallClock":\s*(\d+)')
@@ -32,6 +32,7 @@ DEFAULT_CONFIG = {
     "rpicam_vid": "rpicam-vid",
     "rpicam_still": "rpicam-still",
     "snapshot_timeout_s": 10,
+    "still_meta_dir": "/dev/shm",        # rpicam-still's metadata for one snapshot (RAM)
     "stop_signal": "SIGINT",
     "stop_timeout_s": 15,
     "min_free_gb": 2.0,
@@ -81,20 +82,26 @@ def build_cmd(cfg, role, outdir, settings):
     ]
 
 
-def build_still_cmd(cfg, settings):
-    """One JPEG with the take's settings (Track B snapshot, spike B-S3: ~0.6 s), to stdout."""
+def build_still_cmd(cfg, settings, auto=False, metadata=None):
+    """One JPEG to stdout (Track B snapshot, spike B-S3: ~0.6 s). With the take's settings,
+    or auto=True: shutter fixed, gain and white balance metered by the camera for ~0.7 s
+    (B-S2: gain settles in 0.4-0.5 s), for calibration. metadata: file for the frame's
+    metadata (the gains the camera chose)."""
     s = settings
-    return [
-        cfg["rpicam_still"], "-n", "-t", "1", "--immediate",
+    cmd = [cfg["rpicam_still"], "-n"] + (["-t", "700"] if auto else ["-t", "1", "--immediate"]) + [
         "--mode", "2304:1296:10:P", "--width", "1920", "--height", "1080", "--denoise", "cdn_off",
-        "--shutter", str(int(s["shutter_us"])), "--gain", str(s["gain"]),
-        "--awbgains", "%s,%s" % tuple(s["awb_gains"]),
-        "--autofocus-mode", "manual", "--lens-position", str(s["lens_position"]),
-        "-e", "jpg", "-q", "85", "-o", "-",
-    ]
+        "--shutter", str(int(s["shutter_us"]))]
+    if not auto:
+        cmd += ["--gain", str(s["gain"]), "--awbgains", "%s,%s" % tuple(s["awb_gains"])]
+    cmd += ["--autofocus-mode", "manual", "--lens-position", str(s["lens_position"]),
+            "-e", "jpg", "-q", "85", "-o", "-"]
+    if metadata:
+        cmd += ["--metadata", metadata, "--metadata-format", "json"]
+    return cmd
 
 
 SNAPSHOT_KEYS = ("shutter_us", "gain", "awb_gains", "lens_position")
+META_KEYS = ("AnalogueGain", "DigitalGain", "ColourGains", "ColourTemperature", "Lux", "ExposureTime")
 
 
 def parse_pts(path):
@@ -555,9 +562,10 @@ class Agent:
         return self.mode()
 
     # -- snapshot (Track B)
-    def snapshot(self, settings=None):
-        """A JPEG with the take settings (overridable, e.g. a focus being tried). Idle only:
-        while it runs the camera is busy, so state "snapshot" makes arm/live refuse."""
+    def snapshot(self, settings=None, auto=False):
+        """(jpeg, metadata): a still with the take settings (overridable, e.g. a focus being
+        tried), or auto-metered (calibration). Idle only: while it runs the camera is busy,
+        so state "snapshot" makes arm/live refuse."""
         bad = set(settings or {}) - set(SNAPSHOT_KEYS)
         if bad:
             raise ValueError("unknown settings: %s" % ", ".join(sorted(bad)))
@@ -569,12 +577,28 @@ class Agent:
             self.state = "snapshot"
         try:
             s = dict(self.cfg["settings"], **(settings or {}))
-            r = subprocess.run(build_still_cmd(self.cfg, s), stdin=subprocess.DEVNULL, capture_output=True,
-                               timeout=self.cfg["snapshot_timeout_s"])
+            mpath = os.path.join(self.cfg["still_meta_dir"], "camnode-still-%d.json" % os.getpid())
+            r = subprocess.run(build_still_cmd(self.cfg, s, auto, mpath), stdin=subprocess.DEVNULL,
+                               capture_output=True, timeout=self.cfg["snapshot_timeout_s"])
             if r.returncode != 0 or not r.stdout.startswith(b"\xff\xd8"):
                 tail = r.stderr.decode(errors="replace").strip().splitlines()[-1:] or ["no output"]
                 raise RuntimeError("rpicam-still failed (code %s): %s" % (r.returncode, tail[0]))
-            return r.stdout
+            meta = {}
+            try:
+                with open(mpath) as f:
+                    txt = f.read().strip()
+                m = json.loads(txt)
+                m = m[-1] if isinstance(m, list) else m
+                meta = {k: m[k] for k in META_KEYS if k in m}
+            except (OSError, ValueError, IndexError):
+                pass
+            finally:
+                try:
+                    os.remove(mpath)
+                except OSError:
+                    pass
+            meta["settings"] = s if not auto else {k: v for k, v in s.items() if k in ("shutter_us", "lens_position")}
+            return r.stdout, meta
         finally:
             with self.lock:
                 self.state = "idle"
@@ -726,8 +750,10 @@ class Handler(BaseHTTPRequestHandler):
         a = self.agent
         try:
             if self.path == "/snapshot":
-                jpg = a.snapshot(self._body().get("settings"))
+                b = self._body()
+                jpg, meta = a.snapshot(b.get("settings"), bool(b.get("auto")))
                 self.send_response(200)
+                self.send_header("X-Metadata", json.dumps(meta))
                 self.send_header("Content-Type", "image/jpeg")
                 self.send_header("Content-Length", str(len(jpg)))
                 self.end_headers()

@@ -35,6 +35,7 @@
   .kv { display:grid; grid-template-columns:auto 1fr; gap:1px 10px; font-size:13px; }
   .kv span:nth-child(odd) { color:var(--dim); }
   .problems { color:var(--warn); font-size:13px; margin-top:6px; }
+  .cal { font-size:13px; margin-top:6px; color:var(--dim); } .cal.good { color:var(--ok); } .cal.warn { color:var(--warn); }
   .url { margin-top:8px; display:flex; gap:6px; }
   .url input { flex:1; min-width:0; background:#000; color:var(--dim); border:1px solid #333; border-radius:6px; font:12px ui-monospace, monospace; padding:4px 6px; }
   .url button { font-size:12px; padding:4px 8px; min-width:0; background:#333; }
@@ -138,6 +139,33 @@ function hubCard(h) {
       <span>SD free</span><span>${h.free_gb ?? "–"} GB</span>
     </div></div>`;
 }
+// Calibration (Track B): each camera waits for the card and calibrates itself.
+function calLine(name) {
+  const c = ((snap.calibration || {}).devices || {})[name]; if (!c) return "";
+  const when = c.at ? new Date(c.at * 1000).toLocaleString([], {day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"}) : "";
+  const vals = c.gain ? ` · gain ${c.gain.toFixed(1)} · WB ${c.awb_gains.map(x => x.toFixed(2)).join("/")}` : "";
+  const watch = (snap.calibration || {}).watching;
+  let txt, cls = "";
+  if (c.status === "calibrating") { txt = "⏳ calibrating…"; cls = "warn"; }
+  else if (c.status === "calibrated") { txt = `✓ calibrated ${when}${vals}`; cls = "good"; }
+  else txt = watch ? "Waiting for card: show it to this camera" : "Not calibrated" + (c.at ? ` (last ${when})` : "");
+  if (c.status === "waiting" && c.at) txt = `✓ calibrated ${when}${vals}` + (watch ? " · show the card to recalibrate" : "");
+  return `<div class="cal ${cls}">${esc(txt)}${c.message ? ` <span class="problems">${esc(c.message)}</span>` : ""}</div>`;
+}
+let calSeq = null, audio = null;
+function chime() {               // a short two-note chime for whoever is holding the card
+  const s = (snap.calibration || {}).seq;
+  if (calSeq !== null && s > calSeq) {
+    try {
+      audio = audio || new AudioContext();
+      [880, 1320].forEach((f, i) => { const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime + i * 0.15;
+        o.frequency.value = f; g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+        o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.4); });
+    } catch (e) {}
+  }
+  calSeq = s;
+}
+document.addEventListener("click", () => { try { audio = audio || new AudioContext(); audio.resume(); } catch (e) {} }, {once: true});
 function card(name, n) {
   const st = n.status || {};
   const mode = n.online ? st.mode : "offline";
@@ -160,6 +188,7 @@ function card(name, n) {
       <span>Wi-Fi</span><span>${fmt(st.wifi_dbm, " dBm", 0)} · PS ${st.wifi_powersave === false ? "off" : "<b class=bad>on</b>"}</span>
       ${st.last_error ? `<span>error</span><span class="bad">${esc(st.last_error)}</span>` : ""}
     </div>
+    ${calLine(name)}
     ${n.slow ? `<div class="problems">Slow to respond (Wi-Fi busy?); showing its last status.</div>` : ""}
     ${n.problems.length && mode !== "recording" ? `<div class="problems">${n.problems.map(esc).join("<br>")}</div>` : ""}
     <div class="url"><input readonly value="${url}"><button data-copy="${url}">copy</button>
@@ -228,7 +257,7 @@ function render() {
 function msg(text, err) { const m = $("#msg"); m.textContent = text || ""; m.className = err ? "err" : ""; }
 
 async function poll() {
-  try { const r = await fetch("/api/status"); snap = await r.json(); render(); }
+  try { const r = await fetch("/api/status" + (document.hidden ? "" : "?watch=1")); snap = await r.json(); render(); chime(); }
   catch (e) { msg("hub unreachable", true); }
 }
 

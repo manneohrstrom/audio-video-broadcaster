@@ -39,6 +39,7 @@
     mode: "0644"
   loop:
     - {src: hub/hubd/calib.py, dest: calib.py}
+    - {src: hub/hubd/calibrate.py, dest: calibrate.py}
     - {src: hub/calib/card.json, dest: card.json}
   notify: Restart hubd
 

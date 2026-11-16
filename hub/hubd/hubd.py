@@ -24,9 +24,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import budget  # noqa: E402
 import calib  # noqa: E402
+import calibrate  # noqa: E402
 import phones  # noqa: E402
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -138,6 +139,26 @@ class HttpNodes:
             raise NodeError("%s: %s" % (node, e)) from None
 
 
+def _still(self, node, body, timeout=15):
+    """POST /snapshot: (jpeg, metadata) from a camera."""
+    req = urllib.request.Request(self._url(node, "/snapshot"), method="POST", data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read(), json.loads(r.headers.get("X-Metadata") or "{}")
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.load(e).get("error", str(e))
+        except Exception:  # noqa: BLE001
+            msg = str(e)
+        raise NodeError("%s: %s" % (node, msg)) from None
+    except OSError as e:
+        raise NodeError("%s: %s" % (node, e)) from None
+
+
+HttpNodes.still = _still
+
+
 class NodeError(Exception):
     pass
 
@@ -234,12 +255,14 @@ class Hub:
         self.budget = budget.limits(None, 0, {}, {})
         self.card, self.calib_lock = None, threading.Lock()
         self.snaps_in_flight = 0            # camera snapshots running (REC waits for them)
+        self.cam_locks = {n: threading.Lock() for n in cfg["nodes"]}   # one still per camera at a time
         self.cam_settings_path = os.path.join(cfg["state_dir"], "camera_settings.json")
         try:
             with open(self.cam_settings_path) as f:
                 self.cam_settings = json.load(f)
         except (OSError, ValueError):
             self.cam_settings = {}
+        self.calibrator = calibrate.Calibrator(self, clock=clock)
         # Background work started from the poll loop (tests run it inline).
         self.spawn = lambda fn, *a: threading.Thread(target=fn, args=a, daemon=True).start()
 
@@ -318,6 +341,7 @@ class Hub:
             self.poll_once()
             self.health = hub_health(self.cfg["state_dir"])
             self.check_budget()
+            self.calibrator.tick()
             stop.wait(max(0.1, self.cfg["poll_s"] - (time.monotonic() - t)))
 
     def snapshot(self):
@@ -331,6 +355,7 @@ class Hub:
                               for n in self.cfg["nodes"]},
                     "phones": self.phones.snapshot(self.health.get("free_gb")),
                     "budget": self.budget, "camera_settings": self.cam_settings,
+                    "calibration": self.calibrator.status(),
                     "last_take": self.last_take()}
 
     # -- phones
@@ -442,7 +467,7 @@ class Hub:
                             % (take_id, "the hub" if by == "hub" else by))
 
     # -- per-camera settings kept on the hub, sent with every arm and snapshot (Track B)
-    SETTING_RANGES = {"lens_position": (0.0, 15.0)}
+    SETTING_RANGES = {"lens_position": (0.0, 15.0), "gain": (1.0, 16.0), "awb_gains": (0.3, 10.0)}
 
     def set_camera_settings(self, cam, body):
         if cam not in self.cfg["nodes"]:
@@ -452,10 +477,13 @@ class Hub:
             if k not in self.SETTING_RANGES:
                 raise ValueError("unknown setting %s" % k)
             lo, hi = self.SETTING_RANGES[k]
-            v = float(v)
-            if not lo <= v <= hi:
+            vals = v if k == "awb_gains" else [v]
+            if k == "awb_gains" and (not isinstance(v, list) or len(v) != 2):
+                raise ValueError("awb_gains must be [red, blue]")
+            vals = [float(x) for x in vals]
+            if not all(lo <= x <= hi for x in vals):
                 raise ValueError("%s must be %g to %g" % (k, lo, hi))
-            new[k] = round(v, 3)
+            new[k] = [round(x, 3) for x in vals] if k == "awb_gains" else round(vals[0], 3)
         with self.lock:
             self.cam_settings[cam] = dict(self.cam_settings.get(cam, {}), **new)
             tmp = self.cam_settings_path + ".tmp"
@@ -471,28 +499,38 @@ class Hub:
         if cam not in self.cfg["nodes"]:
             raise ValueError("unknown camera %s" % cam)
         with self.lock:
-            if self.state != "idle":
-                raise Refused(["rig is %s: no snapshots during a take" % self.state])
             st = self.status[cam]
-            if st is None:
-                raise Refused(["%s is offline" % cam])
-            self.snaps_in_flight += 1
-            settings = dict(self.cam_settings.get(cam, {}), **(overrides or {}))
         t0 = time.monotonic()
-        try:
-            if st.get("mode") in ("live", "live-starting"):
-                jpg, source = self.grab_live(cam), "live"
-            else:
-                jpg, source = self.nodes.post(cam, "/snapshot", {"settings": settings}, timeout=15, raw=True), "still"
-        finally:
-            with self.lock:
-                self.snaps_in_flight -= 1
+        if st and st.get("mode") in ("live", "live-starting"):
+            jpg, source, settings = self.grab_live(cam), "live", {}
+        else:
+            jpg, meta = self.still(cam, overrides)
+            source, settings = "still", meta.get("settings", {})
         info = {"camera": cam, "source": source, "ms": round((time.monotonic() - t0) * 1000), "settings": settings}
         try:
             info["sharpness"] = calib.sharpness(jpg)
         except Exception as e:  # noqa: BLE001 - the picture still helps without the number
             info["sharpness_error"] = str(e)
         return jpg, info
+
+    def still(self, cam, settings=None, auto=False):
+        """(jpeg, metadata) from an idle camera: the hub's settings for it plus `settings`,
+        or auto-metered. One per camera at a time; REC waits for any in flight."""
+        if cam not in self.cfg["nodes"]:
+            raise ValueError("unknown camera %s" % cam)
+        with self.lock:
+            if self.state != "idle":
+                raise Refused(["rig is %s: no snapshots during a take" % self.state])
+            if self.status[cam] is None:
+                raise Refused(["%s is offline" % cam])
+            self.snaps_in_flight += 1
+            body = {"settings": dict(self.cam_settings.get(cam, {}), **(settings or {})), "auto": auto}
+        try:
+            with self.cam_locks[cam]:
+                return self.nodes.still(cam, body)
+        finally:
+            with self.lock:
+                self.snaps_in_flight -= 1
 
     def grab_live(self, cam):
         url = "rtsp://%s.local:8554/cam" % cam
@@ -567,7 +605,8 @@ class Hub:
             self.state = "starting"
             self.take = {"take_id": take_id, "nodes": names, "server": server,
                          "started_at": self.clock(), "missing": missing,
-                         "limit_s": bud["total_s"]}
+                         "limit_s": bud["total_s"],
+                         "calibration": {n: self.calibrator.records.get(n) for n in names}}
             self.message = None
         try:
             if live:
@@ -631,6 +670,7 @@ class Hub:
             active = [n for n in names if (self.status[n] or {}).get("mode") in ("armed", "recording")]
         manifests, errors = self._parallel(active, lambda n: self.nodes.post(n, "/take/stop", timeout=40))
         summary = take_summary(take.get("take_id"), manifests, errors, self.cfg["max_sync_difference_us"])
+        summary.update(calibration=take.get("calibration"))
         summary.update(phones=self.phones.phones_in(take.get("take_id")),
                        server=take.get("server"), missing=take.get("missing", []),
                        started_at=take.get("started_at"),
@@ -836,7 +876,9 @@ class Handler(BaseHTTPRequestHandler):
         h = self.hub
         if self.MEDIA.match(self.path.split("?")[0]):
             return self._media()
-        if self.path == "/api/status":
+        if self.path.split("?")[0] == "/api/status":
+            if "watch=1" in self.path:
+                h.calibrator.page_open()      # a page is open: watch for the card
             return self._send(200, h.snapshot())
         if self.path == "/api/takes":
             return self._send(200, h.read_log())

@@ -105,7 +105,7 @@ class AgentTest(unittest.TestCase):
         self.tmp = os.path.join(tempfile.mkdtemp(), "takes")
         os.makedirs(self.tmp)
         self.cfg = camnode.load_config(None)
-        self.cfg.update(takes_dir=self.tmp, rpicam_vid=FAKE, rpicam_still=FAKE_STILL, stop_timeout_s=3, min_free_gb=0, led_path="")
+        self.cfg.update(takes_dir=self.tmp, rpicam_vid=FAKE, rpicam_still=FAKE_STILL, still_meta_dir=self.tmp, stop_timeout_s=3, min_free_gb=0, led_path="")
         self.live = False
         self.ready_after = 0
         self.agent = self.make()
@@ -117,8 +117,14 @@ class AgentTest(unittest.TestCase):
                              live_ready=lambda: self.live and self.ready_after <= time.time())
 
     def test_snapshot_uses_take_settings_and_overrides(self):
-        self.assertIn(b"lens=1.0", self.agent.snapshot())
-        self.assertIn(b"lens=2.5", self.agent.snapshot({"lens_position": 2.5}))
+        jpg, meta = self.agent.snapshot()
+        self.assertIn(b"lens=1.0", jpg)
+        self.assertEqual(meta["AnalogueGain"], 2.0)
+        self.assertEqual(meta["settings"]["gain"], 2.0)
+        self.assertIn(b"lens=2.5", self.agent.snapshot({"lens_position": 2.5})[0])
+        jpg, meta = self.agent.snapshot(auto=True)     # calibration: the camera meters
+        self.assertEqual((meta["AnalogueGain"], meta["ColourGains"]), (12.5, [1.9, 2.6]))
+        self.assertNotIn("gain", meta["settings"])
         self.assertEqual(self.agent.status()["mode"], "idle")
         with self.assertRaises(ValueError):
             self.agent.snapshot({"bitrate": 1})

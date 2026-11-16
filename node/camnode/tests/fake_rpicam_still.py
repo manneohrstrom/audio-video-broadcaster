@@ -9,4 +9,8 @@ if lp == "99":
     sys.exit(1)
 if lp == "98":
     time.sleep(1.0)
+if "--metadata" in a:
+    auto = "--gain" not in a
+    with open(a[a.index("--metadata") + 1], "w") as f:
+        f.write('{"AnalogueGain": %s, "ColourGains": [1.9, 2.6], "Lux": 30.0}' % ("12.5" if auto else a[a.index("--gain") + 1]))
 sys.stdout.buffer.write(b"\xff\xd8fakejpeg lens=" + lp.encode() + b"\xff\xd9")

@@ -21,6 +21,14 @@ class FakeRig:
         self.diff = {}
         self.lock = threading.Lock()
 
+    def still(self, n, body, timeout=None):
+        with self.lock:
+            self.bodies.append((n, "/snapshot", body))
+            if self.st[n]["mode"] != "idle":
+                raise hubd.NodeError("%s: camera is %s" % (n, self.st[n]["mode"]))
+            meta = {"settings": body["settings"], "AnalogueGain": 12.0, "ColourGains": [1.9, 2.6]}
+            return b"\xff\xd8snap " + json.dumps(body).encode(), meta
+
     def get(self, n, path, timeout=None):
         if n in self.offline:
             raise OSError("timeout")
@@ -32,10 +40,7 @@ class FakeRig:
             self.calls.append((n, path, (body or {}).get("role")))
             self.bodies.append((n, path, body))
             s = self.st[n]
-            if path == "/snapshot":
-                if s["mode"] != "idle":
-                    raise hubd.NodeError("%s: camera is %s" % (n, s["mode"]))
-                return b"\xff\xd8snap " + json.dumps(body["settings"]).encode()
+
             if path == "/take/arm":
                 if n in self.fail_arm:
                     raise hubd.NodeError("%s: camera busy" % n)
@@ -418,7 +423,7 @@ class SnapshotTest(unittest.TestCase):
         self.assertEqual(self.hub.cam_settings["cam2"], {"lens_position": 0.8})   # a try isn't saved
 
     def test_settings_validated_persisted_and_sent_at_arm(self):
-        for bad in ({"lens_position": 99}, {"gain": 2}):
+        for bad in ({"lens_position": 99}, {"gain": 99}, {"shutter_us": 1}, {"awb_gains": [1.0]}):
             with self.assertRaises(ValueError):
                 self.hub.set_camera_settings("cam1", bad)
         with self.assertRaises(ValueError):
