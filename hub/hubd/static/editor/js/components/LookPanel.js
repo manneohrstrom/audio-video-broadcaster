@@ -48,53 +48,65 @@ export function LookPanel({ store }) {
       <span>${item.name}</span>${on && html`<i class="on-dot"></i>`}
     </button>`;
 
+  const effectsOn = Object.keys(store.look.effects).length;
+  const adjusted = Object.keys(store.look.adjust || {}).length;
   return html`
     <section class="look-panel" aria-label="Look">
-      <div class="row-title">Filters</div>
-      <div class="look-row">
-        ${looks.filters.map(filter => tile(`filter:${filter.id}`, filter, store.look.filter === filter.id, false, () => store.tapFilter(filter.id)))}
+      <div class="look-section">
+        <div class="row-title">Filters</div>
+        <div class="look-row">
+          ${looks.filters.map(filter => tile(`filter:${filter.id}`, filter, store.look.filter === filter.id, false, () => store.tapFilter(filter.id)))}
+        </div>
+        ${store.adjusting === "filter" && strengthBlock(store, looks)}
       </div>
-      <div class="row-title">Effects${Object.keys(store.look.effects).length ? ` · ${Object.keys(store.look.effects).length} on` : ""}</div>
-      <div class="look-row">
-        ${looks.effects.map(effect => tile(`effect:${effect.id}`, effect, store.adjusting === effect.id,
-                                          store.look.effects[effect.id] != null, () => store.tapEffect(effect.id)))}
+      <div class="look-section">
+        <div class="row-title">Effects${effectsOn ? ` · ${effectsOn} on` : ""}</div>
+        <div class="look-row">
+          ${looks.effects.map(effect => tile(`effect:${effect.id}`, effect, store.adjusting === effect.id,
+                                            store.look.effects[effect.id] != null, () => store.tapEffect(effect.id)))}
+        </div>
+        ${store.adjusting && store.adjusting !== "filter" && strengthBlock(store, looks)}
+        ${!store.adjusting && html`<p class="look-hint">Tap a filter to try it, an effect to add it. Tap again for its strength. Effects stack.</p>`}
       </div>
-      <div class="adjust-row">${adjustRow(store, looks)}</div>
-      <div class="row-title">Adjust${Object.keys(store.look.adjust).length
-        ? html` · <button class="text-button" onClick=${() => store.resetAdjustments()}>reset all</button>` : ""}</div>
-      <div class="adjust-grid">
-        ${looks.adjustments.map(adjustment => {
-          const value = store.look.adjust[adjustment.id] || 0;
-          const shown = Math.round(value * 100);
-          return html`
-            <label class=${"adjust-slider" + (value ? " changed" : "")} key=${adjustment.id}
-                   title="Double-click to set back to 0" onDblClick=${() => store.setAdjustment(adjustment.id, 0)}>
-              <span>${adjustment.name}</span>
-              <input type="range" min=${adjustment.positive_only ? 0 : -100} max="100" value=${shown}
-                     aria-label=${adjustment.name} onInput=${event => store.setAdjustment(adjustment.id, event.target.value / 100)} />
-              <output>${shown > 0 ? "+" : ""}${shown}</output>
-            </label>`;
-        })}
+      <div class="look-section">
+        <div class="section-header">
+          <div class="row-title">Adjust${adjusted ? ` · ${adjusted} changed` : ""}</div>
+          <button class="button small" disabled=${!adjusted} onClick=${() => store.resetAdjustments()}
+                  title="Set every colour slider back to 0">Reset</button>
+        </div>
+        <div class="adjust-grid">
+          ${looks.adjustments.map(adjustment => {
+            const value = store.look.adjust[adjustment.id] || 0;
+            const shown = Math.round(value * 100);
+            return html`
+              <label class=${"adjust-slider" + (value ? " changed" : "")} key=${adjustment.id}
+                     title="Double-click to set back to 0" onDblClick=${() => store.setAdjustment(adjustment.id, 0)}>
+                <span>${adjustment.name}</span>
+                <input type="range" min=${adjustment.positive_only ? 0 : -100} max="100" value=${shown}
+                       aria-label=${adjustment.name} onInput=${event => store.setAdjustment(adjustment.id, event.target.value / 100)} />
+                <output>${shown > 0 ? "+" : ""}${shown}</output>
+              </label>`;
+          })}
+        </div>
       </div>
     </section>`;
 }
 
-function adjustRow(store, looks) {
-  const slider = (label, value, onChange, extra) => html`
-    <strong>${label}</strong>
-    <input type="range" min="0" max="100" value=${Math.round(value * 100)} aria-label=${`${label} strength`}
-           onInput=${event => onChange(event.target.value / 100)} />
-    <output>${Math.round(value * 100)}</output>
-    ${extra}
-    <button class="button small" onClick=${() => { store.adjusting = null; store.notify(); }}>Done</button>`;
-  if (store.adjusting === "filter") {
-    const filter = looks.filters.find(f => f.id === store.look.filter);
-    return slider(filter.name, store.look.filter_strength, value => store.setStrength("filter", value));
-  }
-  const effect = looks.effects.find(e => e.id === store.adjusting);
-  if (effect && store.look.effects[effect.id] != null) {
-    return slider(effect.name, store.look.effects[effect.id], value => store.setStrength(effect.id, value),
-                  html`<button class="button small" onClick=${() => store.removeEffect(effect.id)}>Remove</button>`);
-  }
-  return html`<span>Tap a filter to try it, an effect to add it. Tap again for its strength. Effects stack.</span>`;
+/** The strength of the chosen filter or effect, as a block under its row. */
+function strengthBlock(store, looks) {
+  const isFilter = store.adjusting === "filter";
+  const item = isFilter ? looks.filters.find(f => f.id === store.look.filter) : looks.effects.find(e => e.id === store.adjusting);
+  const value = isFilter ? store.look.filter_strength : store.look.effects[store.adjusting];
+  if (!item || value == null) return null;
+  const close = () => { store.adjusting = null; store.notify(); };
+  return html`
+    <div class="strength-block">
+      <div class="strength-heading"><strong>${item.name}</strong><output>${Math.round(value * 100)}</output></div>
+      <input type="range" min="0" max="100" value=${Math.round(value * 100)} aria-label=${`${item.name} strength`}
+             onInput=${event => store.setStrength(isFilter ? "filter" : item.id, event.target.value / 100)} />
+      <div class="strength-actions">
+        ${!isFilter && html`<button class="button small" onClick=${() => store.removeEffect(item.id)}>Remove</button>`}
+        <button class="button small" onClick=${close}>Done</button>
+      </div>
+    </div>`;
 }

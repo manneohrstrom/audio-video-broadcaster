@@ -131,3 +131,14 @@
 .adjust-slider input { accent-color: var(--color-accent); min-width: 0; }
 .adjust-slider output { font: 500 12px var(--font-numbers); text-align: right; }
 .text-button { background: none; border: 0; padding: 0; color: var(--color-text-muted); text-decoration: underline; cursor: pointer; font: inherit; text-transform: none; letter-spacing: 0; }
+
+/* Look panel sections: each one grows downwards; the strength block opens under its row. */
+.look-section { display: grid; gap: var(--space-2); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-line); }
+.look-section:last-child { border-bottom: 0; }
+.section-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.look-hint { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-small); }
+.strength-block { display: grid; gap: var(--space-2); padding: 10px var(--space-3); background: var(--color-panel); border: 1px solid var(--color-line); border-radius: var(--radius); }
+.strength-heading { display: flex; justify-content: space-between; align-items: baseline; }
+.strength-heading output { font: 500 13px var(--font-numbers); }
+.strength-block input[type=range] { width: 100%; accent-color: var(--color-accent); }
+.strength-actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
