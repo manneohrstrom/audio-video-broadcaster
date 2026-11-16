@@ -13,6 +13,7 @@ import { TransportBar } from "./TransportBar.js";
 import { Splitter, savedVideoHeight } from "./Splitter.js";
 import { Timeline } from "./Timeline.js";
 import { LookPanel } from "./LookPanel.js";
+import { MakeVideo } from "./MakeVideo.js";
 import { formatSeconds } from "../time-format.js";
 
 export function App({ takeId, songId, version }) {
@@ -70,6 +71,7 @@ function Editor({ project }) {
           <span class=${"save-state " + store.saveState} title=${store.saveProblem || ""}>${saveLabel}</span>
           <button class="button" disabled=${!store.history.canUndo} onClick=${() => store.undo()} title="Undo (⌘Z)">Undo</button>
           <button class="button" disabled=${!store.history.canRedo} onClick=${() => store.redo()} title="Redo (⇧⌘Z)">Redo</button>
+          <${MakeVideo} store=${store} />
         </div>
       </header>
       <div class="video-area">

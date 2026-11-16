@@ -38,8 +38,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import render  # noqa: E402
 import thumbnails  # noqa: E402
 import proxies  # noqa: E402
+import edit_render  # noqa: E402
 
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -99,6 +100,8 @@ DEFAULT_CONFIG = {
     # hubd's own state folder: the editor's waveforms and edits of a removed take go too.
     "hubd_state_dir": "/var/lib/hubd",
     "removed_check_s": 600,     # how often to look for takes deleted from the drive
+    # The editor's looks (filters, effects, adjustments), shared with the editor's preview.
+    "looks_path": "/opt/hubd/static/editor/looks.json",
 }
 TAKE_RE = re.compile(r"^\d{8}-\d{6}$")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1098,15 +1101,17 @@ class Ingest:
 
     # -- quick mix renders (Phase 4 A4, render.py)
     def queue_render(self, doc):
+        """A quick mix ("render"), or the editor's edit (kind "edit": the finished video)."""
         take, song, v = doc.get("take"), doc.get("song"), doc.get("version")
         if not (TAKE_RE.match(take or "") and isinstance(v, int) and re.match(r"^[a-z0-9-]+$", song or "")):
             return
-        key = "%s/%s/v%d" % (take, song, v)
+        kind = "edit" if doc.get("kind") == "edit" else "quick"
+        key = "%s/%s/v%d" % (take, song, v) + (":edit" if kind == "edit" else "")
         jobs = self.state.setdefault("renders", {})
         if (jobs.get(key) or {}).get("status") in ("queued", "rendering", "checking", "writing"):
             return
-        jobs[key] = {"take": take, "song": song, "version": v, "status": "queued", "queued_at": self.clock(),
-                     "progress": None, "error": None}
+        jobs[key] = {"take": take, "song": song, "version": v, "kind": kind, "status": "queued",
+                     "queued_at": self.clock(), "progress": None, "error": None}
         self.manual = True                    # asked for by the user: don't wait for 30 min idle
         self.save()
 
@@ -1124,7 +1129,10 @@ class Ingest:
                 job["status_note"] = "waiting for the take's own ingest"
                 continue
             try:
-                self.render_job(job)
+                if job.get("kind") == "edit":
+                    self.render_edit_job(job)
+                else:
+                    self.render_job(job)
             except Paused:
                 job["status"] = "queued"
                 raise
@@ -1219,6 +1227,81 @@ class Ingest:
         os.remove(edit_tmp)
         job.update(status="done", path=mp4, file=os.path.relpath(mp4, self.take_folder(job["take"])),
                    finished=self.clock(), bytes=size)
+        self.state["drive_free_gb"] = self.drive_free()
+        self.save(current_render=None)
+
+    def render_edit_job(self, job):
+        """The editor's edit as the finished video: <take>/edits/<song>/<song>-v<N>.mp4 plus
+        the edit itself (.json) on the drive; never replaces a file (-2, -3, ...)."""
+        audio_dir, version, sync = self._audio_src(job)
+        bounce = os.path.join(audio_dir, sync.get("file") or version["filename"])
+        edit_path = os.path.join(self.cfg["hubd_state_dir"], "edits", job["take"], job["song"], "v%d.json" % job["version"])
+        with open(edit_path) as f:
+            edit = json.load(f)
+        edit["bounce_start_ns"] = int(sync["bounce_start_ns"])
+        with open(self.cfg["looks_path"]) as f:
+            looks = json.load(f)
+        out_dir = os.path.join(self.work, "renders", job["take"])
+        os.makedirs(out_dir, exist_ok=True)
+        base = "%s-v%d" % (job["song"], job["version"])
+        tmp = os.path.join(out_dir, base + ".edit.tmp.mp4")
+        job.update(status="rendering", progress=0.0, error=None, status_note=None, started=self.clock())
+        self.save(current_render=job["take"])
+        started = time.monotonic()
+        with self.reading_drive():
+            folder = self.take_folder(job["take"])
+            with open(os.path.join(folder, "take.json")) as f:
+                take_doc = json.load(f)
+
+            def progress(done, total):
+                job["progress"] = round(done / total, 3) if total else None
+                elapsed = time.monotonic() - started
+                job["eta_s"] = round(elapsed / done * (total - done)) if done else None
+                if done % 150 == 0:
+                    self.save()
+
+            def busy():
+                is_busy = self.rig_busy()
+                if is_busy != (job["status"] == "paused"):
+                    job["status"] = "paused" if is_busy else "rendering"
+                    self.save(status="paused: rig busy" if is_busy else "ingesting")
+                return is_busy
+            renderer = edit_render.EditRenderer(edit, take_doc, folder, bounce, edit.get("look"), looks, out_dir,
+                                                busy=busy, should_abort=self.eject_requested, progress=progress)
+            job.update(frames=renderer.total_frames, shots=len(renderer.shots),
+                       length_s=round(renderer.total_frames / render.FPS, 1))
+            renderer.run(tmp)
+        job.update(status="checking", progress=1.0, eta_s=None)
+        self.save()
+        info = render.probe_output(tmp)
+        problems = []
+        if info["frames"] != renderer.total_frames:
+            problems.append("%d frames, expected %d" % (info["frames"], renderer.total_frames))
+        if info["rate"] != "30/1":
+            problems.append("frame rate %s" % info["rate"])
+        job["checked"] = info
+        if problems:
+            raise RuntimeError("render check failed: " + "; ".join(problems))
+        job["status"] = "writing"
+        self.save()
+        edit_copy = os.path.join(out_dir, base + ".edit.json")
+        with open(edit_copy, "w") as f:
+            json.dump(edit, f, indent=1)
+        with self.writing():
+            destination_dir = os.path.join(self.take_folder(job["take"]), "edits", job["song"])
+            os.makedirs(destination_dir, exist_ok=True)
+            name, n = base, 1
+            while os.path.exists(os.path.join(destination_dir, name + ".mp4")):
+                n += 1
+                name = "%s-%d" % (base, n)
+            mp4 = os.path.join(destination_dir, name + ".mp4")
+            self.copy_verified(tmp, mp4)
+            self.copy_verified(edit_copy, os.path.join(destination_dir, name + ".json"))
+            size = os.path.getsize(mp4)
+        os.remove(tmp)
+        os.remove(edit_copy)
+        job.update(status="done", path=mp4, file=os.path.relpath(mp4, self.take_folder(job["take"])),
+                   finished=self.clock(), bytes=size, render_s=round(time.monotonic() - started))
         self.state["drive_free_gb"] = self.drive_free()
         self.save(current_render=None)
 

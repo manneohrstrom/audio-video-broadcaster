@@ -146,3 +146,8 @@
 .strength-row span { color: var(--color-text); font-weight: 500; }
 .strength-row input { accent-color: var(--color-accent); min-width: 0; }
 .strength-row output { font: 500 12px var(--font-numbers); text-align: right; }
+.make-video { display: flex; align-items: center; gap: var(--space-2); }
+.render-state { color: var(--color-text-muted); font-size: var(--font-size-small); max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.render-state.problem { color: var(--color-problem); }
+a.button { text-decoration: none; color: var(--color-text); }
+.button.primary { background: var(--color-accent); color: var(--color-background); border-color: var(--color-accent); font-weight: 600; }

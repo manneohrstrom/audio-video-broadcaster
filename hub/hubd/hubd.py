@@ -31,7 +31,7 @@ import phones  # noqa: E402
 import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 
-VERSION = "0.16.0"
+VERSION = "0.17.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -984,6 +984,24 @@ class Hub:
         os.replace(p + ".tmp", p)
         return dict(fields, queued=cmd)
 
+    def request_edit_render(self, take, song, version):
+        """The editor's edit as the finished video (hub-ingest's edit_render.py), when idle."""
+        if not os.path.exists(self.editor.working_copy_path(take, song, version)):
+            raise ValueError("nothing to render yet: make a cut in the editor first")
+        if not self.audio.version_info(take, song, version).get("synced"):
+            raise ValueError("this song isn't synced to the take yet")
+        return self.ingest_command("render", take=take, song=song, version=version, kind="edit")
+
+    def edit_render_status(self, take, song, version):
+        """The newest render job of this song's edit, from hub-ingest's state (or {})."""
+        try:
+            with open(os.path.join(self.cfg["ingest_dir"], "state.json")) as f:
+                jobs = json.load(f).get("renders") or {}
+        except (OSError, ValueError):
+            return {}
+        job = jobs.get("%s/%s/v%d:edit" % (take, song, version)) or {}
+        return {k: job.get(k) for k in ("status", "progress", "eta_s", "error", "file", "status_note", "length_s", "render_s")}
+
     def request_sync(self, take, song, version):
         """hub-ingest syncs the bounce to the take from the hub mic (audiosync.py)."""
         v = self.audio.version_info(take, song, int(version))
@@ -1068,6 +1086,7 @@ class Handler(BaseHTTPRequestHandler):
     P_PHONE_MOUNT = re.compile(r"^/api/phone/([^/]+)/mount$")
     P_AUDIO = re.compile(r"^/api/audio/(\d{8}-\d{6})$")
     P_EDITOR = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})$")
+    P_EDITOR_RENDER = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/render$")
     P_EDITOR_WAVEFORM = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/waveform$")
     # Strip thumbnails (hub-ingest's thumbnails.py): index.json and sheet-NNN.jpg per camera.
     MEDIA_PROXY = re.compile(r"^/media-proxy/(\d{8}-\d{6})/([a-z0-9][a-z0-9-]{0,40})\.mp4$")
@@ -1185,6 +1204,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(404, {"error": "no thumbnails yet"})
             with open(path, "rb") as f:
                 return self._send(200, f.read(), "application/json" if path.endswith(".json") else "image/jpeg")
+        m = self.P_EDITOR_RENDER.match(self.path.split("?")[0])
+        if m:
+            return self._send(200, h.edit_render_status(m.group(1), m.group(2), int(m.group(3))))
         m = self.P_EDITOR_WAVEFORM.match(self.path.split("?")[0])
         if m:
             try:
@@ -1347,6 +1369,9 @@ class Handler(BaseHTTPRequestHandler):
                 if v.get("complete"):
                     h.request_sync(m.group(1), m.group(2), int(m.group(3)))    # automatic sync (Track A)
                 return self._send(200, v)
+            m = self.P_EDITOR_RENDER.match(self.path)
+            if m:                                  # "Make video" in the editor: the finished video
+                return self._send(200, h.request_edit_render(m.group(1), m.group(2), int(m.group(3))))
             if self.path == "/api/sync":           # {"take", "song", "version"}: sync again
                 return self._send(200, h.request_sync(b.get("take"), b.get("song"), int(b.get("version") or 0)))
             m = self.P_AUDIO_CHOOSE.match(self.path)

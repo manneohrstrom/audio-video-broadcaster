@@ -17,6 +17,16 @@ export function loadProject(takeId, songId, version) {
   return request("GET", `/api/editor/${takeId}/${songId}/v${version}`);
 }
 
+/** Ask the hub to render the finished video of this edit (runs when the rig is idle). */
+export function requestRender(takeId, songId, version) {
+  return request("POST", `/api/editor/${takeId}/${songId}/v${version}/render`, {});
+}
+
+/** The render's progress: { status, progress, eta_s, file, error }. */
+export function renderStatus(takeId, songId, version) {
+  return request("GET", `/api/editor/${takeId}/${songId}/v${version}/render`);
+}
+
 /** Save the working copy of the edit on the hub. */
 export function saveEdit(takeId, songId, version, edit) {
   return request("PUT", `/api/editor/${takeId}/${songId}/v${version}`, edit);
