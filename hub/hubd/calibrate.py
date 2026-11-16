@@ -36,6 +36,12 @@ ROUNDS = 5
 SENS = 2.2              # d log(R/G) / d log(red gain), measured on cam1; same for blue
 SENS_RANGE = (0.8, 4.0)
 WATCH_S = 20            # watching stays on this long after a page last asked for status
+# How often a camera looks for the card. Every look starts and stops the camera; after ~590
+# of them on 2026-11-16, cam2's driver froze (needed a reboot). So: often while setting up
+# (just after a page opens) and for cameras not yet calibrated, rarely otherwise.
+EVERY_S = 3.0
+EVERY_SETTLED_S = 15.0
+SETUP_S = 300
 
 
 def lin(v):
@@ -105,12 +111,22 @@ class Calibrator:
         self.in_view = {}           # cam -> card seen in the latest still
         self.busy = set()
         self.watch_until = 0.0
+        self.watch_since = 0.0
+        self.last_look = {}         # cam -> time of its last look for the card
         self.seq = 0                # bumped on every new calibration (the page chimes)
         self.card = None
 
     # -- what the pages see
     def page_open(self):
-        self.watch_until = self.clock() + WATCH_S
+        now = self.clock()
+        if now >= self.watch_until:
+            self.watch_since = now          # a new setup session
+        self.watch_until = now + WATCH_S
+
+    def due(self, cam):
+        now = self.clock()
+        settled = cam in self.records and now - self.watch_since > SETUP_S
+        return now - self.last_look.get(cam, 0) >= (EVERY_SETTLED_S if settled else EVERY_S)
 
     def watching(self):
         return self.clock() < self.watch_until and self.hub.state == "idle"
@@ -176,9 +192,10 @@ class Calibrator:
             ready = [n for n, st in self.hub.status.items() if st and st.get("mode") in ("idle", "live")]
         for cam in ready:
             with self.lock:
-                if cam in self.busy:
+                if cam in self.busy or not self.due(cam):
                     continue
                 self.busy.add(cam)
+                self.last_look[cam] = self.clock()
             self.hub.spawn(self._step_safely, cam)
 
     def _step_safely(self, cam):

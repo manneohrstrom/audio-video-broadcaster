@@ -137,6 +137,13 @@ class AgentTest(unittest.TestCase):
         self.assertIn("no cameras available", str(e.exception))
         self.assertEqual(self.agent.status()["mode"], "idle")
 
+    def test_snapshot_that_hangs_times_out(self):
+        self.cfg["snapshot_timeout_s"] = 0.5
+        with self.assertRaises(RuntimeError) as e:
+            self.agent.snapshot({"lens_position": 97})
+        self.assertIn("took over", str(e.exception))     # killable: camera free again
+        self.assertEqual(self.agent.status()["mode"], "idle")
+
     def test_snapshot_blocks_arm_and_is_refused_when_busy(self):
         import threading
         t = threading.Thread(target=self.agent.snapshot, args=({"lens_position": 98},))

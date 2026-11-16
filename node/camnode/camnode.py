@@ -18,7 +18,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 NOMINAL_MS = 1000.0 / 30
 TAKE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WC_RE = re.compile(rb'"FrameWallClock":\s*(\d+)')
@@ -103,6 +103,7 @@ def build_still_cmd(cfg, settings, auto=False, metadata=None):
 SNAPSHOT_KEYS = ("shutter_us", "gain", "awb_gains", "lens_position")
 # Take settings -> MediaMTX rpiCamera parameters, changeable on a running stream without a
 # restart or a gap (spike B-S1). Shutter stays as configured.
+STUCK_MSG = "camera stuck in the driver: reboot this camera"
 LIVE_KEYS = {"gain": "rpiCameraGain", "awb_gains": "rpiCameraAWBGains", "lens_position": "rpiCameraLensPosition"}
 
 
@@ -424,6 +425,7 @@ class Agent:
         self.state = "idle"       # idle | switching | armed | recording | stopping
         self.last_error = None
         self.last_take = None     # manifest of the most recent take
+        self.still_proc = None    # rpicam-still while a snapshot runs
         self._probe = probe
         self._live_active = live_active
         self._live_ctl = live_ctl
@@ -601,14 +603,30 @@ class Agent:
             if self._live_active():
                 raise Busy("live mode is on")
             self.state = "snapshot"
+        stuck = False
         try:
             s = dict(self.cfg["settings"], **(settings or {}))
             mpath = os.path.join(self.cfg["still_meta_dir"], "camnode-still-%d.json" % os.getpid())
-            r = subprocess.run(build_still_cmd(self.cfg, s, auto, mpath), stdin=subprocess.DEVNULL,
-                               capture_output=True, timeout=self.cfg["snapshot_timeout_s"])
-            if r.returncode != 0 or not r.stdout.startswith(b"\xff\xd8"):
-                tail = r.stderr.decode(errors="replace").strip().splitlines()[-1:] or ["no output"]
-                raise RuntimeError("rpicam-still failed (code %s): %s" % (r.returncode, tail[0]))
+            p = subprocess.Popen(build_still_cmd(self.cfg, s, auto, mpath), stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.still_proc = p
+            try:
+                out, err = p.communicate(timeout=self.cfg["snapshot_timeout_s"])
+            except subprocess.TimeoutExpired:
+                # 2026-11-16, cam2: rpicam-still froze inside the camera driver (kernel: task
+                # CameraManager blocked for more than 120 s); such a process can't be killed
+                # and the camera stays unusable until a reboot. Say so instead of hanging.
+                p.kill()
+                try:
+                    p.communicate(timeout=3)
+                except subprocess.TimeoutExpired:
+                    stuck = True
+                    raise RuntimeError(STUCK_MSG) from None
+                raise RuntimeError("rpicam-still took over %ds" % self.cfg["snapshot_timeout_s"]) from None
+            if p.returncode != 0 or not out.startswith(b"\xff\xd8"):
+                tail = err.decode(errors="replace").strip().splitlines()[-1:] or ["no output"]
+                raise RuntimeError("rpicam-still failed (code %s): %s" % (p.returncode, tail[0]))
+            r = subprocess.CompletedProcess(p.args, p.returncode, out, err)
             meta = {}
             try:
                 with open(mpath) as f:
@@ -627,7 +645,11 @@ class Agent:
             return r.stdout, meta
         finally:
             with self.lock:
-                self.state = "idle"
+                self.still_proc = None
+                if stuck:
+                    self.state, self.last_error = "stuck", STUCK_MSG
+                else:
+                    self.state = "idle"
 
     # -- takes
     def arm(self, take_id, role, settings=None):
@@ -816,6 +838,12 @@ def main():
 
     def shutdown(*_):
         a = Handler.agent
+        p = a.still_proc         # let a snapshot finish (~1.5 s) rather than cut it off
+        if p is not None:
+            try:
+                p.wait(timeout=5)
+            except Exception:  # noqa: BLE001
+                pass
         if a.state in ("armed", "recording"):
             try:
                 a.stop()   # never leave a take without a manifest

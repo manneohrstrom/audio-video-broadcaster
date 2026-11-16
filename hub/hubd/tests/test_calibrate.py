@@ -123,14 +123,34 @@ class CalibratorTest(unittest.TestCase):
     def test_card_left_in_view_does_not_recalibrate_until_it_returns(self):
         cal = self.hub.calibrator
         cal.page_open()
-        cal.tick()
-        cal.tick()
-        self.assertEqual(cal.status()["seq"], 1)
-        self.card_visible = set()
-        cal.tick()
-        self.card_visible = {"cam1"}
-        cal.tick()
+        for vis in ({"cam1"}, {"cam1"}, set(), {"cam1"}):
+            self.card_visible = vis
+            self.now[0] += calibrate.EVERY_S
+            cal.page_open(); cal.tick()
         self.assertEqual(cal.status()["seq"], 2)
+
+    def test_looks_less_often_once_settled(self):
+        cal = self.hub.calibrator
+        looks = lambda: len([b for b in self.rig.bodies if b[0] == "cam2" and b[1] == "/snapshot"])
+        cal.page_open()
+        cal.watch_until = 1e12                      # the page keeps polling throughout
+        cal.tick()
+        n = looks()
+        cal.tick()                                  # too soon
+        self.assertEqual(looks(), n)
+        self.now[0] += calibrate.EVERY_S
+        cal.tick()
+        self.assertEqual(looks(), n + 1)            # uncalibrated: every EVERY_S
+        cal.records["cam2"] = {"at": 0, "gain": 4, "awb_gains": [1, 1], "light_ok": True}
+        self.now[0] += calibrate.SETUP_S
+        cal.tick()
+        self.assertEqual(looks(), n + 2)
+        self.now[0] += calibrate.EVERY_S
+        cal.tick()
+        self.assertEqual(looks(), n + 2)            # settled: only every EVERY_SETTLED_S
+        self.now[0] += calibrate.EVERY_SETTLED_S
+        cal.tick()
+        self.assertEqual(looks(), n + 3)
 
     def test_nothing_during_a_take(self):
         cal = self.hub.calibrator

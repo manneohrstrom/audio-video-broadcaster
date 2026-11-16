@@ -9,6 +9,8 @@ if lp == "99":
     sys.exit(1)
 if lp == "98":
     time.sleep(1.0)
+if lp == "97":                 # hangs past the snapshot timeout
+    time.sleep(30)
 if "--metadata" in a:
     auto = "--gain" not in a
     with open(a[a.index("--metadata") + 1], "w") as f:
