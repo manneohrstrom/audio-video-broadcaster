@@ -51,3 +51,11 @@ cam1 idle, `rpicam-vid -t 0 --framerate 1 --codec mjpeg -q 80 --segment 1` at 19
 - Wi-Fi: four cameras watching send about 10 Mbps while idle, which competes with ingest (also idle-time). So watch only while the hub page is open or a device is waiting for the card, not all night.
 
 Card detection (desk check before B-S5): OpenCV 4.10 (`python3-opencv` on the hub) finds both markers of the printed-card PDF down to 72 px across the whole A4 card, i.e. about 3 m from a Camera Module 3 Wide at 1080p in ideal conditions. B-S5 measures it for real; an A3 print roughly doubles the range.
+
+## B-S5: card detection range on a Pi camera (2026-11-16): first run, cam1
+
+Card: A4 laser print (Brother), 80 mm markers. cam1 watched at 1 fps 1080p (B-S7 settings), frames pulled to the Mac and run through OpenCV 4.10 ArUco (`DICT_4X4_50`, default parameters); distance estimated from marker size (HFOV 102°). The user walked the card in front of cam1 in the studio lights.
+
+- Found in every frame from 0.7 m to 2.4 m (47 frames with both markers, all consecutive while the card was in view), plus single hits at 2.1 and 3.2 m on the way in. Lost just beyond 2.4 m when the run ended; whether that was the range limit or the room (cam1 is mounted high and the room is short in its view) is to be confirmed with the user.
+- Detection within one frame (≤1 s) of the card being held still; no false detections in 4 min of an empty room.
+- The 1 fps watcher takes ~7 s to deliver its first frame (rpicam startup at 1 fps): fine for calibration, worth knowing for the UI.
