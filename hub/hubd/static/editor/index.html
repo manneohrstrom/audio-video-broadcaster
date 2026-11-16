@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor · Studio Multicam</title>
+<link rel="stylesheet" href="/editor/styles/tokens.css">
+<link rel="stylesheet" href="/editor/styles/editor.css">
+<!-- Preact and htm are copied into vendor/ and pinned (docs/versions.md); no build step. -->
+<script type="importmap">
+{ "imports": {
+    "preact": "/editor/vendor/preact.module.js",
+    "preact/hooks": "/editor/vendor/hooks.module.js",
+    "htm": "/editor/vendor/htm.module.js"
+} }
+</script>
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="/editor/js/main.js"></script>
+</body>
+</html>

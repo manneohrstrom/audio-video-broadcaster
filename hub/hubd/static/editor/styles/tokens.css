@@ -1,0 +1,57 @@
+/* Design tokens for the editor (docs/editor-plan.md: own design system). Dark by choice:
+   this is video work, and colour judgements need a neutral dark surround. Every colour the
+   editor uses is defined here; components only use these variables. */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, from the page background up */
+  --color-background: #131217;
+  --color-panel: #1b1a20;
+  --color-lane: #201f26;
+  --color-raised: #29272f;
+  --color-line: #34323b;
+
+  /* Text */
+  --color-text: #ede9e3;
+  --color-text-muted: #9c96a3;
+  --color-text-dim: #646070;
+
+  /* Meaning */
+  --color-accent: #f4efe6;     /* selection and focus */
+  --color-playhead: #ff5d6c;
+  --color-warning: #f2c14c;
+  --color-problem: #ff6b5b;
+
+  /* One colour per camera slot, in camera order (Pi cameras first, then phones) */
+  --color-camera-1: #6fa8ff;
+  --color-camera-2: #f29a4c;
+  --color-camera-3: #5cc8a1;
+  --color-camera-4: #c59bff;
+  --color-camera-5: #f2d45c;
+  --color-camera-6: #ff8fb1;
+
+  /* Type */
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-numbers: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-size-small: 12px;
+  --font-size-body: 13px;
+  --font-size-title: 16px;
+
+  /* Shape and space */
+  --radius: 8px;
+  --radius-small: 5px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --label-column-width: 152px;
+}
+
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--color-background);
+  color: var(--color-text);
+  font: var(--font-size-body)/1.4 var(--font-ui);
+}
+button { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }

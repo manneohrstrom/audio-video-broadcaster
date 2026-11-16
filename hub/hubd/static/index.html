@@ -524,8 +524,9 @@ function syncTxt(take, song, v) {
 function videoTxt(take, song, v) {
   const r = v.render, d = `data-take="${esc(take)}" data-song="${esc(song)}" data-v="${v.version}"`;
   const make = label => `<button class="addaudio" data-render="1" ${d}>${label}</button>`;
-  if (!r) return { inline: syncTxt(take, song, v) + (v.synced ? " " + make("▶ Make video") : "") };
-  if (r.status === "done") return { inline: `<button class="play" data-video="${esc(r.file)}" data-take="${esc(take)}">▶ Watch video</button> ` + make("Make again"), steps: videoSteps(r) };
+  const editLink = v.synced ? ` <a class="addaudio" href="/editor/?take=${encodeURIComponent(take)}&song=${encodeURIComponent(song)}&v=${v.version}" target="_blank" rel="noopener">✎ Edit</a>` : "";
+  if (!r) return { inline: syncTxt(take, song, v) + (v.synced ? " " + make("▶ Make video") : "") + editLink };
+  if (r.status === "done") return { inline: `<button class="play" data-video="${esc(r.file)}" data-take="${esc(take)}">▶ Watch video</button> ` + make("Make again") + editLink, steps: videoSteps(r) };
   if (r.status === "error") return { inline: make("Try again"), steps: videoSteps(r) };
   return { inline: "", steps: videoSteps(r) };
 }

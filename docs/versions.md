@@ -71,3 +71,11 @@ No software installed; the page runs in Chrome. Tested: Pixel 3 (Chrome 157) and
 |---|---|---|
 | qrcode-generator (Kazuhiko Arase, MIT) | 1.4.4, sha256 `18ae399f…1780` (from jsdelivr), unmodified | `hub/hubd/static/qrcode.js`: the phone-page QR code on the hub page |
 | mp4box.js (GPAC, BSD-3-Clause) | 0.5.2, sha256 `07ccf31d…1391219` (from jsdelivr), unmodified | `hub/spike/e2/vendor/mp4box.all.min.js`: editor spike E2 (MP4/MOV sample tables for WebCodecs) |
+
+## Editor (browser, served by the hub; no build step)
+
+| Component | Version |
+|---|---|
+| Preact (`preact.module.js`, `hooks.module.js`) | 10.19.3, from jsDelivr, in `hub/hubd/static/editor/vendor/` (sha256 `bfac992a…134e`, `d952f1d8…7d7e`) |
+| htm (`htm.module.js`) | 3.1.1 (sha256 `ab33dd3f…e9e4`) |
+| mp4box.js (`mp4box.all.min.js`) | 0.5.2 (same file as spike E2) |

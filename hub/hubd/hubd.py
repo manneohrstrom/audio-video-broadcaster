@@ -29,8 +29,9 @@ import calibrate  # noqa: E402
 import lamp  # noqa: E402
 import phones  # noqa: E402
 import scratch  # noqa: E402
+import editor_projects  # noqa: E402
 
-VERSION = "0.12.0"
+VERSION = "0.13.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -293,6 +294,10 @@ class Hub:
         self.lamp = lamp.Lamp(cfg.get("lamp"), self.lamp_inputs, log)
         adir = cfg.get("audio_dir") or os.path.join(cfg["state_dir"], "audio")
         self.audio = audio.Audio(adir, takes=self.take_ids, busy=self.rig_busy)
+        # The editor (docs/editor-plan.md, M-E3): one song version at a time.
+        self.editor = editor_projects.EditorProjects(
+            self.audio, read_take_document=self.read_take_document, find_quick_edit=self.find_quick_edit,
+            edits_dir=os.path.join(cfg["state_dir"], "edits"))
         self.scratch = scratch.Scratch(cfg.get("scratch"), adir, log)
 
     @property
@@ -908,6 +913,48 @@ class Hub:
         except OSError:
             return False
 
+    def take_folder(self, take_id):
+        """The take's folder on the STUDIO drive (mounted or not)."""
+        return os.path.join(self.cfg["drive_mount"], "takes",
+                            "%s-%s-%s_%s" % (take_id[:4], take_id[4:6], take_id[6:8], take_id))
+
+    def wait_for_drive(self, wait_s=8.0):
+        """Ask hub-ingest to mount the drive read-only and wait for it. False if it doesn't come."""
+        self.touch_lease()
+        deadline = time.monotonic() + wait_s
+        while not self.drive_mounted():
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(0.25)
+        return True
+
+    def read_take_document(self, take_id):
+        """The take's take.json (written by ingest) from the drive."""
+        if not self.wait_for_drive():
+            raise editor_projects.ProjectError("the STUDIO drive isn't plugged in")
+        try:
+            with open(os.path.join(self.take_folder(take_id), "take.json")) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            raise editor_projects.ProjectError("take %s isn't on the drive yet (ingest)" % take_id) from None
+
+    def find_quick_edit(self, take_id, song_id, version):
+        """The newest quick-mix edit (render.py) of this song version on the drive, or None."""
+        folder = os.path.join(self.take_folder(take_id), "edits", song_id)
+        prefix = "%s-v%d-quick" % (song_id, version)
+        try:
+            names = [n for n in os.listdir(folder) if n.startswith(prefix) and n.endswith(".json")]
+        except OSError:
+            return None
+        if not names:
+            return None
+        newest = max(names, key=lambda n: os.path.getmtime(os.path.join(folder, n)))
+        try:
+            with open(os.path.join(folder, newest)) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
+
     def media_file(self, take_id, rel, wait_s=8.0):
         """(path, None) or (None, http_code). rel: "cam1.mov" or "edits/<song>/<name>.mp4"
         (already checked by the route's pattern). Waits for hub-ingest to mount the drive."""
@@ -973,7 +1020,7 @@ class Hub:
 
 # ---------------------------------------------------------------- HTTP
 
-STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript",
+STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json",
                 ".css": "text/css", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
 
 
@@ -1015,6 +1062,7 @@ class Handler(BaseHTTPRequestHandler):
     P_PHONE_CALIB = re.compile(r"^/api/calib/phone/([^/]+)$")
     P_PHONE_MOUNT = re.compile(r"^/api/phone/([^/]+)/mount$")
     P_AUDIO = re.compile(r"^/api/audio/(\d{8}-\d{6})$")
+    P_EDITOR = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})$")
     P_AUDIO_SONGS = re.compile(r"^/api/audio/(\d{8}-\d{6})/songs$")
     P_AUDIO_VERSIONS = re.compile(r"^/api/audio/(\d{8}-\d{6})/([a-z0-9-]+)/versions$")
     P_AUDIO_PIECE = re.compile(r"^/api/audio/(\d{8}-\d{6})/([a-z0-9-]+)/v(\d+)\?offset=(\d+)$")
@@ -1026,8 +1074,27 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         if self.MEDIA.match(self.path.split("?")[0]):
             return self._media(head=True)
+        if self.MEDIA_AUDIO.match(self.path.split("?")[0]):
+            return self._media_audio(head=True)
         self.send_response(405)
         self.end_headers()
+
+    # A song version's bounce, from the hub's own audio folder (no drive needed).
+    MEDIA_AUDIO = re.compile(r"^/media-audio/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})$")
+    AUDIO_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac", ".m4a": "audio/mp4",
+                   ".aif": "audio/aiff", ".aiff": "audio/aiff", ".ogg": "audio/ogg"}
+
+    def _media_audio(self, head=False):
+        take_id, song_id, version = self.MEDIA_AUDIO.match(self.path.split("?")[0]).groups()
+        try:
+            info = self.hub.audio.version_info(take_id, song_id, int(version))
+        except ValueError as e:
+            return self._send(404, {"error": str(e)})
+        if not info.get("complete"):
+            return self._send(404, {"error": "that version isn't finished uploading"})
+        path = os.path.join(self.hub.audio.take_dir(take_id), song_id, "v%s" % version, info["filename"])
+        content_type = self.AUDIO_TYPES.get(os.path.splitext(path)[1].lower(), "application/octet-stream")
+        return self._serve_file(path, content_type, head)
 
     def _media(self, head=False):
         """Serve a take's .mov from the drive, with Range support (seeking)."""
@@ -1036,6 +1103,11 @@ class Handler(BaseHTTPRequestHandler):
         if err:
             msg = {503: "STUDIO drive not available", 404: "not on the drive"}[err]
             return self._send(err, {"error": msg})
+        # H.264 in .mov; browsers play it as mp4. Long reads keep the drive mounted.
+        return self._serve_file(path, "video/mp4", head, keep_drive_alive=True)
+
+    def _serve_file(self, path, content_type, head=False, keep_drive_alive=False):
+        """Send a file with HTTP Range support (seeking in players and WebCodecs readers)."""
         size = os.path.getsize(path)
         start, end, code = 0, size - 1, 200
         m = re.match(r"bytes=(\d*)-(\d*)$", (self.headers.get("Range") or "").strip())
@@ -1053,7 +1125,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             code = 206
         self.send_response(code)
-        self.send_header("Content-Type", "video/mp4")      # H.264 in .mov; browsers play it as mp4
+        self.send_header("Content-Type", content_type)
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(end - start + 1))
         if code == 206:
@@ -1073,7 +1145,7 @@ class Handler(BaseHTTPRequestHandler):
                         break
                     self.wfile.write(b)
                     left -= len(b)
-                    if time.monotonic() - touched > 30:     # long reads keep the mount alive
+                    if keep_drive_alive and time.monotonic() - touched > 30:   # long reads keep the mount alive
                         self.hub.touch_lease()
                         touched = time.monotonic()
         except (BrokenPipeError, ConnectionResetError, OSError):
@@ -1083,6 +1155,16 @@ class Handler(BaseHTTPRequestHandler):
         h = self.hub
         if self.MEDIA.match(self.path.split("?")[0]):
             return self._media()
+        if self.MEDIA_AUDIO.match(self.path.split("?")[0]):
+            return self._media_audio()
+        m = self.P_EDITOR.match(self.path.split("?")[0])
+        if m:
+            try:
+                return self._send(200, h.editor.project(m.group(1), m.group(2), int(m.group(3))))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
+        if self.path.split("?")[0] in ("/editor", "/editor/") or self.path.startswith("/editor/"):
+            return self._editor_static()
         if self.path.split("?")[0] == "/api/status":
             if "watch=1" in self.path:
                 h.calibrator.page_open()      # a page is open: watch for the card
@@ -1138,7 +1220,25 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, f.read(), STATIC_TYPES[ext])
         self._send(404, {"error": "not found"})
 
+    def _editor_static(self):
+        """The editor page and its modules: static/editor/<path>, nothing outside it."""
+        relative = self.path.split("?")[0][len("/editor"):].lstrip("/") or "index.html"
+        root = os.path.realpath(os.path.join(self.hub.cfg["static_dir"], "editor"))
+        path = os.path.realpath(os.path.join(root, relative))
+        content_type = STATIC_TYPES.get(os.path.splitext(path)[1])
+        if not path.startswith(root + os.sep) or not content_type or not os.path.isfile(path):
+            return self._send(404, {"error": "not found"})
+        with open(path, "rb") as f:
+            return self._send(200, f.read(), content_type)
+
     def do_PUT(self):
+        m = self.P_EDITOR.match(self.path)
+        if m:
+            try:
+                edit = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                return self._send(200, self.hub.editor.save_edit(m.group(1), m.group(2), int(m.group(3)), edit))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
         m = self.P_AUDIO_PIECE.match(self.path)
         if m:
             take, song, v, off = m.groups()

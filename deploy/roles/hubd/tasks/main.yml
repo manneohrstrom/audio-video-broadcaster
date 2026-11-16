@@ -30,7 +30,7 @@
     src: "{{ playbook_dir }}/../hub/hubd/{{ item }}"
     dest: "/opt/hubd/{{ item }}"
     mode: "0644"
-  loop: [audio.py, scratch.py]
+  loop: [audio.py, scratch.py, editor_projects.py]
   notify: Restart hubd
 
 - name: hubd recording light module
