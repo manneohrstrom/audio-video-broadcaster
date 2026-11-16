@@ -29,7 +29,7 @@ The hub is also the **clock** for the whole rig (chrony, `chrony/studio-hub.conf
 | `ingest/ingest.py` | The ingest worker |
 | `ingest/render.py` | Quick mix: the automatic cut (in the editor's edit format) and the render |
 | `ingest/tests/` | Unit tests (the render test runs real ffmpeg) |
-| `calib/` | The calibration card: `card.json` (layout the hub reads) and `make_card.py` (makes the printable PDF) |
+| `calib/` | The calibration card: `card.json` (layout the hub reads) `make_card.py` (makes the printable PDF), and `calibration-card.pdf` (the PDF itself; print A4 landscape at 100%, colour, matte; regenerate with `make_card.py card.json calibration-card.pdf` if `card.json` changes) |
 | `tools/clap_check.py`, `tools/sync_check.py` | Checks: claps in a bounce against motion on each camera; each camera's offset from a reference camera at every clap (raw take folders, Pis and phones) |
 | `systemd/` | `hubd.service` and `hub-ingest.service` |
 | `chrony/studio-hub.conf` | NTP server config for the cameras |
