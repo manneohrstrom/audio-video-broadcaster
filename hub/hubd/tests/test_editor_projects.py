@@ -107,10 +107,14 @@ class ProjectTest(unittest.TestCase):
                                           find_quick_edit=lambda take, song, v: self.quick,
                                           edits_dir=os.path.join(self.tmp, "edits"), clock=lambda: 123.0)
 
-    def test_new_project_starts_on_the_sync_server(self):
+    def test_new_project_starts_from_the_automatic_cut(self):
         p = self.projects.project(TAKE, "track-1", 1)
-        self.assertEqual(p["edit_source"], "new")
-        self.assertEqual(p["edit"]["cuts"], [{"at_ns": 0, "camera": "cam1", "by": "auto"}])
+        self.assertEqual(p["edit_source"], "automatic cut")
+        cuts = p["edit"]["cuts"]
+        self.assertEqual(cuts[0], {"at_ns": 0, "camera": "cam1", "by": "auto"})     # starts on the sync server
+        self.assertEqual(cuts[1]["camera"], "cam2")
+        self.assertTrue(all(c["camera"] in ("cam1", "cam2") for c in cuts))          # Pi cameras only
+        self.assertEqual(p["bounce_versions"], [{"version": 1, "file_name": "mix.wav"}])
         self.assertEqual(p["bounce"]["url"], "/media-audio/%s/track-1/v1" % TAKE)
         self.assertEqual(p["cameras"][0]["file_url"], "/media/%s/cam1.mov" % TAKE)
         self.assertEqual(p["bounce"]["sync"]["confidence"], "high")
@@ -122,6 +126,16 @@ class ProjectTest(unittest.TestCase):
         p = self.projects.project(TAKE, "track-1", 1)
         self.assertEqual(p["edit_source"], "quick mix")
         self.assertEqual([c["camera"] for c in p["edit"]["cuts"]], ["cam1", "cam2"])
+
+    def test_the_edit_belongs_to_the_song_and_older_per_version_copies_are_read(self):
+        older = os.path.join(self.tmp, "edits", TAKE, "track-1", "v1.json")
+        os.makedirs(os.path.dirname(older))
+        rng = self.projects.project(TAKE, "track-1", 1)["range_ns"]
+        with open(older, "w") as f:
+            json.dump({"range_ns": rng, "cuts": [{"at_ns": 0, "camera": "cam2"}]}, f)
+        self.assertEqual(self.projects.project(TAKE, "track-1", 1)["edit"]["cuts"][0]["camera"], "cam2")
+        self.projects.save_edit(TAKE, "track-1", 1, {"cuts": [{"at_ns": 0, "camera": "cam1"}]})
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, "edits", TAKE, "track-1.json")))
 
     def test_save_then_load(self):
         saved = self.projects.save_edit(TAKE, "track-1", 1, {"cuts": [{"at_ns": 0, "camera": "cam2"},

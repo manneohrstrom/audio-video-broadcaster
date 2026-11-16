@@ -40,7 +40,7 @@ import thumbnails  # noqa: E402
 import proxies  # noqa: E402
 import edit_render  # noqa: E402
 
-VERSION = "0.11.2"
+VERSION = "0.12.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -1106,7 +1106,9 @@ class Ingest:
         if not (TAKE_RE.match(take or "") and isinstance(v, int) and re.match(r"^[a-z0-9-]+$", song or "")):
             return
         kind = "edit" if doc.get("kind") == "edit" else "quick"
-        key = "%s/%s/v%d" % (take, song, v) + (":edit" if kind == "edit" else "")
+        # The editor's videos: one job per song (its edit belongs to the song); `version`
+        # is the bounce version that goes into the video.
+        key = "%s/%s:edit" % (take, song) if kind == "edit" else "%s/%s/v%d" % (take, song, v)
         jobs = self.state.setdefault("renders", {})
         if (jobs.get(key) or {}).get("status") in ("queued", "rendering", "checking", "writing"):
             return
@@ -1235,16 +1237,17 @@ class Ingest:
         the edit itself (.json) on the drive; never replaces a file (-2, -3, ...)."""
         audio_dir, version, sync = self._audio_src(job)
         bounce = os.path.join(audio_dir, sync.get("file") or version["filename"])
-        edit_path = os.path.join(self.cfg["hubd_state_dir"], "edits", job["take"], job["song"], "v%d.json" % job["version"])
+        edit_path = os.path.join(self.cfg["hubd_state_dir"], "edits", job["take"], job["song"] + ".json")
         with open(edit_path) as f:
             edit = json.load(f)
+        edit["song_version"] = job["version"]                     # the bounce in this video
         edit["bounce_start_ns"] = int(sync["bounce_start_ns"])
         with open(self.cfg["looks_path"]) as f:
             looks = json.load(f)
         out_dir = os.path.join(self.work, "renders", job["take"])
         os.makedirs(out_dir, exist_ok=True)
-        base = "%s-v%d" % (job["song"], job["version"])
-        tmp = os.path.join(out_dir, base + ".edit.tmp.mp4")
+        base = "%s-video" % job["song"]
+        tmp = os.path.join(out_dir, base + ".tmp.mp4")
         job.update(status="rendering", progress=0.0, error=None, status_note=None, started=self.clock())
         self.save(current_render=job["take"])
         started = time.monotonic()
@@ -1284,16 +1287,18 @@ class Ingest:
             raise RuntimeError("render check failed: " + "; ".join(problems))
         job["status"] = "writing"
         self.save()
-        edit_copy = os.path.join(out_dir, base + ".edit.json")
+        edit_copy = os.path.join(out_dir, base + ".json")
         with open(edit_copy, "w") as f:
             json.dump(edit, f, indent=1)
         with self.writing():
+            # Video versions per song: <song>-video1.mp4, -video2.mp4, ... (never replaced),
+            # each with its edit (.json, which names the bounce version inside).
             destination_dir = os.path.join(self.take_folder(job["take"]), "edits", job["song"])
             os.makedirs(destination_dir, exist_ok=True)
-            name, n = base, 1
-            while os.path.exists(os.path.join(destination_dir, name + ".mp4")):
-                n += 1
-                name = "%s-%d" % (base, n)
+            number = 1
+            while os.path.exists(os.path.join(destination_dir, "%s%d.mp4" % (base, number))):
+                number += 1
+            name = "%s%d" % (base, number)
             mp4 = os.path.join(destination_dir, name + ".mp4")
             self.copy_verified(tmp, mp4)
             self.copy_verified(edit_copy, os.path.join(destination_dir, name + ".json"))
@@ -1301,7 +1306,10 @@ class Ingest:
         os.remove(tmp)
         os.remove(edit_copy)
         job.update(status="done", path=mp4, file=os.path.relpath(mp4, self.take_folder(job["take"])),
-                   finished=self.clock(), bytes=size, render_s=round(time.monotonic() - started))
+                   finished=self.clock(), bytes=size, render_s=round(time.monotonic() - started), video_number=number)
+        videos = self.state.setdefault("videos", {}).setdefault(job["take"], {}).setdefault(job["song"], [])
+        videos.append({"number": number, "file": job["file"], "bounce_version": job["version"],
+                       "made_at": self.clock(), "length_s": job.get("length_s"), "bytes": size})
         self.state["drive_free_gb"] = self.drive_free()
         self.save(current_render=None)
 

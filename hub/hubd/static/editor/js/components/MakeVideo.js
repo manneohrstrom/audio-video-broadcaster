@@ -1,6 +1,7 @@
-// "Make video" in the editor's header: saves the edit, asks the hub to render the finished
-// video (hub-ingest's edit_render.py, from the full-quality originals, YouTube settings),
-// and shows its progress until it can be watched.
+// "Make video" in the editor's header: saves the edit, asks the hub to render the next
+// video version of this song (video 1, 2, 3, … each with the bounce version chosen in the
+// header; hub-ingest's edit_render.py, full-quality originals, YouTube settings), and
+// shows its progress until it can be watched.
 import { useEffect, useState } from "preact/hooks";
 import { html } from "./html.js";
 import { requestRender, renderStatus } from "../api.js";
@@ -49,10 +50,11 @@ export function MakeVideo({ store }) {
       ${label && html`<span class=${"render-state" + (job.status === "error" ? " problem" : "")} title=${label}>${label}</span>`}
       ${problem && html`<span class="render-state problem" title=${problem}>${problem}</span>`}
       ${job.status === "done" && job.file && html`
-        <a class="button" href=${`/media/${takeId}/${job.file}`} target="_blank" rel="noopener">▶ Watch video</a>`}
+        <a class="button" href=${`/media/${takeId}/${job.file}`} target="_blank" rel="noopener"
+           title=${`Bounce v${job.version}`}>▶ Watch video ${job.video_number || ""}</a>`}
       <button class="button primary" disabled=${running} onClick=${make}
-              title="Render the finished video from the full-quality cameras, ready for YouTube">
-        ${job.status === "done" ? "Make again" : "Make video"}
+              title=${`Render a new video version with bounce v${version}, from the full-quality cameras, ready for YouTube`}>
+        Make video
       </button>
     </div>`;
 }

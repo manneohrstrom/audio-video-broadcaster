@@ -92,6 +92,13 @@
   .phead button.on { background:var(--live); }
   #pvideo { width:100%; max-height:75vh; background:#000; border-radius:6px; display:block; }
   #pmsg { min-height:1.3em; margin-top:6px; }
+  .songs { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line, #333); }
+  .songs-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin-bottom: 6px; }
+  .song { padding: 6px 8px; margin: 4px 0; border-radius: 6px; background: rgba(255,255,255,0.03); }
+  .song-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+  .bounces { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--dim); margin-top: 3px; }
+  .video-version { font-size: 13px; margin-top: 4px; }
+  .song-empty { font-size: 13px; color: var(--dim); }
 </style>
 </head>
 <body>
@@ -433,7 +440,7 @@ function ingestView(st) {
         <span style="color:var(--warn)">${label}</span></h4>
         <div class="camdone">${rc.map(([c, v]) => `${esc(v.label || c)}${v.uploading ? ": uploading…" : v.frames != null ? ": " + v.frames + " frames" : ""}` +
           (v.dropped ? ` <span class="bad">(${v.dropped} dropped)</span>` : "") + roughTxt(cams[c])).join(" · ")}` +
-        (drops ? "" : ` · <span class="good">no dropped frames</span>`) + `</div>${probs(rec)}${audioTxt(id, cams)}</div>`;
+        (drops ? "" : ` · <span class="good">no dropped frames</span>`) + `</div>${probs(rec)}${micTxt(cams)}${songsTxt(id, cams)}</div>`;
     }
     const allDone = cs.length && cs.every(([, v]) => (v.done || []).includes("marked"));
     const active = cs.some(([, v]) => v.step);
@@ -457,40 +464,46 @@ function ingestView(st) {
         (v.error ? `<div class="camerr">${esc(v.error)}</div>` : "")).join("");
     }
     const cls = allDone ? "done" : err ? "error" : active ? "active" : "";
-    return `<div class="take ${cls}"><h4><span>${head}</span>${right}</h4>${body}${probs(rec)}${playBtns(id, cs)}${audioTxt(id, cams)}</div>`;
+    return `<div class="take ${cls}"><h4><span>${head}</span>${right}</h4>${body}${probs(rec)}${playBtns(id, cs)}${micTxt(cams)}${songsTxt(id, cams)}</div>`;
   }).join("");
 }
-// ---- audio: bounces (songs and versions) and the hub mic, per take (Phase 4 Track A)
-function audioTxt(id, t) {
-  const a = t.audio || {};
-  const blocks = [];
-  const parts = (a.songs || []).map(sg => {
-    const done = sg.versions.filter(v => v.complete);
-    const up = sg.versions.filter(v => !v.complete);
-    const cur = done.find(v => v.version === sg.current);
-    let x = `♪ ${esc(sg.name)}` + (cur ? ` v${cur.version}` + (done.length > 1 ? ` (of ${done.length})` : "") +
-      (cur.on_drive ? ' <span class="good">on drive</span>' : " · waiting for ingest") : "");
-    if (up.length) x += ` · <span style="color:var(--warn)">v${up.map(v => v.version).join(", v")} not finished</span>`;
-    if (cur) {
-      const v = videoTxt(id, sg.id, cur);
-      x += " " + v.inline;
-      if (v.steps) blocks.push(`<div class="camrow"><span class="camname" title="${esc(sg.name)}">♪ video</span><div class="steps">${v.steps}</div></div>`);
-      const f = cur.final_render;           // the editor's "Make video": its own row, steps and Watch button
-      if (f) {
-        const watch = f.status === "done" && f.file ? ` <button class="play" data-video="${esc(f.file)}" data-take="${esc(id)}">▶ Watch final video</button>` : "";
-        blocks.push(`<div class="camrow"><span class="camname" title="${esc(sg.name)}: the editor's video">♪ final</span><div class="steps">${videoSteps(f)}${watch}</div></div>`);
-      }
-    }
-    return x;
-  });
-  if (a.scratch) parts.push(`🎙 hub mic recorded ${fmtDur(a.scratch.seconds)}` +
-    (a.scratch.on_drive ? ' <span class="good">on drive</span>' : " · waiting for ingest") +
-    (a.scratch.problems.length ? ` <span class="bad">⚠ ${esc(a.scratch.problems[0])}</span>` : ""));
-  const btn = t.recorded ? `<button class="addaudio" data-audio="${esc(id)}">♪ Add audio</button>` : "";
-  return parts.length || btn ? `<div class="audio">${parts.join(" · ")} ${btn}</div>${blocks.join("")}` : "";
+// ---- a take's card has two parts (user, 2026-11-16): the recording on top (cameras, the
+// hub mic), and below a divider the music: one group per song with its bounce versions,
+// "Edit", the render in progress and every video version made in the editor.
+function micTxt(t) {
+  const sc = (t.audio || {}).scratch;
+  if (!sc) return "";
+  return `<div class="audio">🎙 hub mic recorded ${fmtDur(sc.seconds)}` +
+    (sc.on_drive ? ' <span class="good">on drive</span>' : " · waiting for ingest") +
+    (sc.problems.length ? ` <span class="bad">⚠ ${esc(sc.problems[0])}</span>` : "") + `</div>`;
 }
-// Quick mix (Phase 4 A4): one button, a finished video; hub-ingest renders it.
-// Same chips as the ingest steps: Render → Check → Write, with spinner, % and bar on the current one.
+function songsTxt(id, t) {
+  const songs = (t.audio || {}).songs || [];
+  if (!t.recorded && !songs.length) return "";
+  const add = t.recorded ? `<button class="addaudio" data-audio="${esc(id)}">♪ Add a bounce</button>` : "";
+  const groups = songs.map(sg => songGroup(id, sg)).join("");
+  return `<div class="songs"><div class="songs-head"><span>Songs</span>${add}</div>` +
+    (groups || '<div class="song-empty">No bounce yet: add the mix of a song to edit and render its video.</div>') + `</div>`;
+}
+function songGroup(take, sg) {
+  const done = sg.versions.filter(v => v.complete);
+  const unfinished = sg.versions.filter(v => !v.complete);
+  const synced = done.filter(v => v.synced).sort((a, b) => b.version - a.version);
+  const bounces = done.map(v => `<span class="bounce">bounce v${v.version} ${syncTxt(take, sg.id, v)}` +
+    (v.on_drive ? "" : ' <small>· waiting for ingest</small>') + `</span>`).join("") +
+    (unfinished.length ? `<span class="bounce" style="color:var(--warn)">v${unfinished.map(v => v.version).join(", v")} uploading…</span>` : "");
+  const edit = synced.length ? `<a class="addaudio" href="/editor/?take=${encodeURIComponent(take)}&song=${encodeURIComponent(sg.id)}&v=${synced[0].version}" target="_blank" rel="noopener">✎ Edit</a>` : "";
+  const r = sg.render;
+  const running = r && ["queued", "rendering", "paused", "checking", "writing"].includes(r.status);
+  const renderRow = r && (running || r.status === "error")
+    ? `<div class="camrow"><span class="camname">video</span><div class="steps">${videoSteps(r)}</div></div>` : "";
+  const videos = (sg.videos || []).slice().reverse().map(v =>
+    `<div class="video-version"><button class="play" data-video="${esc(v.file)}" data-take="${esc(take)}">▶ Watch</button> video ${v.number} <small>· bounce v${v.bounce_version}${v.length_s ? " · " + fmtDur(v.length_s) : ""}</small></div>`).join("");
+  return `<div class="song"><div class="song-head"><span>♪ ${esc(sg.name)}</span>${edit}</div>` +
+    `<div class="bounces">${bounces}</div>${renderRow}${videos}</div>`;
+}
+// A video render's progress (the editor's "Make video"), with the same chips as the ingest
+// steps: Render → Check → Write, with spinner, % and bar on the current one.
 const VSTEPS = [["rendering", "Render"], ["checking", "Check"], ["writing", "Write to drive"]];
 function videoSteps(r) {
   let cur = r.status === "paused" ? "rendering" : r.status;
@@ -525,15 +538,6 @@ function syncTxt(take, song, v) {
     return `<small title="${esc(tip)}" ${check ? 'style="color:var(--warn)"' : 'class="good"'}>· ${check ? "synced, check it" : "✓ synced"}</small>`;
   }
   return v.complete ? `<small>· not synced</small> <button class="addaudio" data-sync="1" ${d}>Sync</button>` : "";
-}
-function videoTxt(take, song, v) {
-  const r = v.render, d = `data-take="${esc(take)}" data-song="${esc(song)}" data-v="${v.version}"`;
-  const make = label => `<button class="addaudio" data-render="1" ${d}>${label}</button>`;
-  const editLink = v.synced ? ` <a class="addaudio" href="/editor/?take=${encodeURIComponent(take)}&song=${encodeURIComponent(song)}&v=${v.version}" target="_blank" rel="noopener">✎ Edit</a>` : "";
-  if (!r) return { inline: syncTxt(take, song, v) + (v.synced ? " " + make("▶ Make video") : "") + editLink };
-  if (r.status === "done") return { inline: `<button class="play" data-video="${esc(r.file)}" data-take="${esc(take)}">▶ Watch video</button> ` + make("Make again") + editLink, steps: videoSteps(r) };
-  if (r.status === "error") return { inline: make("Try again"), steps: videoSteps(r) };
-  return { inline: "", steps: videoSteps(r) };
 }
 const AUP = { take: null, running: false };
 async function jpost(path, body) {

@@ -31,7 +31,7 @@ import phones  # noqa: E402
 import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 
-VERSION = "0.17.2"
+VERSION = "0.18.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -895,10 +895,12 @@ class Hub:
         copied = st.get("audio") or {}
         jobs = st.get("renders") or {}
         syncs = st.get("syncs") or {}
+        videos = st.get("videos") or {}
         for tid, t in st["takes"].items():
             a = self.audio.summary(tid, set(copied.get(tid) or {}),
                                    {k.split("/", 1)[1]: j for k, j in jobs.items() if k.startswith(tid + "/")},
-                                   {k.split("/", 1)[1]: j for k, j in syncs.items() if k.startswith(tid + "/")})
+                                   {k.split("/", 1)[1]: j for k, j in syncs.items() if k.startswith(tid + "/")},
+                                   videos.get(tid) or {})
             if a:
                 t["audio"] = a
         return st
@@ -986,8 +988,12 @@ class Hub:
 
     def request_edit_render(self, take, song, version):
         """The editor's edit as the finished video (hub-ingest's edit_render.py), when idle."""
-        if not os.path.exists(self.editor.working_copy_path(take, song, version)):
-            raise ValueError("nothing to render yet: make a cut in the editor first")
+        path = self.editor.working_copy_path(take, song, version)
+        if not os.path.exists(path):
+            older = self.editor._older_per_version_copy(take, song)
+            if not older:
+                raise ValueError("nothing to render yet: make a cut in the editor first")
+            shutil.copyfile(older, path)                 # edits saved per bounce version before 2026-11-17
         if not self.audio.version_info(take, song, version).get("synced"):
             raise ValueError("this song isn't synced to the take yet")
         return self.ingest_command("render", take=take, song=song, version=version, kind="edit")
@@ -999,8 +1005,9 @@ class Hub:
                 jobs = json.load(f).get("renders") or {}
         except (OSError, ValueError):
             return {}
-        job = jobs.get("%s/%s/v%d:edit" % (take, song, version)) or {}
-        return {k: job.get(k) for k in ("status", "progress", "eta_s", "error", "file", "status_note", "length_s", "render_s")}
+        job = jobs.get("%s/%s:edit" % (take, song)) or {}
+        return {k: job.get(k) for k in ("status", "progress", "eta_s", "error", "file", "status_note", "length_s",
+                                        "render_s", "version", "video_number")}
 
     def request_sync(self, take, song, version):
         """hub-ingest syncs the bounce to the take from the hub mic (audiosync.py)."""

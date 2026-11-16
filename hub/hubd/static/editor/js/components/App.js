@@ -29,6 +29,14 @@ export function App({ takeId, songId, version }) {
   return html`<${Editor} project=${project} />`;
 }
 
+/** Open the song with another bounce version: the edit belongs to the song, so it comes along. */
+async function switchBounce(store, version) {
+  if (store.saveState !== "saved") await store.saveNow();
+  const query = new URLSearchParams(location.search);
+  query.set("v", String(version));
+  location.search = query.toString();
+}
+
 function Editor({ project }) {
   const store = useMemo(() => new EditorStore(project), [project]);
   const transport = useMemo(() => new Transport(store), [store]);
@@ -61,7 +69,14 @@ function Editor({ project }) {
       <header class="editor-header">
         <div class="song-title">
           <strong>${project.song.name}</strong>
-          <span class="details">v${project.version} · take ${project.take_id} · ${formatSeconds(store.songSeconds)}</span>
+          <span class="details">take ${project.take_id} · ${formatSeconds(store.songSeconds)}</span>
+          ${project.bounce_versions.length > 1
+            ? html`<label class="bounce-choice">bounce
+                <select aria-label="Bounce version" value=${project.version}
+                        onChange=${event => switchBounce(store, Number(event.target.value))}>
+                  ${project.bounce_versions.map(b => html`<option value=${b.version}>v${b.version}</option>`)}
+                </select></label>`
+            : html`<span class="details">bounce v${project.version}</span>`}
         </div>
         <nav class="steps" aria-label="Steps">
           <button aria-current=${store.step === "cut" ? "step" : null} onClick=${() => store.setStep("cut")}><span class="step-number">1</span>Cut</button>

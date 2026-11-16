@@ -12,10 +12,12 @@ it needs, on the hub clock (nanoseconds, the clock the cameras stamp their frame
 The edit format is the one in docs/editor-plan.md section 2 (shared with the quick mix and
 the render): cut times are nanoseconds from the start of the song's range.
 
-Where edits live: the working copy is saved on the hub's SD card while the user edits
-(so the STUDIO drive doesn't have to be mounted read-write). Copying it to the drive comes
-with the render. When there is no working copy yet, the editor starts from the quick mix's
-cut if one was rendered, otherwise from the sync server camera alone.
+Where edits live: one working copy per song (not per bounce version: user, 2026-11-16, a
+new mix re-renders the same cut and look), saved on the hub's SD card while the user
+edits (so the STUDIO drive doesn't have to be mounted read-write); a copy goes to the
+drive with every rendered video. Its times are on the hub clock, so it fits any synced
+bounce of the song (rebased when the song's range moves). When there is no working copy
+yet, the editor starts from the automatic cut (a new camera every 10 s, as the quick mix).
 """
 import array
 import json
@@ -128,6 +130,36 @@ def rebase_cuts(cuts, old_range_ns, new_range_ns):
     return ([before_start] if before_start else []) + moved
 
 
+def automatic_cut(cameras, range_ns, shot_s=10.0):
+    """The editor's starting cut (the quick mix's rule, hub/ingest/render.py quick_cut):
+    a new Pi camera about every shot_s, round the cameras in order, starting and ending on
+    the sync server; a camera is skipped for a shot it didn't fully record or that has a
+    rough section in it."""
+    pis = [c for c in cameras if c["kind"] == "pi"] or cameras
+    order = sorted(pis, key=lambda c: c["id"])
+    server = next((i for i, c in enumerate(order) if c["is_sync_server"]), 0)
+    rotation = order[server:] + order[:server]
+    start, end = range_ns
+    shots = max(1, int(round((end - start) / (shot_s * NS_PER_SECOND))))
+    step = (end - start) / shots
+    margin = NS_PER_SECOND // FRAME_RATE
+
+    def usable(camera, a, b):
+        return (camera["first_frame_ns"] <= a + margin and b - margin <= camera["last_frame_ns"]
+                and not any(r0 < b and a < r1 for r0, r1 in camera["rough_sections_ns"]))
+    cuts, next_index = [], 0
+    for i in range(shots):
+        a, b = start + int(i * step), start + int((i + 1) * step)
+        wanted = ([rotation[0]] if i in (0, shots - 1) else []) + [rotation[(next_index + j) % len(rotation)]
+                                                                   for j in range(len(rotation))]
+        camera = next((c for c in wanted if usable(c, a, b)), None) or max(
+            order, key=lambda c: min(b, c["last_frame_ns"]) - max(a, c["first_frame_ns"]))
+        next_index = (rotation.index(camera) + 1) % len(rotation)
+        if not cuts or cuts[-1]["camera"] != camera["id"]:
+            cuts.append({"at_ns": a - start, "camera": camera["id"], "by": "auto"})
+    return cuts
+
+
 class EditorProjects:
     """Builds editor projects and saves edits.
 
@@ -161,9 +193,31 @@ class EditorProjects:
         if not isinstance(version, int) or version < 1:
             raise ProjectError("bad version")
 
-    def working_copy_path(self, take_id, song_id, version):
+    def working_copy_path(self, take_id, song_id, version=1):
+        """The song's edit (one per song; `version` is only checked, kept for the callers)."""
         self._check_ids(take_id, song_id, version)
-        return os.path.join(self.edits_dir, take_id, song_id, "v%d.json" % version)
+        return os.path.join(self.edits_dir, take_id, song_id + ".json")
+
+    def _older_per_version_copy(self, take_id, song_id):
+        """Edits saved before 2026-11-17 were per bounce version (edits/<take>/<song>/v<N>.json):
+        the newest of those is the song's edit until it's saved again."""
+        folder = os.path.join(self.edits_dir, take_id, song_id)
+        try:
+            names = [n for n in os.listdir(folder) if re.match(r"^v\d+\.json$", n)]
+        except OSError:
+            return None
+        if not names:
+            return None
+        return os.path.join(folder, max(names, key=lambda n: os.path.getmtime(os.path.join(folder, n))))
+
+    def synced_versions(self, take_id, song):
+        """Bounce versions of the song that are uploaded and synced, newest first."""
+        out = []
+        for version in sorted(song["versions"], key=lambda v: -v["version"]):
+            path = os.path.join(self.audio.take_dir(take_id), song["id"], "v%d" % version["version"], "sync.json")
+            if version.get("complete") and os.path.exists(path):
+                out.append({"version": version["version"], "file_name": version["filename"]})
+        return out
 
     # -- the project
     def _song_and_version(self, take_id, song_id, version):
@@ -218,14 +272,18 @@ class EditorProjects:
             },
             "edit": edit,
             "edit_source": source,
+            "bounce_versions": self.synced_versions(take_id, song),
         }
 
     def _load_edit(self, take_id, song_id, version, cameras, range_ns):
         """(edit, where it came from): the working copy, else the quick mix's cut, else one shot."""
         camera_ids = {camera["id"] for camera in cameras}
         length_ns = range_ns[1] - range_ns[0]
+        path = self.working_copy_path(take_id, song_id, version)
+        if not os.path.exists(path):
+            path = self._older_per_version_copy(take_id, song_id) or path
         try:
-            with open(self.working_copy_path(take_id, song_id, version)) as f:
+            with open(path) as f:
                 saved = json.load(f)
             cuts = rebase_cuts(saved["cuts"], saved["range_ns"], range_ns)
             if cuts:
@@ -242,9 +300,8 @@ class EditorProjects:
                     return self._new_edit(take_id, song_id, version, range_ns, cuts, "quick-v1"), "quick mix"
             except ProjectError:
                 pass
-        server = next((c["id"] for c in cameras if c["is_sync_server"]), cameras[0]["id"])
-        cuts = [{"at_ns": 0, "camera": server, "by": "auto"}]
-        return self._new_edit(take_id, song_id, version, range_ns, cuts, "start"), "new"
+        cuts = automatic_cut(cameras, range_ns)
+        return self._new_edit(take_id, song_id, version, range_ns, cuts, "auto-v1"), "automatic cut"
 
     def _new_edit(self, take_id, song_id, version, range_ns, cuts, made_by):
         return {"version": EDIT_FORMAT_VERSION, "take": take_id, "song": song_id, "song_version": version,

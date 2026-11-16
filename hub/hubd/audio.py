@@ -272,10 +272,11 @@ class Audio:
             return {"state": "needs sync", "reason": "the sync failed: %s" % (job.get("error") or "")[-120:]}
         return {"state": None}
 
-    def summary(self, take, on_drive=(), renders=None, syncs=None):
+    def summary(self, take, on_drive=(), renders=None, syncs=None, videos=None):
         """Short form for the take list. on_drive: relative paths hub-ingest has copied;
-        renders, syncs: hub-ingest's render and sync jobs of this take, keyed "<song>/v<N>"."""
-        renders, syncs = renders or {}, syncs or {}
+        renders, syncs: hub-ingest's render and sync jobs of this take, keyed "<song>/v<N>"
+        (the editor's video renders: "<song>:edit"); videos: {song: [video versions]}."""
+        renders, syncs, videos = renders or {}, syncs or {}, videos or {}
         out = {}
         if os.path.exists(os.path.join(self.root, take, "songs.json")):
             try:
@@ -290,12 +291,13 @@ class Audio:
                  "sync": self.sync_state(take, s["id"], v["version"], syncs.get("%s/v%d" % (s["id"], v["version"]))),
                  "render": {k: (renders.get("%s/v%d" % (s["id"], v["version"])) or {}).get(k)
                             for k in ("status", "progress", "eta_s", "error", "file", "status_note")}
-                 if renders.get("%s/v%d" % (s["id"], v["version"])) else None,
-                 # The editor's finished video ("Make video" in the editor), shown on the take card too.
-                 "final_render": {k: (renders.get("%s/v%d:edit" % (s["id"], v["version"])) or {}).get(k)
-                                  for k in ("status", "progress", "eta_s", "error", "file", "status_note")}
-                 if renders.get("%s/v%d:edit" % (s["id"], v["version"])) else None}
-                for v in s["versions"]]} for s in doc["songs"]]
+                 if renders.get("%s/v%d" % (s["id"], v["version"])) else None}
+                for v in s["versions"]],
+                # The editor's videos of this song: the render in progress and every version made.
+                "render": {k: (renders.get("%s:edit" % s["id"]) or {}).get(k)
+                           for k in ("status", "progress", "eta_s", "error", "file", "status_note", "version")}
+                if renders.get("%s:edit" % s["id"]) else None,
+                "videos": videos.get(s["id"]) or []} for s in doc["songs"]]
         try:
             with open(os.path.join(self.root, take, "scratch", "scratch.json")) as f:
                 m = json.load(f)
