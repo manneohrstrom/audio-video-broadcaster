@@ -56,6 +56,7 @@ Card detection (desk check before B-S5): OpenCV 4.10 (`python3-opencv` on the hu
 
 Card: A4 laser print (Brother), 80 mm markers. cam1 watched at 1 fps 1080p (B-S7 settings), frames pulled to the Mac and run through OpenCV 4.10 ArUco (`DICT_4X4_50`, default parameters); distance estimated from marker size (HFOV 102°). The user walked the card in front of cam1 in the studio lights.
 
-- Found in every frame from 0.7 m to 2.4 m (47 frames with both markers, all consecutive while the card was in view), plus single hits at 2.1 and 3.2 m on the way in. Lost just beyond 2.4 m when the run ended; whether that was the range limit or the room (cam1 is mounted high and the room is short in its view) is to be confirmed with the user.
+- Found in every frame from 0.7 m to 2.4 m (47 frames with both markers, all consecutive while the card was in view), plus single hits at 2.1 and 3.2 m on the way in. Lost beyond 2.4 m: the user walked on to about 3–4 m, where it was found only once (3.2 m). **So an A4 card (80 mm markers) reaches about 2.4 m reliably.**
 - Detection within one frame (≤1 s) of the card being held still; no false detections in 4 min of an empty room.
 - The 1 fps watcher takes ~7 s to deliver its first frame (rpicam startup at 1 fps): fine for calibration, worth knowing for the UI.
+- Next: an A3 print (113 mm markers, expected ~3.4 m) from the user's work printer; repeat the walk once, saving every frame, and tune the detector (small-marker parameters) on those frames. Bigger markers in a card v2 only if still short.
