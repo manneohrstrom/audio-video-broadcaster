@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,7 +26,7 @@ import budget  # noqa: E402
 import calib  # noqa: E402
 import phones  # noqa: E402
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -120,13 +121,13 @@ class HttpNodes:
         with urllib.request.urlopen(self._url(node, path), timeout=timeout) as r:
             return json.load(r)
 
-    def post(self, node, path, body=None, timeout=10):
+    def post(self, node, path, body=None, timeout=10, raw=False):
         req = urllib.request.Request(self._url(node, path), method="POST",
                                      data=json.dumps(body or {}).encode(),
                                      headers={"Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
-                return json.load(r)
+                return r.read() if raw else json.load(r)
         except urllib.error.HTTPError as e:
             try:
                 msg = json.load(e).get("error", str(e))
@@ -232,6 +233,13 @@ class Hub:
         self.phones = phones.Phones(cfg, clock=clock)
         self.budget = budget.limits(None, 0, {}, {})
         self.card, self.calib_lock = None, threading.Lock()
+        self.snaps_in_flight = 0            # camera snapshots running (REC waits for them)
+        self.cam_settings_path = os.path.join(cfg["state_dir"], "camera_settings.json")
+        try:
+            with open(self.cam_settings_path) as f:
+                self.cam_settings = json.load(f)
+        except (OSError, ValueError):
+            self.cam_settings = {}
         # Background work started from the poll loop (tests run it inline).
         self.spawn = lambda fn, *a: threading.Thread(target=fn, args=a, daemon=True).start()
 
@@ -322,7 +330,7 @@ class Hub:
                                   "problems": arm_problems(n, self.status[n], self.cfg["checks"])}
                               for n in self.cfg["nodes"]},
                     "phones": self.phones.snapshot(self.health.get("free_gb")),
-                    "budget": self.budget,
+                    "budget": self.budget, "camera_settings": self.cam_settings,
                     "last_take": self.last_take()}
 
     # -- phones
@@ -433,6 +441,80 @@ class Hub:
             self.message = ("Take %s stopped automatically: %s was out of recording space."
                             % (take_id, "the hub" if by == "hub" else by))
 
+    # -- per-camera settings kept on the hub, sent with every arm and snapshot (Track B)
+    SETTING_RANGES = {"lens_position": (0.0, 15.0)}
+
+    def set_camera_settings(self, cam, body):
+        if cam not in self.cfg["nodes"]:
+            raise ValueError("unknown camera %s" % cam)
+        new = {}
+        for k, v in (body or {}).items():
+            if k not in self.SETTING_RANGES:
+                raise ValueError("unknown setting %s" % k)
+            lo, hi = self.SETTING_RANGES[k]
+            v = float(v)
+            if not lo <= v <= hi:
+                raise ValueError("%s must be %g to %g" % (k, lo, hi))
+            new[k] = round(v, 3)
+        with self.lock:
+            self.cam_settings[cam] = dict(self.cam_settings.get(cam, {}), **new)
+            tmp = self.cam_settings_path + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(self.cam_settings, f, indent=1)
+            os.replace(tmp, self.cam_settings_path)
+            return dict(self.cam_settings)
+
+    # -- snapshot page (Track B, B1)
+    def snap(self, cam, overrides=None):
+        """(jpeg, info) from one camera. Idle: a still with the take settings (plus overrides,
+        e.g. a focus being tried). Live: one frame from its stream. Never during a take."""
+        if cam not in self.cfg["nodes"]:
+            raise ValueError("unknown camera %s" % cam)
+        with self.lock:
+            if self.state != "idle":
+                raise Refused(["rig is %s: no snapshots during a take" % self.state])
+            st = self.status[cam]
+            if st is None:
+                raise Refused(["%s is offline" % cam])
+            self.snaps_in_flight += 1
+            settings = dict(self.cam_settings.get(cam, {}), **(overrides or {}))
+        t0 = time.monotonic()
+        try:
+            if st.get("mode") in ("live", "live-starting"):
+                jpg, source = self.grab_live(cam), "live"
+            else:
+                jpg, source = self.nodes.post(cam, "/snapshot", {"settings": settings}, timeout=15, raw=True), "still"
+        finally:
+            with self.lock:
+                self.snaps_in_flight -= 1
+        info = {"camera": cam, "source": source, "ms": round((time.monotonic() - t0) * 1000), "settings": settings}
+        try:
+            info["sharpness"] = calib.sharpness(jpg)
+        except Exception as e:  # noqa: BLE001 - the picture still helps without the number
+            info["sharpness_error"] = str(e)
+        return jpg, info
+
+    def grab_live(self, cam):
+        url = "rtsp://%s.local:8554/cam" % cam
+        r = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-rtsp_transport", "tcp", "-i", url,
+                            "-frames:v", "1", "-q:v", "3", "-f", "image2", "-c:v", "mjpeg", "-"],
+                           capture_output=True, timeout=15)
+        if r.returncode != 0 or not r.stdout:
+            raise NodeError("%s: no frame from the live stream (%s)" % (cam, r.stderr.decode(errors="replace")[-200:]))
+        return r.stdout
+
+    def arm_body(self, cam, take_id, role):
+        b = {"take_id": take_id, "role": role}
+        with self.lock:
+            if self.cam_settings.get(cam):
+                b["settings"] = dict(self.cam_settings[cam])
+        return b
+
+    def wait_for_snapshots(self, timeout=5.0):
+        end = time.monotonic() + timeout
+        while self.snaps_in_flight and time.monotonic() < end:
+            time.sleep(0.05)
+
     # -- calibration card (Track B; calib.py)
     def measure_card(self, jpeg):
         """Read the card in one picture. Never during a take (settings must not change)."""
@@ -462,6 +544,7 @@ class Hub:
         with self.lock:
             if self.state != "idle":
                 raise Refused(["rig is %s" % self.state])
+        self.wait_for_snapshots()      # a camera taking a still can't arm
         self.poll_once()
         missing = []
         with self.lock:
@@ -496,11 +579,11 @@ class Hub:
                     raise NodeError("still live: %s" % ", ".join(left))
             # Clients first (they wait for the server's sync broadcast), then the server.
             _, err = self._parallel(clients, lambda n: self.nodes.post(
-                n, "/take/arm", {"take_id": take_id, "role": "client"}))
+                n, "/take/arm", self.arm_body(n, take_id, "client")))
             if err:
                 raise NodeError("arm failed: %s" % err)
             self.sleep(self.cfg["client_head_start_s"])
-            self.nodes.post(server, "/take/arm", {"take_id": take_id, "role": "server"})
+            self.nodes.post(server, "/take/arm", self.arm_body(server, take_id, "server"))
             left = self._wait_modes(names, "recording", self.cfg["sync_timeout_s"])
             if left:
                 raise NodeError("no sync within %ds: %s" % (self.cfg["sync_timeout_s"], ", ".join(left)))
@@ -665,10 +748,12 @@ class Handler(BaseHTTPRequestHandler):
         if not self.path.startswith(self.QUIET):
             sys.stderr.write("%s %s\n" % (self.command, fmt % args))
 
-    def _send(self, code, body, ctype="application/json"):
+    def _send(self, code, body, ctype="application/json", headers=None):
         if not isinstance(body, bytes):
             body = json.dumps(body).encode()
         self.send_response(code)
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
@@ -684,7 +769,12 @@ class Handler(BaseHTTPRequestHandler):
     P_HAVE = re.compile(r"^/api/phone/have/([^/]+)/([^/]+)$")
     P_FINISH = re.compile(r"^/api/phone/finish/([^/]+)/([^/]+)$")
     P_LOG = re.compile(r"^/api/phone/log/([^/]+)$")
-    QUIET = ("/api/status", "/api/time", "/api/phone/poll", "/api/phone/chunk", "/api/phone/log", "/api/calib/measure")
+    P_SNAP = re.compile(r"^/api/snap/(cam\d+)\.jpg$")
+    P_PHONE_SNAP = re.compile(r"^/api/snap/phone/([^/]+)\.jpg$")
+    P_PHONE_SNAP_PUT = re.compile(r"^/api/phone/snap/([^/]+)$")
+    P_CAM_SETTINGS = re.compile(r"^/api/camera/(cam\d+)/settings$")
+    QUIET = ("/api/status", "/api/time", "/api/phone/poll", "/api/phone/chunk", "/api/phone/log", "/api/calib/measure",
+             "/api/snap/", "/api/phone/snap/")
 
     def do_HEAD(self):
         if self.MEDIA.match(self.path.split("?")[0]):
@@ -760,8 +850,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, h.phones.have(*m.groups()))
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
-        path = self.path.split("?")[0]
-        name = {"/": "index.html", "/index.html": "index.html", "/phone": "phone.html"}.get(path, path.lstrip("/"))
+        path, _, query = self.path.partition("?")
+        m = self.P_SNAP.match(path)
+        if m:
+            try:
+                q = urllib.parse.parse_qs(query)
+                over = {"lens_position": float(q["lens"][0])} if "lens" in q else None
+                jpg, info = h.snap(m.group(1), over)
+                return self._send(200, jpg, "image/jpeg", {"X-Snap-Info": json.dumps(info)})
+            except Refused as e:
+                return self._send(409, {"error": str(e)})
+            except NodeError as e:
+                return self._send(502, {"error": str(e)})
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
+        m = self.P_PHONE_SNAP.match(path)
+        if m:
+            got = h.phones.get_snap(m.group(1))
+            if not got:
+                return self._send(404, {"error": "no picture from this phone yet"})
+            return self._send(200, got[0], "image/jpeg", {"X-Snap-Info": json.dumps({"age_s": round(time.time() - got[1], 1)})})
+        name = {"/": "index.html", "/index.html": "index.html", "/phone": "phone.html",
+                "/snap": "snap.html"}.get(path, path.lstrip("/"))
         if "/" in name or name.startswith("."):
             return self._send(404, {"error": "not found"})
         p = os.path.join(h.cfg["static_dir"], name)
@@ -787,6 +897,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         h = self.hub
         try:
+            m = self.P_PHONE_SNAP_PUT.match(self.path)
+            if m:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n > 4 << 20:
+                    raise ValueError("picture too large")
+                return self._send(200, h.phones.put_snap(m.group(1), self.rfile.read(n)))
             if self.path == "/api/calib/measure":
                 return self._send(200, h.measure_card(self.rfile.read(int(self.headers.get("Content-Length") or 0))
                                                       if int(self.headers.get("Content-Length") or 0) <= 8 << 20 else b""))
@@ -800,6 +916,12 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 h.phones.log(m.group(1), b)
                 return self._send(200, {"ok": True})
+            if self.path == "/api/snap/phones":
+                h.phones.want_snaps()
+                return self._send(200, {"ok": True})
+            m = self.P_CAM_SETTINGS.match(self.path)
+            if m:
+                return self._send(200, h.set_camera_settings(m.group(1), b))
             if self.path == "/api/rec":
                 return self._send(200, h.rec(b.get("nodes")))
             if self.path == "/api/stop":

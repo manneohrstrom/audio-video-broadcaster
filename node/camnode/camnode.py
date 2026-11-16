@@ -18,7 +18,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 NOMINAL_MS = 1000.0 / 30
 TAKE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WC_RE = re.compile(rb'"FrameWallClock":\s*(\d+)')
@@ -30,6 +30,8 @@ DEFAULT_CONFIG = {
     "port": 8080,
     "takes_dir": "/var/lib/camnode/takes",
     "rpicam_vid": "rpicam-vid",
+    "rpicam_still": "rpicam-still",
+    "snapshot_timeout_s": 10,
     "stop_signal": "SIGINT",
     "stop_timeout_s": 15,
     "min_free_gb": 2.0,
@@ -77,6 +79,22 @@ def build_cmd(cfg, role, outdir, settings):
         "--save-pts", os.path.join(outdir, "video.pts"),
         "--metadata", os.path.join(outdir, "metadata.json"), "--metadata-format", "json",
     ]
+
+
+def build_still_cmd(cfg, settings):
+    """One JPEG with the take's settings (Track B snapshot, spike B-S3: ~0.6 s), to stdout."""
+    s = settings
+    return [
+        cfg["rpicam_still"], "-n", "-t", "1", "--immediate",
+        "--mode", "2304:1296:10:P", "--width", "1920", "--height", "1080", "--denoise", "cdn_off",
+        "--shutter", str(int(s["shutter_us"])), "--gain", str(s["gain"]),
+        "--awbgains", "%s,%s" % tuple(s["awb_gains"]),
+        "--autofocus-mode", "manual", "--lens-position", str(s["lens_position"]),
+        "-e", "jpg", "-q", "85", "-o", "-",
+    ]
+
+
+SNAPSHOT_KEYS = ("shutter_us", "gain", "awb_gains", "lens_position")
 
 
 def parse_pts(path):
@@ -536,6 +554,31 @@ class Agent:
             raise RuntimeError("live stream not ready after %ss" % self.cfg["live_ready_timeout_s"])
         return self.mode()
 
+    # -- snapshot (Track B)
+    def snapshot(self, settings=None):
+        """A JPEG with the take settings (overridable, e.g. a focus being tried). Idle only:
+        while it runs the camera is busy, so state "snapshot" makes arm/live refuse."""
+        bad = set(settings or {}) - set(SNAPSHOT_KEYS)
+        if bad:
+            raise ValueError("unknown settings: %s" % ", ".join(sorted(bad)))
+        with self.lock:
+            if self.state != "idle":
+                raise Busy("camera is %s" % self.state)
+            if self._live_active():
+                raise Busy("live mode is on")
+            self.state = "snapshot"
+        try:
+            s = dict(self.cfg["settings"], **(settings or {}))
+            r = subprocess.run(build_still_cmd(self.cfg, s), stdin=subprocess.DEVNULL, capture_output=True,
+                               timeout=self.cfg["snapshot_timeout_s"])
+            if r.returncode != 0 or not r.stdout.startswith(b"\xff\xd8"):
+                tail = r.stderr.decode(errors="replace").strip().splitlines()[-1:] or ["no output"]
+                raise RuntimeError("rpicam-still failed (code %s): %s" % (r.returncode, tail[0]))
+            return r.stdout
+        finally:
+            with self.lock:
+                self.state = "idle"
+
     # -- takes
     def arm(self, take_id, role, settings=None):
         if not TAKE_ID_RE.match(take_id or ""):
@@ -682,6 +725,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         a = self.agent
         try:
+            if self.path == "/snapshot":
+                jpg = a.snapshot(self._body().get("settings"))
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(jpg)))
+                self.end_headers()
+                self.wfile.write(jpg)
+                return
             if self.path == "/take/arm":
                 b = self._body()
                 return self._send(200, a.arm(b.get("take_id"), b.get("role"), b.get("settings")))

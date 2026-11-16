@@ -46,6 +46,7 @@ PAGE = re.compile(r"^[A-Za-z0-9]{8,40}$")
 NOMINAL_MS = 1000 / 30.0
 MAX_CHUNK = 64 << 20           # ~2 s at 16 Mbps is ~4 MB; anything this big is a mistake
 BYTES_PER_HOUR = 7.2e9         # 16 Mbps cap
+SNAP_WINDOW_S = 10.0           # a snapshot request stays open this long
 
 
 class PhoneError(ValueError):
@@ -204,6 +205,8 @@ class Phones:
         self.cmd_id = 0
         self.recorded = {}      # take_id -> set of phone names sent "rec"
         self.uploaded = {}      # take_id -> video bytes received (record-time estimate)
+        self.snaps = {}         # name -> (jpeg, time): latest still for the snapshot page
+        self.snap_wanted = 0.0  # phones send a still on their next poll until then
         os.makedirs(self.dir, exist_ok=True)
 
     # -- registry
@@ -236,7 +239,26 @@ class Phones:
                     self.recorded.setdefault(want[1], set()).add(name)
             elif not want and p["cmd"] and p["cmd"]["action"] == "rec" and body.get("state") != "ready":
                 p["cmd"] = None     # stale: the phone can't act on it any more
-            return {"id": name, "cmd": p["cmd"], "rig": rig, "hub_ns": time.time_ns()}
+            want_snap = (now < self.snap_wanted and rig.get("state") == "idle"
+                         and self.snaps.get(name, (None, 0))[1] < self.snap_wanted - SNAP_WINDOW_S)
+            return {"id": name, "cmd": p["cmd"], "rig": rig, "hub_ns": time.time_ns(), "snap": want_snap}
+
+    # -- snapshot page (Track B)
+    def want_snaps(self):
+        """Ask every phone for a fresh still on its next poll (for SNAP_WINDOW_S)."""
+        with self.lock:
+            self.snap_wanted = self.clock() + SNAP_WINDOW_S
+
+    def put_snap(self, name, jpeg):
+        if not PART.match(name or "") or not jpeg.startswith(b"\xff\xd8"):
+            raise PhoneError("bad phone or not a JPEG")
+        with self.lock:
+            self.snaps[name] = (jpeg, self.clock())
+        return {"ok": True}
+
+    def get_snap(self, name):
+        with self.lock:
+            return self.snaps.get(name)
 
     def _new_part(self, take_id, name):
         """Folder for a new recording of this phone in this take: phone1, then

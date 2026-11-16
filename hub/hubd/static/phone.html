@@ -468,6 +468,7 @@ async function pollHub() {
       return;
     }
     S.hubOk = true; S.rig = j.rig; S.id = j.id;
+    if (j.snap && S.state === "ready") sendSnap().catch(e => hublog({ev: "snap_err", err: String(e)}));
     if (j.cmd && j.cmd.id !== S.doneCmd) {
       S.doneCmd = j.cmd.id;
       if (j.cmd.action === "rec") startRec(j.cmd.take_id, j.cmd.part);
@@ -498,6 +499,18 @@ setInterval(() => {
   $("stats").innerHTML = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join("");
 }, 500);
 
+// Snapshot page (Track B): a still of what this phone sees, when the hub asks.
+async function sendSnap() {
+  const v = $("preview"); if (!v.videoWidth || S.sendingSnap) return;
+  S.sendingSnap = true;
+  try {
+    const c = document.createElement("canvas"), w = Math.min(1280, v.videoWidth);
+    c.width = w; c.height = Math.round(v.videoHeight * w / v.videoWidth);
+    c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.8));
+    await fetch("/api/phone/snap/" + S.id, {method: "POST", body: blob});
+  } finally { S.sendingSnap = false; }
+}
 // Spike B-S6: can the page set exposure and white balance from the calibration card?
 async function cardShot() {
   const v = $("preview"), c = document.createElement("canvas");

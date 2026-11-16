@@ -75,3 +75,17 @@ def measure(jpeg, card):
     out["grey"], out["grey_spread"] = read(card["grey"]["rect"])
     out["patches"] = {p["name"]: read(p["rect"])[0] for p in card["patches"]}
     return out
+
+
+def sharpness(jpeg, crop=1 / 3):
+    """Focus help: detail in the middle of the picture (variance of the Laplacian on the
+    central third, full resolution). Higher is sharper; only comparable for one camera
+    looking at the same scene."""
+    cv2, np, _ = _cv2()
+    im = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_GRAYSCALE)
+    if im is None:
+        raise ValueError("not an image")
+    h, w = im.shape
+    ch, cw = int(h * crop), int(w * crop)
+    c = im[(h - ch) // 2:(h + ch) // 2, (w - cw) // 2:(w + cw) // 2]
+    return round(float(cv2.Laplacian(c, cv2.CV_64F).var()), 1)

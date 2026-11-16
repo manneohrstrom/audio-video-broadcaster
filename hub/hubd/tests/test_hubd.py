@@ -17,7 +17,7 @@ class FakeRig:
     def __init__(self, names):
         self.st = {n: dict(GOOD) for n in names}
         self.offline, self.no_sync, self.fail_arm = set(), set(), set()
-        self.calls = []
+        self.calls, self.bodies = [], []
         self.diff = {}
         self.lock = threading.Lock()
 
@@ -27,10 +27,15 @@ class FakeRig:
         with self.lock:
             return dict(self.st[n])
 
-    def post(self, n, path, body=None, timeout=None):
+    def post(self, n, path, body=None, timeout=None, raw=False):
         with self.lock:
             self.calls.append((n, path, (body or {}).get("role")))
+            self.bodies.append((n, path, body))
             s = self.st[n]
+            if path == "/snapshot":
+                if s["mode"] != "idle":
+                    raise hubd.NodeError("%s: camera is %s" % (n, s["mode"]))
+                return b"\xff\xd8snap " + json.dumps(body["settings"]).encode()
             if path == "/take/arm":
                 if n in self.fail_arm:
                     raise hubd.NodeError("%s: camera busy" % n)
@@ -393,3 +398,67 @@ class HubTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SnapshotTest(unittest.TestCase):
+    def setUp(self):
+        self.cfg = hubd.load_config(None)
+        self.cfg.update(state_dir=tempfile.mkdtemp(), client_head_start_s=0, sync_timeout_s=1)
+        self.rig = FakeRig(self.cfg["nodes"])
+        self.hub = hubd.Hub(self.cfg, nodes=self.rig, sleep=lambda s: None)
+        self.hub.poll_once()
+
+    def test_snapshot_uses_hub_settings_and_overrides(self):
+        self.hub.set_camera_settings("cam2", {"lens_position": 0.8})
+        jpg, info = self.hub.snap("cam2")
+        self.assertIn(b'"lens_position": 0.8', jpg)
+        self.assertEqual((info["source"], info["settings"]), ("still", {"lens_position": 0.8}))
+        jpg, _ = self.hub.snap("cam2", {"lens_position": 1.4})
+        self.assertIn(b'"lens_position": 1.4', jpg)
+        self.assertEqual(self.hub.cam_settings["cam2"], {"lens_position": 0.8})   # a try isn't saved
+
+    def test_settings_validated_persisted_and_sent_at_arm(self):
+        for bad in ({"lens_position": 99}, {"gain": 2}):
+            with self.assertRaises(ValueError):
+                self.hub.set_camera_settings("cam1", bad)
+        with self.assertRaises(ValueError):
+            self.hub.set_camera_settings("cam9", {"lens_position": 1})
+        self.hub.set_camera_settings("cam1", {"lens_position": 0.5})
+        again = hubd.Hub(self.cfg, nodes=self.rig, sleep=lambda s: None)
+        self.assertEqual(again.cam_settings, {"cam1": {"lens_position": 0.5}})
+        self.hub.rec()
+        arms = {n: b for n, p, b in self.rig.bodies if p == "/take/arm"}
+        self.assertEqual(arms["cam1"]["settings"], {"lens_position": 0.5})
+        self.assertNotIn("settings", arms["cam2"])
+        with self.assertRaises(hubd.Refused):
+            self.hub.snap("cam1")                      # never during a take
+        self.hub.stop()
+
+    def test_offline_and_unknown_cameras(self):
+        with self.assertRaises(ValueError):
+            self.hub.snap("cam9")
+        self.rig.offline.add("cam3")
+        for _ in range(3):
+            self.hub.poll_once()
+        with self.assertRaises(hubd.Refused):
+            self.hub.snap("cam3")
+
+    def test_rec_waits_for_a_snapshot_in_flight(self):
+        self.hub.snaps_in_flight = 1
+        threading.Timer(0.2, lambda: setattr(self.hub, "snaps_in_flight", 0)).start()
+        t0 = __import__("time").monotonic()
+        self.hub.rec()
+        self.assertGreater(__import__("time").monotonic() - t0, 0.15)
+        self.hub.stop()
+
+    def test_phone_stills(self):
+        ph = self.hub.phones
+        body = {"phone": "Paul's Pixel", "page": "abcdefgh1", "state": "ready"}
+        self.assertFalse(self.hub.phone_poll(body)["snap"])
+        ph.want_snaps()
+        self.assertTrue(self.hub.phone_poll(body)["snap"])
+        with self.assertRaises(ValueError):
+            ph.put_snap("pauls-pixel", b"not a jpeg")
+        ph.put_snap("pauls-pixel", b"\xff\xd8x")
+        self.assertFalse(self.hub.phone_poll(body)["snap"])     # got it: don't ask again
+        self.assertEqual(ph.get_snap("pauls-pixel")[0], b"\xff\xd8x")

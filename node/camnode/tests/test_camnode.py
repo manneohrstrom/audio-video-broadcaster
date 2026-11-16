@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import camnode  # noqa: E402
 
 FAKE = os.path.join(HERE, "fake_rpicam_vid.py")
+FAKE_STILL = os.path.join(HERE, "fake_rpicam_still.py")
 
 
 class Helpers(unittest.TestCase):
@@ -104,7 +105,7 @@ class AgentTest(unittest.TestCase):
         self.tmp = os.path.join(tempfile.mkdtemp(), "takes")
         os.makedirs(self.tmp)
         self.cfg = camnode.load_config(None)
-        self.cfg.update(takes_dir=self.tmp, rpicam_vid=FAKE, stop_timeout_s=3, min_free_gb=0, led_path="")
+        self.cfg.update(takes_dir=self.tmp, rpicam_vid=FAKE, rpicam_still=FAKE_STILL, stop_timeout_s=3, min_free_gb=0, led_path="")
         self.live = False
         self.ready_after = 0
         self.agent = self.make()
@@ -114,6 +115,33 @@ class AgentTest(unittest.TestCase):
                              live_active=lambda: self.live,
                              live_ctl=lambda action: (setattr(self, "live", action == "start") or True, ""),
                              live_ready=lambda: self.live and self.ready_after <= time.time())
+
+    def test_snapshot_uses_take_settings_and_overrides(self):
+        self.assertIn(b"lens=1.0", self.agent.snapshot())
+        self.assertIn(b"lens=2.5", self.agent.snapshot({"lens_position": 2.5}))
+        self.assertEqual(self.agent.status()["mode"], "idle")
+        with self.assertRaises(ValueError):
+            self.agent.snapshot({"bitrate": 1})
+
+    def test_snapshot_failure_reports_and_frees_the_camera(self):
+        with self.assertRaises(RuntimeError) as e:
+            self.agent.snapshot({"lens_position": 99})
+        self.assertIn("no cameras available", str(e.exception))
+        self.assertEqual(self.agent.status()["mode"], "idle")
+
+    def test_snapshot_blocks_arm_and_is_refused_when_busy(self):
+        import threading
+        t = threading.Thread(target=self.agent.snapshot, args=({"lens_position": 98},))
+        t.start()
+        self.wait_state("snapshot")
+        with self.assertRaises(camnode.Busy):
+            self.agent.arm("20261116-120000", "server")
+        with self.assertRaises(camnode.Busy):
+            self.agent.snapshot()
+        t.join()
+        self.live = True
+        with self.assertRaises(camnode.Busy):
+            self.agent.snapshot()
 
     def wait_state(self, want, timeout=3):
         end = time.time() + timeout
