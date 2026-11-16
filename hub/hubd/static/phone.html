@@ -197,6 +197,7 @@ async function autoThenLock() {
   if (S.state === "recording") { msg("Not during a take: settings stay fixed while recording."); return; }
   const caps = S.track.getCapabilities();
   const btn = $("autolock"); btn.disabled = true;
+  let focusWarn = "";
   try {
     await allAuto();
     msg("auto for 3 s …"); await wait(3000);
@@ -234,17 +235,38 @@ async function autoThenLock() {
     // 3. focus: contrast sweep over the lens range, then refine around the best
     if (caps.focusDistance) {
       const r = caps.focusDistance, best = {d: null, s: -1};
-      const tryD = async d => { d = +clamp(d, r).toFixed(2); await setC({focusMode: "manual", focusDistance: d}); await wait(350);
-        const s = (sharpness() + sharpness()) / 2; log.steps.push({focus: d, s: Math.round(s)}); if (s > best.s) { best.s = s; best.d = d; } };
+      // The lens takes a while to get there, and Chrome reports the requested distance, not
+      // the lens's. A fixed 350 ms wasn't enough on the Pixel 9a (2026-11-16): the first
+      // reading after a long jump still saw the old, sharp picture and won the sweep. So
+      // read until two readings in a row agree (or 2.5 s), and start the sweep from the
+      // near end with a longer wait.
+      const settled = async () => {
+        let prev = sharpness();
+        for (let t = 0; t < 2500; t += 150) {
+          await wait(150);
+          const s = sharpness();
+          if (Math.abs(s - prev) <= 0.1 * Math.max(s, prev, 1)) return (s + prev) / 2;
+          prev = s;
+        }
+        return prev;
+      };
+      const tryD = async d => { d = +clamp(d, r).toFixed(2); await setC({focusMode: "manual", focusDistance: d}); await wait(250);
+        const s = await settled(); log.steps.push({focus: d, s: Math.round(s)}); if (s > best.s) { best.s = s; best.d = d; } };
+      await setC({focusMode: "manual", focusDistance: r.min}); await wait(1000);
       for (let i = 0; i <= 12; i++) { const d = r.min * Math.pow(r.max / r.min, i / 12); msg(`focusing … ${d.toFixed(2)} m`); await tryD(d); }
       const f = Math.pow(r.max / r.min, 1 / 12);
+      // Refine: jump near the best first (a long jump back from the far end), then step out.
+      await setC({focusMode: "manual", focusDistance: +clamp(best.d / f, r).toFixed(2)}); await wait(1000);
       for (const m of [1 / f, 1 / Math.sqrt(f), Math.sqrt(f), f]) await tryD(best.d * m);
       await setC({focusMode: "manual", focusDistance: best.d}); await wait(400);
+      const check = await settled();
+      log.steps.push({focus_final: best.d, s: Math.round(check), best_s: Math.round(best.s)});
+      if (check < 0.5 * best.s) focusWarn = " · focus may be off: check the picture, or set focus m by hand";
       $("focusDistance").value = best.d;
     }
     S.locked = true;
     const warn = iso >= caps.iso.max * 0.9 ? " · the room is too dark for 1/50 s: add light" : "";
-    msg(`Locked: 1/${Math.round(10000 / exp)} s, ISO ${iso}, ${$("colorTemperature").value} K, focus ${$("focusDistance").value} m${warn}`);
+    msg(`Locked: 1/${Math.round(10000 / exp)} s, ISO ${iso}, ${$("colorTemperature").value} K, focus ${$("focusDistance").value} m${warn}${focusWarn}`);
     hublog({ev: "autolock", log, settings: showCaps(false).set});
   } finally { btn.disabled = false; }
 }
