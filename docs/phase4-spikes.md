@@ -41,3 +41,13 @@ All four cameras at once, `rpicam-vid -t 3000` at 1080p30 with `--shutter 20000`
 - **Settling:** gain within 3% of its final value by frame 12–15 (0.4–0.5 s). AWB reported its final value from the first frame. So "auto, then lock" at REC needs about 1 s of metering (allow 1.5 s), which fits the snapshot's auto variant (B-S3, 1.6 s).
 - **Light level:** ~30 lux at the cameras needs gain 13–15 at 1/50 s, close to the 16 maximum, so images will be noisy. More light on the performers is the best image improvement available; the software can't fix it.
 - First run (room lights off, 1–2 lux): all cameras at max gain 16, AWB 3838–4073 K; nothing about exposure spread could be measured.
+
+## B-S7: watching for the calibration card on an idle Zero (2026-11-16): PASS
+
+cam1 idle, `rpicam-vid -t 0 --framerate 1 --codec mjpeg -q 80 --segment 1` at 1920×1080 (same sensor mode and shutter as takes), one JPEG per second into `/dev/shm`, for 2 min:
+
+- CPU 7.9 s user over 120 s (about 2% of the Zero), no temperature rise (32.2 °C before and after), 113 frames, about 320 KB each, so about 2.6 Mbps per camera if every frame went to the hub.
+- Releasing the camera: SIGINT 671–973 ms; **SIGKILL 30–42 ms**, and the next `rpicam-vid` (a take-style H.264 open) started fine every time with no kernel errors (3 tries each). So REC and LIVE kill the watcher: no noticeable delay.
+- Wi-Fi: four cameras watching send about 10 Mbps while idle, which competes with ingest (also idle-time). So watch only while the hub page is open or a device is waiting for the card, not all night.
+
+Card detection (desk check before B-S5): OpenCV 4.10 (`python3-opencv` on the hub) finds both markers of the printed-card PDF down to 72 px across the whole A4 card, i.e. about 3 m from a Camera Module 3 Wide at 1080p in ideal conditions. B-S5 measures it for real; an A3 print roughly doubles the range.
