@@ -1,5 +1,6 @@
 # Per-camera image settings: one source for camnode (rpicam-vid) and MediaMTX.
-# PLACEHOLDERS until the grey-card calibration session (Phase 1 condition 5).
+# Starting values only: the hub's calibrated settings (/var/lib/hubd/camera_settings.json)
+# replace them at every take and LIVE.
 cam_shutter_us: 20000
 cam_gain: 2.0
 cam_awb_gains: [1.5, 1.5]

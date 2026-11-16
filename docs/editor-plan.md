@@ -1,6 +1,6 @@
 # Editor plan: from takes to finished videos
 
-Status: **accepted by the user (2026-11-16), with the recommended answers to all four decisions below.** Spikes E1–E3 run alongside Phase 4 Track B; the main work (M-E2 on) follows Track A. Sources: the user's direction of 2026-11-15 (no Premiere, our own editor; `docs/design.md`, "Editing"), the conversation of 2026-11-16 (web editor on the hub, bounce upload, automatic cut, changes by hand, render for YouTube), Phase 3 results (`docs/phase3-results.md`) and the ingest-time question (`docs/phone-plan.md`).
+Status: **accepted by the user (2026-11-16), with the recommended answers to all four decisions below.** Spikes E1–E3 run alongside Phase 4 Track B; the main work (M-E2 on) follows Track A. Sources: the user's direction of 2026-11-15 (our own editor; `docs/design.md`, "Editing"), the conversation of 2026-11-16 (web editor on the hub, bounce upload, automatic cut, changes by hand, render for YouTube), Phase 3 results (`docs/phase3-results.md`) and the ingest-time question (`docs/phone-plan.md`).
 
 ## Goal
 
@@ -21,7 +21,7 @@ The first automatic cut uses simple rules. An agent that listens to the music, w
 
 ## 1. Ingest: copy at real timing instead of re-encoding (changes a settled decision; needs the user's OK)
 
-**Today.** Ingest re-encodes every camera onto an exact 30.000 fps grid (libx264, about real time per camera-hour on the Pi 5). That gave Premiere a clean constant-rate file. A big session (4 Pis, 5 phones, 2 hours) is about 18 hours of ingest.
+**Today.** Ingest re-encodes every camera onto an exact 30.000 fps grid (libx264, about real time per camera-hour on the Pi 5). That gave editing software a clean constant-rate file. A big session (4 Pis, 5 phones, 2 hours) is about 18 hours of ingest.
 
 **Proposed.** Ingest rewraps with `-c copy`, and every frame keeps its real capture time (from `--save-pts` and `first_frame_wallclock_ns`; for phones, the page's hub-clock frame times). A dropped frame becomes one long frame. Timecode, verify against the manifest (gaps included), `take.json` and rough sections stay as they are. Ingest drops from hours to minutes per camera-hour, mostly the pull.
 

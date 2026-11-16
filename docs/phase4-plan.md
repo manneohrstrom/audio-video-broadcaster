@@ -11,7 +11,7 @@ Three things the rig can't do yet:
 
 ## Track A: audio sync (second; the hub's USB mic arrives 2026-11-16 and spike A1 can run whenever convenient)
 
-**What it does.** During every take the hub records a scratch WAV from its USB mic, stamped against its own clock (the clock the cameras' frames are stamped against). After the session the user uploads the bounce, one per song if they like. The hub finds where each bounce sits in the take, and how fast its clock runs, and stamps it with the take's timecode, so it drops onto the Premiere timeline already in sync.
+**What it does.** During every take the hub records a scratch WAV from its USB mic, stamped against its own clock (the clock the cameras' frames are stamped against). After the session the user uploads the bounce, one per song if they like. The hub finds where each bounce sits in the take, and how fast its clock runs, and stamps it with the take's timecode, so the editor (and the quick mix, A4) can use it already in sync.
 
 - **Anchors, per take or per bounce** (multi-room requirement, `docs/design.md`):
   1. **Hub mic match:** the scratch WAV against the bounce (GCC-PHAT at several points through the take, giving offset and drift).
@@ -120,7 +120,7 @@ Three things the rig can't do yet:
 - Pixel phones as offline camera units: moved ahead of Phase 4 as its own plan (`docs/phone-plan.md`, accepted 2026-11-15).
 - Network share and Mac auto-pull (`docs/phase3-plan.md`, decision 6).
 - "Discard take" button (parked 2026-11-15).
-- Copying takes at their native timing without re-encoding: likely, now that the editor is our own (user, 2026-11-15: no Premiere; `docs/design.md`, "Editing").
+- Copying takes at their native timing without re-encoding: likely, now that the editor is our own (user, 2026-11-15: our own editor; `docs/design.md`, "Editing").
 - The AI-assisted editor itself (`docs/design.md`, "Editing").
 - Live latency tuning (deferred 2026-11-14).
 - From the original Phase 4 list (decision 4): tally LEDs on the cameras (the board LED and the bulb cover it), a physical REC button on the hub's GPIO, OBS scene-collection export, LTC timecode (only if Track A disappoints).

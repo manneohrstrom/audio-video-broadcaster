@@ -250,8 +250,15 @@ class Audio:
             self._save(take, doc)
             return s
 
-    def summary(self, take, on_drive=()):
-        """Short form for the take list. on_drive: relative paths hub-ingest has copied."""
+    def version_info(self, take, song, version):
+        v = dict(self._version(self._load(take), song, version))
+        v["synced"] = os.path.exists(os.path.join(self._vdir(take, song, version), "sync.json"))
+        return v
+
+    def summary(self, take, on_drive=(), renders=None):
+        """Short form for the take list. on_drive: relative paths hub-ingest has copied;
+        renders: hub-ingest's render jobs of this take, keyed "<song>/v<N>"."""
+        renders = renders or {}
         out = {}
         if os.path.exists(os.path.join(self.root, take, "songs.json")):
             try:
@@ -261,7 +268,11 @@ class Audio:
             out["songs"] = [{"id": s["id"], "name": s["name"], "current": s["current"], "versions": [
                 {"version": v["version"], "filename": v["filename"], "complete": bool(v.get("complete")),
                  "bytes": v["bytes"], "received": v.get("received", v["bytes"]), "duration_s": v.get("duration_s"),
-                 "on_drive": "%s/v%d/%s" % (s["id"], v["version"], v["filename"]) in on_drive}
+                 "on_drive": "%s/v%d/%s" % (s["id"], v["version"], v["filename"]) in on_drive,
+                 "synced": os.path.exists(os.path.join(self.root, take, s["id"], "v%d" % v["version"], "sync.json")),
+                 "render": {k: (renders.get("%s/v%d" % (s["id"], v["version"])) or {}).get(k)
+                            for k in ("status", "progress", "eta_s", "error", "file", "status_note")}
+                 if renders.get("%s/v%d" % (s["id"], v["version"])) else None}
                 for v in s["versions"]]} for s in doc["songs"]]
         try:
             with open(os.path.join(self.root, take, "scratch", "scratch.json")) as f:

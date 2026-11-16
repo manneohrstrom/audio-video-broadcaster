@@ -34,7 +34,10 @@ import threading
 import time
 import urllib.request
 
-VERSION = "0.5.0"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import render  # noqa: E402
+
+VERSION = "0.6.1"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -84,6 +87,7 @@ DEFAULT_CONFIG = {
     # Bounce uploads and hub mic recordings staged by hubd (hub/hubd/audio.py, scratch.py),
     # per take, in the layout they get under STUDIO/takes/<take folder>/audio/.
     "audio_dir": "/var/lib/hubd/audio",
+    "quick_shot_s": 10.0,       # quick mix (render.py): a new camera this often
 }
 TAKE_RE = re.compile(r"^\d{8}-\d{6}$")
 
@@ -319,6 +323,7 @@ class Ingest:
         self.drive = drive or Drive(cfg)
         self.drive_lock = threading.RLock()   # mount changes: ingest writes vs. the keeper thread
         self.writing_n = 0
+        self.rendering = False                # a render reads the drive: keep it mounted read-only
         self.lease = os.path.join(self.sd, "playback.lease")   # touched by hubd per media request
         self.state = self._load()
         # Nothing is running yet: drop step markers left by a previous run (restart, crash).
@@ -327,6 +332,9 @@ class Ingest:
                 if isinstance(cs, dict):
                     cs.update(step=None, progress=None, step_started=None)
         self.state["current"] = None
+        for job in (self.state.get("renders") or {}).values():      # interrupted by a restart
+            if job.get("status") in ("rendering", "checking", "writing", "paused"):
+                job.update(status="queued", progress=None)
         self.last_busy = self.state.get("last_busy", 0)
         self.manual = False
         self.last_free = self.state.get("drive_free_gb")
@@ -486,7 +494,7 @@ class Ingest:
         with self.drive_lock:
             if self.writing_n:
                 return
-            if (self.viewing() and self.state.get("drive") != "ejected"
+            if ((self.viewing() or self.rendering) and self.state.get("drive") != "ejected"
                     and self.drive.present() and self.drive.check()):
                 self.drive.mount(rw=False)
             else:
@@ -535,18 +543,30 @@ class Ingest:
     def take_commands(self):
         out = []
         for name in sorted(os.listdir(self.cmd_dir)):
+            if name.endswith(".tmp"):
+                continue                      # hubd is still writing it
             p = os.path.join(self.cmd_dir, name)
             try:
                 with open(p) as f:
-                    out.append(json.load(f).get("cmd"))
+                    out.append(json.load(f))
             except (OSError, ValueError):
                 pass
             os.remove(p)
         return out
 
+    def eject_requested(self):
+        """An Eject is waiting (checked during a render, which then gives way)."""
+        try:
+            return any(n.endswith("-eject.json") for n in os.listdir(self.cmd_dir))
+        except OSError:
+            return False
+
     def handle_commands(self):
-        for c in self.take_commands():
-            if c == "start":
+        for doc in self.take_commands():
+            c = doc.get("cmd")
+            if c == "render":
+                self.queue_render(doc)
+            elif c == "start":
                 self.manual = True
             elif c == "eject":
                 with self.drive_lock:
@@ -827,6 +847,139 @@ class Ingest:
         src = os.path.join(self.cfg["audio_dir"], take_id, rel)
         dst = os.path.join(self.take_folder(take_id), "audio", rel)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
+        sha = self.copy_verified(src, dst)
+        self.state["audio"].setdefault(take_id, {})[rel] = {
+            "size": size, "mtime_ns": mtime_ns, "sha256": sha, "path": dst}
+        self.save()
+
+    # -- quick mix renders (Phase 4 A4, render.py)
+    def queue_render(self, doc):
+        take, song, v = doc.get("take"), doc.get("song"), doc.get("version")
+        if not (TAKE_RE.match(take or "") and isinstance(v, int) and re.match(r"^[a-z0-9-]+$", song or "")):
+            return
+        key = "%s/%s/v%d" % (take, song, v)
+        jobs = self.state.setdefault("renders", {})
+        if (jobs.get(key) or {}).get("status") in ("queued", "rendering", "checking", "writing"):
+            return
+        jobs[key] = {"take": take, "song": song, "version": v, "status": "queued", "queued_at": self.clock(),
+                     "progress": None, "error": None}
+        self.manual = True                    # asked for by the user: don't wait for 30 min idle
+        self.save()
+
+    def renders_ready(self):
+        """A queued render whose take is on the drive (others wait for its ingest)."""
+        return any(j["status"] == "queued" and (self.state["takes"].get(j["take"]) or {}).get("complete")
+                   for j in (self.state.get("renders") or {}).values())
+
+    def run_renders(self):
+        for key, job in sorted((self.state.get("renders") or {}).items()):
+            if job["status"] != "queued":
+                continue
+            t = self.state["takes"].get(job["take"]) or {}
+            if not t.get("complete"):
+                job["status_note"] = "waiting for the take's own ingest"
+                continue
+            try:
+                self.render_job(job)
+            except Paused:
+                job["status"] = "queued"
+                raise
+            except render.Aborted:
+                job.update(status="queued", progress=None, status_note="stopped for Eject; starts again later")
+                self.save()
+                return
+            except Exception as e:  # noqa: BLE001 - one bad render must not stop ingest
+                job.update(status="error", error=str(e)[-500:], progress=None)
+                self.save()
+
+    def _audio_src(self, job):
+        d = os.path.join(self.cfg["audio_dir"], job["take"], job["song"], "v%d" % job["version"])
+        try:
+            with open(os.path.join(d, "version.json")) as f:
+                ver = json.load(f)
+            with open(os.path.join(d, "sync.json")) as f:
+                sync = json.load(f)
+        except (OSError, ValueError) as e:
+            raise RuntimeError("song not uploaded or not synced: %s" % e) from None
+        return d, ver, sync
+
+    def render_job(self, job):
+        d, ver, sync = self._audio_src(job)
+        bounce = os.path.join(d, sync.get("file") or ver["filename"])
+        out_dir = os.path.join(self.work, "renders", job["take"])
+        os.makedirs(out_dir, exist_ok=True)
+        base = "%s-v%d-quick" % (job["song"], job["version"])
+        tmp = os.path.join(out_dir, base + ".tmp.mp4")
+        job.update(status="rendering", progress=0.0, error=None, status_note=None, started=self.clock())
+        self.save(current_render=job["take"])
+        with self.drive_lock:
+            if not self.drive.present() or not self.drive.check():
+                raise RuntimeError("STUDIO drive not available")
+            self.rendering = True
+            if not self.writing_n:
+                self.drive.mount(rw=False)
+        try:
+            folder = self.take_folder(job["take"])
+            with open(os.path.join(folder, "take.json")) as f:
+                doc = json.load(f)
+            edit = render.quick_cut(doc, int(sync["bounce_start_ns"]), ver["duration_s"], ver.get("song") or job["song"],
+                                    job["version"], "audio/%s/v%d/%s" % (job["song"], job["version"], os.path.basename(bounce)),
+                                    shot_s=self.cfg["quick_shot_s"])
+            edit["sync"] = {k: sync.get(k) for k in ("anchor", "confidence", "drift_ppm")}
+            segs, astart, frames = render.plan(edit, doc)
+            job.update(frames=frames, shots=len(segs), length_s=round(frames / render.FPS, 1))
+            t0, last = time.monotonic(), [0.0]
+
+            def progress(done):
+                job["progress"] = round(done / frames, 3)
+                el = time.monotonic() - t0
+                job["eta_s"] = round(el / done * (frames - done)) if done else None
+                if time.monotonic() - last[0] > 2:
+                    last[0] = time.monotonic()
+                    self.save()
+
+            def busy():
+                b = self.rig_busy()
+                if b != (job["status"] == "paused"):
+                    job["status"] = "paused" if b else "rendering"
+                    self.save(status="paused: rig busy" if b else "ingesting")
+                return b
+            render.render(segs, folder, bounce, astart, frames, tmp, busy, should_abort=self.eject_requested,
+                          progress=progress)
+            job.update(status="checking", progress=1.0, eta_s=None)
+            self.save()
+            problems, info = render.check(tmp, segs, frames, folder)
+        finally:
+            with self.drive_lock:
+                self.rendering = False
+        job["checked"] = info
+        if problems:
+            raise RuntimeError("render check failed: " + "; ".join(problems))
+        edit_tmp = os.path.join(out_dir, base + ".json")
+        with open(edit_tmp, "w") as f:
+            json.dump(edit, f, indent=1)
+        job["status"] = "writing"
+        self.save()
+        with self.writing():
+            dst_dir = os.path.join(self.take_folder(job["take"]), "edits", job["song"])
+            os.makedirs(dst_dir, exist_ok=True)
+            name, n = base, 1
+            while os.path.exists(os.path.join(dst_dir, name + ".mp4")):   # never replace a file on the drive
+                n += 1
+                name = "%s-%d" % (base, n)
+            mp4 = os.path.join(dst_dir, name + ".mp4")
+            self.copy_verified(tmp, mp4)
+            self.copy_verified(edit_tmp, os.path.join(dst_dir, name + ".json"))
+            size = os.path.getsize(mp4)        # here: the drive is unmounted after the with block
+        os.remove(tmp)
+        os.remove(edit_tmp)
+        job.update(status="done", path=mp4, file=os.path.relpath(mp4, self.take_folder(job["take"])),
+                   finished=self.clock(), bytes=size)
+        self.state["drive_free_gb"] = self.drive_free()
+        self.save(current_render=None)
+
+    def copy_verified(self, src, dst):
+        """Copy to dst.part, fsync, compare checksums, rename. Pauses (raises) if the rig gets busy."""
         part, h, checked = dst + ".part", hashlib.sha256(), time.monotonic()
         with open(src, "rb") as fi, open(part, "wb") as fo:
             for b in iter(lambda: fi.read(1 << 22), b""):
@@ -840,11 +993,9 @@ class Ingest:
             os.fsync(fo.fileno())
         if sha256_file(part) != h.hexdigest():
             os.remove(part)
-            raise RuntimeError("audio copy of %s did not verify" % rel)
+            raise RuntimeError("copy of %s did not verify" % os.path.basename(dst))
         os.replace(part, dst)
-        self.state["audio"].setdefault(take_id, {})[rel] = {
-            "size": size, "mtime_ns": mtime_ns, "sha256": h.hexdigest(), "path": dst}
-        self.save()
+        return h.hexdigest()
 
     def take_folder(self, take_id):
         day = "%s-%s-%s" % (take_id[0:4], take_id[4:6], take_id[6:8])
@@ -1032,7 +1183,8 @@ class Ingest:
             todo = self.pending()
             self.register(todo)
             audio = self.audio_pending()
-            if not todo and not audio:
+            renders = self.renders_ready()
+            if not todo and not audio and not renders:
                 self.manual = False
                 self.settle_drive()
                 self.save(status="idle: nothing to ingest")
@@ -1044,6 +1196,10 @@ class Ingest:
             if audio:
                 self.save(status="ingesting", step="audio")
                 self.copy_audio(audio)
+                self.save(step=None)
+            if renders or self.renders_ready():   # a take ingested just now may have one waiting
+                self.save(status="ingesting", step="render")
+                self.run_renders()
                 self.save(step=None)
             return "ingested"
         except Paused:

@@ -21,5 +21,5 @@ Plan: `docs/phone-spike-plan.md`. Code: `hub/spike/phone/`. Device: Pixel 3, Chr
 - A fixed capture-delay correction per phone model (start at −40 ms for all), as one config value.
 - Phones in hubd itself (not a separate server), shown with the Pi cameras, and in the take list and ingest. The output is already in the Pi layout (`video.h264`, `video.pts`, `manifest.json` with `first_frame_wallclock_ns` and `gaps`).
 - Camera access: the Chrome flag stays (user, 2026-11-15: it's a one-off per phone, so no local CA or HTTPS).
-- Rough-section markers from `gaps` (hub timeline + Premiere markers), for Pi cameras and phones alike.
+- Rough-section markers from `gaps` (hub timeline + editor markers), for Pi cameras and phones alike.
 - Optional cross-check later: the phone's own mic against the hub scratch mic (Track A).

@@ -211,7 +211,7 @@ function card(name, n) {
       <span>temp</span><span>${fmt(st.temp_c, " °C")}</span>
       <span>free</span><span>${fmt(st.free_gb, " GB")} · ${fmt(st.free_hours, " h")}</span>
       <span>clock</span><span>${st.clock_synced ? "synced" : "<b class=bad>not synced</b>"} · ${fmt(st.clock_offset_ms, " ms", 3)}</span>
-      <span>Wi-Fi</span><span>${fmt(st.wifi_dbm, " dBm", 0)} · PS ${st.wifi_powersave === false ? "off" : "<b class=bad>on</b>"}</span>
+      <span>Wi-Fi</span><span><span class="${st.wifi_dbm != null && st.wifi_dbm < -65 ? "bad" : ""}" title="Weaker than −65 dBm: move the camera or the access point (aim for −60 or better)">${fmt(st.wifi_dbm, " dBm", 0)}</span>${st.wifi_mbps != null ? " · " + fmt(st.wifi_mbps, " Mbit/s", 0) : ""} · PS ${st.wifi_powersave === false ? "off" : "<b class=bad>on</b>"}</span>
       ${st.last_error ? `<span>error</span><span class="bad">${esc(st.last_error)}</span>` : ""}
     </div>
     ${calLine(name)}
@@ -463,6 +463,7 @@ function ingestView(st) {
 // ---- audio: bounces (songs and versions) and the hub mic, per take (Phase 4 Track A)
 function audioTxt(id, t) {
   const a = t.audio || {};
+  const blocks = [];
   const parts = (a.songs || []).map(sg => {
     const done = sg.versions.filter(v => v.complete);
     const up = sg.versions.filter(v => !v.complete);
@@ -470,11 +471,50 @@ function audioTxt(id, t) {
     let x = `♪ ${esc(sg.name)}` + (cur ? ` v${cur.version}` + (done.length > 1 ? ` (of ${done.length})` : "") +
       (cur.on_drive ? ' <span class="good">on drive</span>' : " · waiting for ingest") : "");
     if (up.length) x += ` · <span style="color:var(--warn)">v${up.map(v => v.version).join(", v")} not finished</span>`;
+    if (cur) {
+      const v = videoTxt(id, sg.id, cur);
+      x += " " + v.inline;
+      if (v.steps) blocks.push(`<div class="camrow"><span class="camname" title="${esc(sg.name)}">♪ video</span><div class="steps">${v.steps}</div></div>`);
+    }
     return x;
   });
   if (a.scratch) parts.push(`hub mic ${fmtDur(a.scratch.seconds)}` + (a.scratch.problems.length ? ` <span class="bad">⚠ ${esc(a.scratch.problems[0])}</span>` : ""));
   const btn = t.recorded ? `<button class="addaudio" data-audio="${esc(id)}">♪ Add audio</button>` : "";
-  return parts.length || btn ? `<div class="audio">${parts.join(" · ")} ${btn}</div>` : "";
+  return parts.length || btn ? `<div class="audio">${parts.join(" · ")} ${btn}</div>${blocks.join("")}` : "";
+}
+// Quick mix (Phase 4 A4): one button, a finished video; hub-ingest renders it.
+// Same chips as the ingest steps: Render → Check → Write, with spinner, % and bar on the current one.
+const VSTEPS = [["rendering", "Render"], ["checking", "Check"], ["writing", "Write to drive"]];
+function videoSteps(r) {
+  let cur = r.status === "paused" ? "rendering" : r.status;
+  let failed = null;
+  if (r.status === "error") {
+    const e = r.error || "";
+    failed = /^render check failed/.test(e) ? "checking" : /copy|drive full|did not verify/.test(e) ? "writing" : "rendering";
+  }
+  const order = VSTEPS.map(x => x[0]);
+  const at = r.status === "done" ? order.length : order.indexOf(failed || cur);
+  return VSTEPS.map(([key, name], i) => {
+    if (i < at) return `<span class="st done">✓ ${name}</span>`;
+    if (key === failed) return `<span class="st err" title="${esc(r.error || "")}">✗ ${name}</span>`;
+    if (i === at && r.status !== "queued") {
+      const paused = r.status === "paused";
+      const pct = key === "rendering" && r.progress != null ? Math.round(r.progress * 100) : null;
+      return `<span class="st cur">${paused ? "⏸" : '<span class="spin"></span>'} ${name}` +
+        (pct != null ? ` ${pct}% <span class="bar"><i style="width:${pct}%"></i></span>` : "") +
+        (key === "rendering" && r.eta_s && !paused ? ` · ${fmtEta(r.eta_s)} left` : "") +
+        (paused ? " · paused" : "") + "</span>";
+    }
+    return `<span class="st">○ ${name}</span>`;
+  }).join("") + (r.status === "queued" ? `<span class="st">queued${r.status_note ? ": " + esc(r.status_note) : ""}</span>` : "");
+}
+function videoTxt(take, song, v) {
+  const r = v.render, d = `data-take="${esc(take)}" data-song="${esc(song)}" data-v="${v.version}"`;
+  const make = label => `<button class="addaudio" data-render="1" ${d}>${label}</button>`;
+  if (!r) return { inline: v.synced ? make("▶ Make video") : '<small title="Syncing the bounce to the video comes with the hub mic (Phase 4 Track A)">· not synced yet</small>' };
+  if (r.status === "done") return { inline: `<button class="play" data-video="${esc(r.file)}" data-take="${esc(take)}">▶ Watch video</button> ` + make("Make again"), steps: videoSteps(r) };
+  if (r.status === "error") return { inline: make("Try again"), steps: videoSteps(r) };
+  return { inline: "", steps: videoSteps(r) };
 }
 const AUP = { take: null, running: false };
 async function jpost(path, body) {
@@ -511,6 +551,12 @@ document.addEventListener("click", async e => {
   const b = e.target.closest && e.target.closest("button");
   if (!b) return;
   if (b.dataset.audio) openAudio(b.dataset.audio);
+  else if (b.dataset.render) {
+    b.disabled = true;
+    try { await jpost("/api/render", { take: b.dataset.take, song: b.dataset.song, version: +b.dataset.v }); msg("Video queued: it starts when the rig is idle."); }
+    catch (err) { msg(err.message, true); }
+    pollIngest();
+  } else if (b.dataset.video) openVideo(b.dataset.take, b.dataset.video);
   else if (b.dataset.choose) {
     try { await jpost(`/api/audio/${AUP.take}/${b.dataset.choose}/choose`, { version: +b.dataset.v }); } catch (err) { $("#amsg").textContent = err.message; }
     refreshSongs(); pollIngest();
@@ -567,6 +613,15 @@ function openPlayer(take, cam, cams) {
   $("#player").dataset.take = take; $("#player").dataset.cams = cams.join(",");
   pv.src = `/media/${encodeURIComponent(take)}/${encodeURIComponent(cam)}.mov`;
   pv.onloadedmetadata = () => { if (t) pv.currentTime = Math.min(t, pv.duration || t); $("#pmsg").textContent = ""; pv.play().catch(() => {}); };
+  pv.onerror = () => { $("#pmsg").textContent = "Can't play this file: the STUDIO drive may be unplugged or busy."; };
+}
+function openVideo(take, file) {
+  $("#player").hidden = false;
+  $("#ptitle").textContent = take + " · " + file.split("/").pop();
+  $("#pcams").innerHTML = "";
+  $("#pmsg").textContent = "Opening the drive…";
+  pv.src = `/media/${encodeURIComponent(take)}/${file.split("/").map(encodeURIComponent).join("/")}`;
+  pv.onloadedmetadata = () => { $("#pmsg").textContent = ""; pv.play().catch(() => {}); };
   pv.onerror = () => { $("#pmsg").textContent = "Can't play this file: the STUDIO drive may be unplugged or busy."; };
 }
 function closePlayer() { pv.pause(); pv.removeAttribute("src"); pv.load(); $("#player").hidden = true; }

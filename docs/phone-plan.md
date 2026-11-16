@@ -39,7 +39,7 @@ During a take, chunks upload live to the hub's SD card (`/var/lib/hubd/phones/<t
 
 ## P4. Rough sections (all cameras)
 
-Changed 2026-11-15: there's no Premiere (the user will build an AI-assisted editor; `docs/design.md`, "Editing"), so rough sections are data for that editor, not Premiere markers. The marker spike is dropped.
+Changed 2026-11-15: the user will build an AI-assisted editor (`docs/design.md`, "Editing"), so rough sections are data for that editor, not markers for other editing software. The marker spike is dropped.
 - From each manifest's `gaps`: a "rough" section is any 2 s window missing ≥ 3 frames (to tune); overlapping windows merge. One long gap (≥ 3 frames) is rough on its own.
 - Stored per camera in `take.json` on `STUDIO` (`cameras.<cam>.rough`: start and end in seconds from the clip start and as hub wall clock, plus frames missing), and in ingest's state.
 - The hub page's take list shows them per camera, for example "Paul's Pixel: 6 rough sections, 2.1 min".

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import subprocess
 import os
 import shutil
 import sys
@@ -509,6 +510,80 @@ class AudioCopyTest(Base):
         self.ing.manual = True
         self.ing.tick()
         self.assertFalse(os.path.exists(os.path.join(self.folder(), "audio")))
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "needs ffmpeg")
+class RenderTest(Base):
+    """The quick mix end to end with real ffmpeg: two 6 s cameras, 2 s shots."""
+    ORIGIN = 1_794_688_180_200_000_000          # on the 30 fps grid
+
+    def setUp(self):
+        super().setUp()
+        self.ing.cfg.update(audio_dir=os.path.join(self.tmp, "audio"), quick_shot_s=2.0)
+        folder = self.folder()
+        os.makedirs(folder)
+        for cam, src in (("cam1", "testsrc2"), ("cam2", "smptehdbars")):
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "%s=size=640x360:rate=30" % src,
+                            "-t", "6", "-c:v", "libx264", "-preset", "ultrafast", "-g", "60", "-y",
+                            os.path.join(folder, cam + ".mov")], check=True)
+        man = lambda: {"first_frame_wallclock_ns": self.ORIGIN + 10_000_000,          # noqa: E731
+                       "last_frame_wallclock_ns": self.ORIGIN + 5_990_000_000, "gaps": []}
+        with open(os.path.join(folder, "take.json"), "w") as f:
+            json.dump({"take_id": TAKE, "cameras": {}, "manifests": {"cam1": man(), "cam2": man()}}, f)
+        d = os.path.join(self.ing.cfg["audio_dir"], TAKE, "song", "v1")
+        os.makedirs(d)
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=8", "-ar", "48000",
+                        "-y", os.path.join(d, "mix.wav")], check=True)
+        with open(os.path.join(d, "version.json"), "w") as f:
+            json.dump({"filename": "mix.wav", "duration_s": 8.0, "song": "Song"}, f)
+        with open(os.path.join(d, "sync.json"), "w") as f:      # bounce starts 1 s before the cameras
+            json.dump({"bounce_start_ns": self.ORIGIN - 1_000_000_000, "anchor": "test"}, f)
+        self.ing.state["takes"][TAKE] = {"complete": True}
+
+    def queue(self):
+        with open(os.path.join(self.ing.cmd_dir, "1-render.json"), "w") as f:
+            json.dump({"cmd": "render", "take": TAKE, "song": "song", "version": 1}, f)
+
+    def test_render_written_to_drive_and_checked(self):
+        # Like the real drive: its files are out of reach once it's unmounted.
+        real_getsize = os.path.getsize
+
+        def getsize(p):
+            if p.startswith(self.drive.mp) and not self.drive.is_mounted:
+                raise FileNotFoundError(p)
+            return real_getsize(p)
+        os.path.getsize = getsize
+        self.addCleanup(setattr, os.path, "getsize", real_getsize)
+        self.queue()
+        self.ing.tick()
+        job = self.ing.state["renders"][TAKE + "/song/v1"]
+        self.assertEqual(job["status"], "done", job.get("error"))
+        self.assertEqual(job["file"], "edits/song/song-v1-quick.mp4")
+        self.assertEqual(job["checked"]["frames"], job["frames"])
+        self.assertGreaterEqual(job["checked"]["spot_checks"], 2)
+        with open(os.path.join(self.folder(), "edits", "song", "song-v1-quick.json")) as f:
+            edit = json.load(f)
+        self.assertEqual([c["camera"] for c in edit["cuts"]], ["cam1", "cam2", "cam1"])
+        self.assertEqual(edit["made_by"], "quick-v1")
+        self.assertFalse(self.drive.is_mounted)
+        # Again: a second file, the first one is never replaced
+        self.queue()
+        self.ing.tick()
+        self.assertTrue(os.path.exists(os.path.join(self.folder(), "edits", "song", "song-v1-quick-2.mp4")))
+
+    def test_waits_for_the_take_and_needs_sync(self):
+        self.ing.state["takes"][TAKE] = {}
+        self.queue()
+        self.ing.tick()                      # copies the take's audio; the render waits
+        self.ing.tick()
+        self.assertEqual(self.ing.state["renders"][TAKE + "/song/v1"]["status"], "queued")
+        self.assertNotEqual(self.ing.state["status"], "ingesting")   # waiting isn't working
+        self.ing.state["takes"][TAKE] = {"complete": True}
+        os.remove(os.path.join(self.ing.cfg["audio_dir"], TAKE, "song", "v1", "sync.json"))
+        self.ing.tick()
+        job = self.ing.state["renders"][TAKE + "/song/v1"]
+        self.assertEqual(job["status"], "error")
+        self.assertIn("not synced", job["error"])
 
 
 class EjectTest(Base):

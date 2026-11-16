@@ -30,7 +30,7 @@ import lamp  # noqa: E402
 import phones  # noqa: E402
 import scratch  # noqa: E402
 
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -798,7 +798,7 @@ class Hub:
         return summary
 
     # -- ingest (separate service; files only)
-    def ingest_state(self, limit=20):
+    def ingest_state(self, limit=50):
         """hub-ingest's state, merged with the take log so that takes still only on
         the cameras are listed too (with recorded=..., and no ingest steps yet)."""
         try:
@@ -836,8 +836,10 @@ class Hub:
                     takes[tid]["recorded"]["length_s"] = max(takes[tid]["recorded"]["length_s"], m.get("duration_s") or 0)
         st["takes"] = dict(sorted(takes.items())[-limit:])
         copied = st.get("audio") or {}
+        jobs = st.get("renders") or {}
         for tid, t in st["takes"].items():
-            a = self.audio.summary(tid, set(copied.get(tid) or {}))
+            a = self.audio.summary(tid, set(copied.get(tid) or {}),
+                                   {k.split("/", 1)[1]: j for k, j in jobs.items() if k.startswith(tid + "/")})
             if a:
                 t["audio"] = a
         return st
@@ -857,11 +859,14 @@ class Hub:
         except OSError:
             return False
 
-    def media_file(self, take_id, cam, wait_s=8.0):
-        """(path, None) or (None, http_code). Waits for hub-ingest to mount the drive."""
+    def media_file(self, take_id, rel, wait_s=8.0):
+        """(path, None) or (None, http_code). rel: "cam1.mov" or "edits/<song>/<name>.mp4"
+        (already checked by the route's pattern). Waits for hub-ingest to mount the drive."""
         self.touch_lease()
+        if not rel.endswith((".mov", ".mp4")):
+            rel += ".mov"
         p = os.path.join(self.cfg["drive_mount"], "takes",
-                         "%s-%s-%s_%s" % (take_id[:4], take_id[4:6], take_id[6:8], take_id), cam + ".mov")
+                         "%s-%s-%s_%s" % (take_id[:4], take_id[4:6], take_id[6:8], take_id), rel)
         deadline = time.monotonic() + wait_s
         while not self.drive_mounted():
             if time.monotonic() > deadline:
@@ -869,14 +874,23 @@ class Hub:
             time.sleep(0.25)
         return (p, None) if os.path.isfile(p) else (None, 404)
 
-    def ingest_command(self, cmd):
+    def ingest_command(self, cmd, **fields):
         d = os.path.join(self.cfg["ingest_dir"], "commands")
         os.makedirs(d, exist_ok=True)
         p = os.path.join(d, "%d-%s.json" % (time.time_ns(), cmd))
         with open(p + ".tmp", "w") as f:
-            json.dump({"cmd": cmd}, f)
+            json.dump(dict(fields, cmd=cmd), f)
         os.replace(p + ".tmp", p)
-        return {"queued": cmd}
+        return dict(fields, queued=cmd)
+
+    def request_render(self, take, song, version):
+        """Quick mix (Phase 4 A4): hub-ingest renders it when the rig is idle."""
+        v = self.audio.version_info(take, song, int(version))
+        if not v.get("complete"):
+            raise ValueError("that version isn't finished uploading")
+        if not v.get("synced"):
+            raise ValueError("this song isn't synced to the take yet")
+        return self.ingest_command("render", take=take, song=song, version=int(version))
 
     # -- LIVE
     def live(self, on, names=None):
@@ -931,7 +945,9 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         return json.loads(self.rfile.read(n)) if n else {}
 
-    MEDIA = re.compile(r"^/media/(\d{8}-\d{6})/([a-z0-9](?:[a-z0-9-]{0,40}[a-z0-9])?)\.mov$")
+    # A camera's .mov, or a rendered video: /media/<take>/edits/<song>/<name>.mp4
+    MEDIA = re.compile(r"^/media/(\d{8}-\d{6})/((?:[a-z0-9](?:[a-z0-9-]{0,40}[a-z0-9])?\.mov)"
+                       r"|(?:edits/[a-z0-9-]{1,41}/[a-z0-9-]{1,60}\.mp4))$")
     P_CHUNK = re.compile(r"^/api/phone/chunk/([^/]+)/([^/]+)/(\d{1,6})\.(h264|json)$")
     P_HAVE = re.compile(r"^/api/phone/have/([^/]+)/([^/]+)$")
     P_FINISH = re.compile(r"^/api/phone/finish/([^/]+)/([^/]+)$")
@@ -959,8 +975,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _media(self, head=False):
         """Serve a take's .mov from the drive, with Range support (seeking)."""
-        take_id, cam = self.MEDIA.match(self.path.split("?")[0]).groups()
-        path, err = self.hub.media_file(take_id, cam)
+        take_id, rel = self.MEDIA.match(self.path.split("?")[0]).groups()
+        path, err = self.hub.media_file(take_id, rel)
         if err:
             msg = {503: "STUDIO drive not available", 404: "not on the drive"}[err]
             return self._send(err, {"error": msg})
@@ -1127,6 +1143,8 @@ class Handler(BaseHTTPRequestHandler):
             m = self.P_PHONE_MOUNT.match(self.path)
             if m:
                 return self._send(200, h.phones.set_mount(m.group(1), b.get("mount")))
+            if self.path == "/api/render":
+                return self._send(200, h.request_render(b.get("take"), b.get("song"), b.get("version")))
             m = self.P_AUDIO_SONGS.match(self.path)
             if m:
                 return self._send(200, h.audio.new_song(m.group(1), b.get("name")))

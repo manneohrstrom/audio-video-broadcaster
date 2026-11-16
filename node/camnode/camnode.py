@@ -18,7 +18,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 NOMINAL_MS = 1000.0 / 30
 TAKE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WC_RE = re.compile(rb'"FrameWallClock":\s*(\d+)')
@@ -311,6 +311,8 @@ def probe_system(takes_dir):
     link = _run(["/usr/sbin/iw", "dev", "wlan0", "link"])
     m = re.search(r"signal:\s*(-?\d+)", link)
     st["wifi_dbm"] = int(m.group(1)) if m else None
+    m = re.search(r"tx bitrate:\s*([\d.]+)", link)
+    st["wifi_mbps"] = float(m.group(1)) if m else None
     ps = _run(["/usr/sbin/iw", "dev", "wlan0", "get", "power_save"])
     st["wifi_powersave"] = None if not ps else ("on" in ps.split(":")[-1])
     return st

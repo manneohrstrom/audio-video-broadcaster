@@ -4,10 +4,10 @@ Status: **plan accepted by the user ("the plan sounds good", 2026-11-14). S1 don
 
 ## Goal
 
-After a session, the hub pulls every take from the cameras onto the `STUDIO` drive as `.mov` files. All files share one timeline (time-of-day timecode on an exact 30 fps grid), stay in sync with each other **and with real time (the DAW audio)**, and are verified. The user then presses Eject, moves the drive to the Mac, and builds a Premiere multicam sequence by timecode. Cameras free space only after verify passes, and only when they need it.
+After a session, the hub pulls every take from the cameras onto the `STUDIO` drive as `.mov` files. All files share one timeline (time-of-day timecode on an exact 30 fps grid), stay in sync with each other **and with real time (the DAW audio)**, and are verified. The user then presses Eject, moves the drive to the Mac, and lines the cameras up by timecode in the editor. Cameras free space only after verify passes, and only when they need it.
 
 **Exit criteria:**
-1. A multi-camera take of at least 30 min, with at least one dropped frame on some camera, is ingested unattended. It verifies, and opens in Premiere as a multicam by timecode. A stopwatch or clap on all angles lines up at start, middle and end, within 1 frame, against each other and against a real-time reference (DAW audio, or the stopwatch read against the timecode).
+1. A multi-camera take of at least 30 min, with at least one dropped frame on some camera, is ingested unattended. It verifies, and the cameras line up by timecode. A stopwatch or clap on all angles lines up at start, middle and end, within 1 frame, against each other and against a real-time reference (DAW audio, or the stopwatch read against the timecode).
 2. Starting REC or LIVE during ingest pauses ingest at once, with no effect on the take. Ingest resumes when the rig is idle, without re-pulling finished files.
 3. Pulling the drive or cutting power mid-write leaves no file that looks complete but isn't. The next ingest repairs or redoes it.
 4. Cameras delete only verified takes, oldest first, only below a free-space threshold. The hub never deletes from the drive.
@@ -24,9 +24,9 @@ Phase 1–2 measurements show two separate sources of error in a "rewrap at 30 f
 | **Sensor rate**: the cameras really run at 30.011 fps (33.32 ms frames; 19.9596 s for 600 frames in S1). Stamping the frames as exactly 30.000 fps stretches the video. | About 1.3 s per hour (one frame every 80 s), the same on every camera | Video against audio and real time. Camera against camera is fine, because all drift equally. |
 | **Dropped frames**: stalls of 67–933 ms. Constant-rate stamping shifts every later frame earlier by the gap. | 0.03% of frames in Phase 2, on most cameras per 30-minute take | That camera against everything, from the stall on |
 
-**User input (2026-11-14): 30.011 fps is fine if the editing software and YouTube are OK with it, but the video must sync against the audio.** Audio sync is the hard requirement. YouTube only sees the Premiere export, at the sequence's 30 fps, so it's unaffected. That leaves two candidate paths, and spike S1 decides between them in Premiere:
+**User input (2026-11-14): 30.011 fps is fine if the editing software and YouTube are OK with it, but the video must sync against the audio.** Audio sync is the hard requirement. YouTube only sees the edited export, at 30 fps, so it's unaffected. That leaves two candidate paths, and spike S1 decides between them:
 
-- **Path A, native timing (preferred if Premiere accepts it):** `-c copy` into `.mov`, with each frame stamped at its real time from `video.pts` (via `mkvmerge --timestamps`). There's no re-encode, so it's fast and lossless. The file runs at about 30.011 fps, and a dropped frame becomes one long frame, which makes it variable frame rate. Premiere conforms clips to the 30 fps sequence in real time, so sync with audio should hold. The risk is Premiere's known trouble with VFR files.
+- **Path A, native timing (preferred if the editor accepts it):** `-c copy` into `.mov`, with each frame stamped at its real time from `video.pts` (via `mkvmerge --timestamps`). There's no re-encode, so it's fast and lossless. The file runs at about 30.011 fps, and a dropped frame becomes one long frame, which makes it variable frame rate. An editor conforms clips to a 30 fps timeline, so sync with audio should hold. The risk is editing software's trouble with VFR files.
 - **Path B, conform:** each camera goes onto an exact 30.000 fps grid by timestamp. This fixes both sources of error but needs a re-encode.
 
 Path B in detail: **conform each camera onto an exact 30.000 fps grid by timestamp.** Each output frame shows whichever input frame was on screen at that wall-clock instant. A gap repeats the frame before it, and the rate difference repeats one frame about every 80 s. The grid is anchored to time of day (frame k at `HH:MM:SS:FF`), so every camera lands on the same grid, and the timecode is simply the time of day. That also gets Phase 4's LTC almost for free.
@@ -35,7 +35,7 @@ Conforming means **re-encoding** on the hub. The Pi 5 has no hardware H.264 enco
 
 ## Spike results (2026-11-14)
 
-- **S1: Path B (conform) is the default** (user, 2026-11-14). The user has no Premiere at the moment, and Path B is plain constant 30 fps that any editor handles. A Path A option may follow later.
+- **S1: Path B (conform) is the default** (user, 2026-11-14). There was no editing software to test with, and Path B is plain constant 30 fps that any editor handles. A Path A option may follow later.
   - Clap check against DAW audio (`claptest.mp3`, take `20261114-202934`, cam1). Claps were found by audio onset and by video motion peak. Intervals from clap 2 to claps 3 and 4: audio 389.341 / 464.764 s; video wall clock 389.329 / 464.735 s, so **−12 / −29 ms (within 1 frame)**.
   - Naive 30.000 fps stamping would be +126 / +136 ms (about 4 frames) off.
   - The −29 ms may be the audio interface's clock (about 60 ppm). Over 1 hour that's about 6 frames against the DAW whatever the video does, so check a clap at the end of long takes.
@@ -47,8 +47,8 @@ Conforming means **re-encoding** on the hub. The Pi 5 has no hardware H.264 enco
 
 | | Spike | Question | Done when |
 |---|---|---|---|
-| **S1** | Premiere: native against conformed, **against DAW audio** (user) | One real synced take of about 15 min, with the DAW recording throughout. Clap on camera at the start, middle and end. Make Path A files (native timing, `-c copy`) and Path B files (conformed 30.000, re-encoded), both with time-of-day timecode. If no camera drops a frame naturally, simulate a gap by removing about 10 frames (frames and PTS) from a copy of one camera, clearly marked. In Premiere: a 30 fps multicam by timecode from each set, with the DAW audio lined up on the first clap. | **Pass: every angle's clap lines up with the audio clap within 1 frame at start, middle and end.** Path A passes means no re-encode, and S2 is skipped. Otherwise Path B. |
-| **S2** | Conform cost (only if Path B) | libx264 speed and quality on the Pi 5 (1 GB RAM) for 1080p30 conform: presets veryfast to medium, CRF 14–18. Files: size, decode in Premiere. Temperature. | One preset and CRF are chosen, with real-time factor ≥ 1× (1 hour per hour per camera at most) and no visible loss against the source at 100% |
+| **S1** | Editor: native against conformed, **against DAW audio** (user) | One real synced take of about 15 min, with the DAW recording throughout. Clap on camera at the start, middle and end. Make Path A files (native timing, `-c copy`) and Path B files (conformed 30.000, re-encoded), both with time-of-day timecode. If no camera drops a frame naturally, simulate a gap by removing about 10 frames (frames and PTS) from a copy of one camera, clearly marked. In the editor: a 30 fps multicam by timecode from each set, with the DAW audio lined up on the first clap. | **Pass: every angle's clap lines up with the audio clap within 1 frame at start, middle and end.** Path A passes means no re-encode, and S2 is skipped. Otherwise Path B. |
+| **S2** | Conform cost (only if Path B) | libx264 speed and quality on the Pi 5 (1 GB RAM) for 1080p30 conform: presets veryfast to medium, CRF 14–18. Files: size, decode in the editor. Temperature. | One preset and CRF are chosen, with real-time factor ≥ 1× (1 hour per hour per camera at most) and no visible loss against the source at 100% |
 | **S3** | Pull throughput | rsync over SSH from a Zero (CPU-bound encryption?) against an unencrypted rsync daemon on the LAN (CLAUDE.md asks for this measurement), while the other nodes are idle. | One method is chosen; Mbps per node and for 4 in parallel are recorded |
 | **S4** | Exact sensor rate (optional, only if Path A fails on rate rather than gaps) | Can `--framerate` or `FrameDurationLimits` bring the sensor within ±0.002% of 30.000 fps with sync still working? | The real rate is measured over 10 min on 4 synced nodes |
 
@@ -100,12 +100,12 @@ Unit tests for timestamp conform maths (grid snapping, repeat counting), the sta
 
 | | Delivers |
 |---|---|
-| S1 | Premiere test with the user. Decides Path A or B. |
+| S1 | Editor test with the user. Decides Path A or B. |
 | S2–S3 | Conform cost (Path B only) and pull throughput, written up in `docs/progress.md`. |
 | **M1** | Drive handling: detect, check, mount on demand, Eject. Ansible: mount point, sudo rules, packages pinned. |
 | **M2** | Ingest worker: pull, check, conform, verify, write. Pause and resume. Tests. |
 | **M3** | camnode: verified flag and lazy delete. UI panels. |
-| **M4** | Exit criteria on real hardware, including a 30-minute Premiere check with the user. Write `docs/phase3-results.md`. |
+| **M4** | Exit criteria on real hardware, including a 30-minute check in the editor with the user. Write `docs/phase3-results.md`. |
 
 ## Addition (2026-11-15): play takes from the drive on the hub page
 
@@ -134,7 +134,7 @@ Answers:
 Original questions:
 
 1. **The drive:** which drive and what size? Ingest can't be tested without one. A USB stick labelled `STUDIO` is enough for M1–M2. At roughly 20–30 Mbps after conform, one hour of 4 cameras is about 40–55 GB.
-2. **Re-encode, only if S1 picks Path B:** OK to conform with libx264 at high quality (target CRF about 16, settings from S2), giving larger files than the camera's 16 Mbps? The alternative is ProRes 422 LT: easier for Premiere, but about 100 Mbps, so roughly 45 GB per hour per camera.
+2. **Re-encode, only if S1 picks Path B:** OK to conform with libx264 at high quality (target CRF about 16, settings from S2), giving larger files than the camera's 16 Mbps? The alternative is ProRes 422 LT: easier to edit, but about 100 Mbps, so roughly 45 GB per hour per camera.
 3. **When ingest runs:** automatically once the rig has been idle for 30 min, plus an "Ingest now" button (recommended); or only at a fixed overnight time; or only by button.
 4. **Working space:** conform from the hub's SD card (24 GB free; one camera-hour of source is about 7 GB) or directly on the `STUDIO` drive (it would then be mounted for longer). Recommended: the hub SD, one take at a time.
 5. **Camera delete threshold:** free space below 10 GB (about 1.4 h of recording at 16 Mbps), oldest verified first (recommended)?

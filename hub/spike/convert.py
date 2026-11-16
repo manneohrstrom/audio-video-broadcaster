@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 3 spike S1: make Premiere test files from one camera's take folder.
+"""Phase 3 spike S1: make editor test files from one camera's take folder.
 
 usage: convert.py <take_dir> <out_dir> [--path A|B|both] [--preset veryfast] [--crf 16]
                   [--keep-mkv] [--mkv FILE]

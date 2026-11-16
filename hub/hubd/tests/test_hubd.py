@@ -362,6 +362,48 @@ class HubTest(unittest.TestCase):
         self.assertEqual(get("/media/../etc/passwd")[0], 404)
         self.assertEqual(get("/media/20261115-171313/../../x.mov")[0], 404)
 
+    def test_media_serves_rendered_videos_only_from_edits(self):
+        get = self._media_server()
+        d = os.path.join(self.cfg["drive_mount"], "takes", "2026-11-15_20261115-171313", "edits", "song")
+        os.makedirs(d)
+        with open(os.path.join(d, "song-v1-quick.mp4"), "wb") as f:
+            f.write(b"mp4data")
+        self.assertEqual(get("/media/20261115-171313/edits/song/song-v1-quick.mp4")[2], b"mp4data")
+        self.assertEqual(get("/media/20261115-171313/edits/../cam1.mov")[0], 404)
+        self.assertEqual(get("/media/20261115-171313/take.json")[0], 404)
+        self.assertEqual(get("/media/20261115-171313/edits/song/x.json")[0], 404)
+
+    def test_render_request_needs_a_synced_finished_version(self):
+        import io
+        self.cfg["ingest_dir"] = os.path.join(self.cfg["state_dir"], "ingest")
+        t = self.hub.rec()
+        self.hub.stop()
+        tid = t["take_id"]
+        s = self.hub.audio.new_song(tid, "Song")
+        v = self.hub.audio.new_version(tid, s["id"], "mix.wav", 4)
+        with self.assertRaises(ValueError):
+            self.hub.request_render(tid, "song", 1)                      # not uploaded yet
+        self.hub.audio.put(tid, "song", 1, 0, io.BytesIO(b"abcd").read, 4)
+        import audio as A
+        orig = A.probe
+        A.probe = lambda p, ff="ffprobe": {"duration_s": 1.0, "sample_rate": 48000, "channels": 2, "codec": "pcm"}
+        try:
+            self.hub.audio.finish(tid, "song", v["version"])
+        finally:
+            A.probe = orig
+        with self.assertRaises(ValueError) as e:
+            self.hub.request_render(tid, "song", 1)                      # no sync.json yet
+        self.assertIn("synced", str(e.exception))
+        with open(os.path.join(self.hub.audio.root, tid, "song", "v1", "sync.json"), "w") as f:
+            f.write("{}")
+        r = self.hub.request_render(tid, "song", 1)
+        self.assertEqual(r["queued"], "render")
+        cmd = os.listdir(os.path.join(self.cfg["ingest_dir"], "commands"))[0]
+        with open(os.path.join(self.cfg["ingest_dir"], "commands", cmd)) as f:
+            self.assertEqual(json.load(f), {"cmd": "render", "take": tid, "song": "song", "version": 1})
+        songs = self.hub.ingest_state()["takes"][tid]["audio"]["songs"]
+        self.assertTrue(songs[0]["versions"][0]["synced"])
+
     def test_media_drive_not_mounted(self):
         get = self._media_server(mounted=False)
         orig = self.hub.media_file

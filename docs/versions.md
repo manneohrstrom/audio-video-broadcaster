@@ -47,6 +47,8 @@ These are the versions verified working in Phase 1 (2026-11-14). Provisioning (A
 
 Setup: `cd deploy && /opt/homebrew/bin/python3.14 -m venv .venv && .venv/bin/pip install -r requirements.txt`.
 
+Checked 2026-11-16 (Phase 4 C2): every pinned package on the hub and on cam1 is installed at the version above and held (`apt-mark showhold`), MediaMTX v1.21.3, kernels 6.18.60.
+
 ## Holds
 
 `deploy/roles/common` installs the node and hub versions above exactly and holds them with `apt-mark hold`, including the kernel metapackages `linux-image-rpi-v8` / `linux-image-rpi-2712` and their headers. To upgrade deliberately: change `deploy/group_vars/all.yml` and this file together, then `apt-mark unhold` on the hosts.

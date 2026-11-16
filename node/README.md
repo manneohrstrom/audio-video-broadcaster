@@ -2,7 +2,7 @@
 
 Everything that runs on each camera (`cam1`–`cam4`, Raspberry Pi Zero 2 W + Camera Module 3 Wide).
 
-A node does one thing at a time: **live** (streaming to OBS) or **recording a take**. It never does both. It does no heavy processing: the Zero 2 W has a slow CPU and only 2.4 GHz Wi-Fi, so it captures and stores, and the hub does the rest.
+A node does one thing at a time: **live** (streaming to OBS), **recording a take**, or taking a **still** for the hub's snapshot page and calibration. It never does two at once. It does no heavy processing: the Zero 2 W has a slow CPU and only 2.4 GHz Wi-Fi, so it captures and stores, and the hub does the rest.
 
 ## What's here
 
@@ -21,7 +21,7 @@ A node does one thing at a time: **live** (streaming to OBS) or **recording a ta
 
 1. The hub sends `POST /take/arm` with a take id and a role: **client** for every camera except one, which is the **server**. Clients are started first and wait; the server starts last.
 2. camnode runs `rpicam-vid` with `--sync client` or `--sync server`. The cameras agree on a start time over the network, so their frames line up.
-3. Settings: 1080p30 H.264 at about 16 Mbps, shutter 1/50 s, fixed gain, white balance and focus, and `--denoise cdn_off` (the default denoise drops frames on the Zero).
+3. Settings: 1080p30 H.264 at about 16 Mbps, shutter 1/50 s, and `--denoise cdn_off` (the default denoise drops frames on the Zero). Gain, white balance gains and focus come with the arm request: the hub's settings for this camera, set by calibration. They stay fixed for the whole take.
 4. The take is written to `/var/lib/camnode/takes/<take_id>/`:
    - `video.h264`: the raw video. A raw stream survives a power cut better than an MP4.
    - `video.pts`: the exact time of every frame.
@@ -37,10 +37,12 @@ The status the hub polls includes a live dropped-frame count, so problems show u
 
 | Call | What it does |
 |---|---|
-| `GET /status` | Mode (idle / live / recording), temperature, throttling, clock sync, Wi-Fi link, free space, and current-take progress |
+| `GET /status` | Mode (idle / live / recording / snapshot, or "stuck" if the camera driver froze), temperature, throttling, clock sync, Wi-Fi signal and link rate, free space, and current-take progress with dropped frames so far |
 | `GET /takes` | Takes on this camera, with their manifests and whether the hub has verified them |
 | `POST /take/arm`, `POST /take/stop` | Start and stop a take (see above) |
 | `POST /live/start`, `POST /live/stop` | Start and stop MediaMTX streaming |
+| `POST /live/settings` | Change gain, white balance gains or focus on the running live stream, without a gap (MediaMTX API) |
+| `POST /snapshot` | A still with given settings, or auto-metered (`{"auto": true}`) for calibration; returns the JPEG and the camera's metadata |
 | `POST /takes/<id>/verified` | The hub reports it has a verified copy, so this take may now be deleted |
 
 ## Freeing space
@@ -49,7 +51,7 @@ A camera deletes a take only after the hub has marked it verified, and only when
 
 ## Image settings
 
-Each camera's shutter, gain, white balance gains and focus position are in `deploy/host_vars/camN.yml`. The same values feed both `rpicam-vid` and MediaMTX. They're placeholders until the grey-card calibration session (Phase 4).
+The hub keeps each camera's settings (`/var/lib/hubd/camera_settings.json`), set by calibration with the card and by "Save focus" on the snapshot page, and sends them with every arm, still and live start. The values in `deploy/host_vars/camN.yml` are only the starting point before a camera's first calibration (they also go into the MediaMTX config, which the hub overrides when LIVE starts).
 
 ## Tests
 

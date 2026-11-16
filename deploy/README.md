@@ -22,7 +22,7 @@ cd deploy
 ```
 
 - **A second run should report `changed=0`.** The playbooks are idempotent.
-- **There's a safety guard:** the first step asks the hub whether a take or live session is running, and refuses to deploy if one is. Override with `-e force_deploy=true` only if you're sure. The guard runs whatever `--limit` you use.
+- **There's a safety guard:** the first step asks the hub whether a take or live session is running, and refuses to deploy if one is, naming what's busy. Override with `-e force_deploy=true` only if you're sure. The guard runs whatever `--limit` you use.
 - **Offline cameras are fine:** the hub's host-key scan skips cameras that don't answer (with a warning), and a single camera can be deployed without the hub in the run.
 - **Brand-new Pi:** run `bootstrap.yml` once with the `studio` password (`-K`). It sets up passwordless sudo, so later runs are unattended.
 
@@ -36,8 +36,8 @@ Known snag: with some cameras switched off, a hub-only run fails at the SSH-key 
 | `bootstrap.yml` | One-time passwordless sudo for a new Pi |
 | `inventory.yml` | The hosts. `cam5` and `cam6` are ready to uncomment. |
 | `group_vars/all.yml` | Settings for every host, including **pinned package versions** (they must match `docs/versions.md`) |
-| `group_vars/hub.yml`, `group_vars/nodes.yml` | Hub and camera settings |
-| `host_vars/camN.yml` | Each camera's image settings: shutter, gain, white balance gains, focus. Placeholders until grey-card calibration. |
+| `group_vars/hub.yml`, `group_vars/nodes.yml` | Hub and camera settings. `hub.yml` has the ingest options and the recording light (`hubd_lamp`: bulb type and address) |
+| `host_vars/camN.yml` | Each camera's starting image settings (shutter, gain, white balance gains, focus). The hub's calibrated settings replace them at every take and LIVE. |
 | `roles/` | The building blocks, listed below |
 
 ### Roles
@@ -47,8 +47,8 @@ Known snag: with some cameras switched off, a hub-only run fails at the SSH-key 
 | `common` | all | Installs pinned package versions and holds them; timezone; a persistent log so logs survive a crash |
 | `chrony_server` | hub | The hub as the NTP time server |
 | `chrony_client` | cameras | The cameras take time only from the hub |
-| `hubd` | hub | The control service and web UI |
-| `hub_ingest` | hub | The overnight ingest worker |
+| `hubd` | hub | The control service, web pages and their modules (phones, calibration, audio, recording light) |
+| `hub_ingest` | hub | The ingest worker and the quick-mix renderer |
 | `ingest_key_hub` | hub | The hub's SSH key for pulling takes, and the cameras' host keys |
 | `ingest_key_node` | cameras | Lets that key in, but only for *read-only* rsync of the takes folder (no shell, no writes) |
 | `node_net` | cameras | Wi-Fi power saving off |

@@ -88,6 +88,7 @@ class LedTest(unittest.TestCase):
         for _ in range(30):
             seen.add(self.read("brightness"))
             time.sleep(0.03)
+        seen.discard("")                       # read while the LED thread was rewriting the file
         self.assertEqual(seen, {"0", "1"})     # actually blinking
         led.set("idle")
         time.sleep(0.4)

@@ -1,6 +1,37 @@
 # Runbook
 
-Short how-tos for running the rig. The Phase 4 polish track (`docs/phase4-plan.md`, C2) adds the rest: mounting checklist, Wi-Fi per spot, OBS, drive repair.
+Short how-tos for running the rig.
+
+## Mounting a Pi camera (checklist)
+
+For a new camera spot, or after moving one. Everything except step 6 shows on the camera's card on the hub page.
+1. **Power:** its own proper supply. The card must not show throttling (`throttled` `0x0`, or `0x50000` = happened once since boot).
+2. **Wi-Fi:** −60 dBm or better at the spot (red on the card below −65), and a link rate of tens of Mbit/s. A weak spot (cam1 at −72 dBm once) gives multi-second pings and dropped live frames. Move the camera or the access point before anything else. Power save must show **off**.
+3. **Clock:** "synced", offset well under 1 ms (chrony; takes a minute after boot).
+4. **Temperature:** under 70 °C at rest. Throttling starts at 80 °C.
+5. **Nothing in front of the lens:** check the picture on the snapshot page (`/snap`). A mic or stand at the edge of the wide lens is easy to miss (cam2 and cam4 had one).
+6. **Focus:** on `/snap`, "Find sharpest" on the spot where the players will be, then "Save focus". The Pis have one fixed focus each.
+7. **Colour:** show the calibration card to the camera while a hub page is open; it locks on its own ("✓ calibrated"). Hold the card where the performers will be, in the session's light.
+8. A short test take: no dropped frames on the card, and the take ingests.
+
+## OBS (LIVE)
+
+- Add each camera as a Media Source with its `srt://camN.local:8890?streamid=read:cam` URL (copy it from the camera's card). RTSP over TCP is the fallback.
+- **Untick "Close file when inactive"** in every camera's Media Source. Otherwise OBS closes and reopens the stream on every scene switch: one camera at a time and slow switching.
+- Use the Multiview to watch all cameras. Each extra viewer of a camera (the card's preview link, a second OBS) costs that camera a full stream on its Wi-Fi.
+
+## STUDIO drive
+
+- **Eject before unplugging:** "Eject drive" on the hub page, then wait for "Drive ejected: safe to unplug". The hub only mounts the drive while it writes, plays back or renders, but Eject also flushes and powers the port down.
+- **On the Mac:** eject it in Finder before unplugging.
+- **"drive needs repair (fsck)" on the hub page** (after it was pulled out mid-write, or not ejected on the Mac): plug it into the Mac, Disk Utility → select the STUDIO volume → **First Aid**, then eject and plug it back into the hub. Ingest redoes whatever it was writing; a leftover `*.part` file is an unfinished copy and can be ignored.
+- The hub never deletes anything on the drive. Free space is shown on the hub page (last reading while plugged in) with how many hours of takes still fit.
+
+## Bounces and the quick mix
+
+- **Add a bounce:** "♪ Add audio" on the take, pick a song (or "New song…"), choose the file (WAV, AIFF, FLAC, MP3 or M4A). Uploading the same song again adds a version; every version is kept, the newest is used unless you pick another ("use this"). It waits during takes and LIVE and carries on by itself. Closed the page mid-upload? Pick the same file for the same song again and it continues.
+- The hub copies bounces (and the hub mic recording) to the drive with the next ingest: `takes/<take>/audio/<song>/v<N>/`.
+- **Make video:** appears once a song version is synced to the take. The hub renders a YouTube-ready file (1080p30, the bounce as soundtrack, a new camera every 10 s) when the rig is idle; a take or LIVE pauses it. It lands in `takes/<take>/edits/<song>/`, and "▶ Watch video" plays it from the drive. Making it again gives a new file next to the old one.
 
 ## Phone as a camera (offline takes)
 
@@ -16,7 +47,7 @@ Any Android phone with an up-to-date Chrome works (tested: Pixel 3, Pixel 9a). i
 1. Plug the phone in and mount it in landscape.
 2. Open `http://studio-hub.local/phone` (or tap **📱 Use a phone as a camera** on the hub page).
 3. Type a name ("Paul's Pixel"); the phone remembers it. Tap **Start camera**.
-4. Point it at the scene and tap **Auto, then lock** (about 20 s). It sets the shutter to the rig's 1/50 s and picks ISO, white balance and focus to match what auto chose, then keeps them fixed. If it says the room is too dark, add light.
+4. Mark it **tripod** (focus locked) or **handheld** (continuous autofocus). Then show it the calibration card while a hub page is open: it sets exposure and the nearest white balance from the card and locks them, like the Pis. Without the card, **Auto, then lock** (about 20 s) sets the shutter to the rig's 1/50 s and fixes what auto chose. If it says the room is too dark, add light.
 5. Leave the page in front with the screen on. Press REC/STOP on the hub page as usual; ready phones record with the cameras. A phone that opens late, reloads or loses Wi-Fi joins in by itself.
 
 **On the hub page** each phone has a card: recording, frames and drops, upload backlog, picture locked, battery. Warnings (not charging, page not in front, not locked, slow Wi-Fi, low space) never stop REC.
