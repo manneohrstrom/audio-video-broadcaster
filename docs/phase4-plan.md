@@ -45,34 +45,50 @@ Three things the rig can't do yet:
 
 ## Track B: picture (first)
 
-**B1. Snapshot overview page.** A still from every camera side by side, for placing, framing, focusing and matching, with each camera's status. Idle cameras: a short `rpicam-still` with the locked settings. Live: a frame from the stream. Never during a take, and never stored.
+*Revised 2026-11-16 with the user (calibration per setup, done by showing a card; tripod/handheld phones; no autofocus on the Pis). Replaces the first version's one-off grey-card offsets and global looks.*
 
-**B2. One set of image controls for all cameras.**
-- Global brightness (gain), white balance as a colour temperature plus named presets, optional contrast and saturation, and saved "looks".
-- Per-camera offsets from a **grey-card calibration** (one session, stored per camera), so the angles stay matched.
-- Settings apply at the next REC: offline takes restart `rpicam-vid` per take, so this is free. In live mode a change restarts the stream (spike B-S1 measures the blip).
-- The shutter stays at 1/50 s (flicker-free under 50 Hz light).
+**How a setup works (the user's workflow).** Cameras get placed (Pis are fixed on the wall; phones on tripods or handheld), the lights are set, then every device in the take is calibrated by showing it the card. Calibration holds until the user shows the card again, so a new room or new light is just another walk round with the card. Settings never change during a take.
 
-**B3. "Auto, then lock" at REC (option).** On REC, every camera meters for about 1 s. The hub picks one exposure and one white balance from all cameras (median, plus each camera's grey-card offset) and locks them for the take. Each take suits the current light, with no drift or mismatch between angles mid-take.
+**B1. Snapshot overview page.** A still from every device (Pis and phones) side by side, for placing, framing and checking the match, with each device's status and its calibration state. Idle Pis: a short `rpicam-still` (0.6 s, B-S3). Live: a frame from the stream. Phones: a frame from the page. Never during a take, and never stored.
 
-**B4. Focus help.** On the snapshot page: a zoomed crop per camera and a sharpness number (higher is sharper), for setting manual focus.
+**B2. The calibration card.** One A4 sheet, printed on the laser printer (matte paper, glued to card): four ArUco markers in the corners, a large mid-grey patch in the middle, and a strip of about 12 colour patches (primaries, secondaries, skin tones, mid-tones). The markers let the hub find the card and the exact patch positions; their black and white are the black and white references. Printed colours don't need to be accurate: every device sees the same card, and the job is to match devices to each other.
 
-**B5. Autofocus (approved as an option, decision 1).** Continuous PDAF on the Camera Module 3, per camera, switchable per take, limited in range and speed. Test first on one camera with someone walking up. Note: the wide lens is sharp from about 1 m at 1080p, so AF may rarely be needed, and it can hunt or breathe mid-take. It doesn't affect frame sync.
+**B3. Automatic calibration, no buttons.**
+- While the rig is idle, each device that is waiting sends the hub a low-resolution frame about once a second (Pis: camnode, camera at low resolution; phones: the phone page). The hub (Pi 5) looks for the card; the Zeros only take the frames.
+- Each device shows **"Waiting for card"** on the hub page (and on the phone page). When the card is found, steady for about a second, large enough and free of glare, the hub computes that device's settings from the grey patch, checks them with one more frame, and locks them: the device turns **"Calibrated ✓"** and the hub page plays a chime (for whoever holds the card).
+- Settings: shutter stays 1/50 s; gain so the grey reads the target mid-grey; white balance so the grey is neutral. Pis set red and blue gains (covers colour temperature and green–magenta tint). Phones set ISO and a colour temperature (Chrome offers no tint); the leftover tint is handled by the editor (below). If a device needs maximum gain, it warns: not enough light for that device.
+- Showing the card to a calibrated device while idle recalibrates it. During a take (and while arming) the hub ignores the card and nothing is sent.
+- Option, if cheap: a device whose picture gets much brighter or darker than at calibration goes back to "Waiting for card" (someone switched a lamp on).
+- Watching for the card must not delay REC or LIVE (the camera is released at once) nor heat the Zeros (B-S7).
+- Hold the card where the performers will be: calibration is right for the light at the card. Mixed light (window plus lamps) can't be fixed by any card.
+
+**B4. Card readings saved for the editor.** Each calibration stores, per device, how the grey, white, black and every colour patch read (and the settings it locked), and every take records the calibration it was shot with (in the manifest, then `take.json`). The editor's colour step uses this to match devices automatically: the phones' leftover tint, and the phones' colour rendering against the Pis'. The four Pis are the same camera model, so for them the grey alone is enough.
+
+**B5. Focus.**
+- Pis (fixed on the wall): one fixed focus per camera, set once with the focus help (a zoomed crop and a sharpness number on the snapshot page) and kept. The wide lens is sharp from about 1 m to infinity at 1080p and nobody comes closer than about 75 cm, so **no autofocus on the Pis** (the first version's B5 and spike B-S4 are dropped).
+- Phones: the user marks each phone **tripod** or **handheld** when setting up (on its card on the hub page; the phone remembers it). Tripod: focus measured once and locked (as now). Handheld: continuous autofocus. Both keep calibrated exposure and white balance locked for the take; handheld phones are not framing-checked on the snapshot page.
+
+**B6. "Auto, then lock" at REC (fallback).** For a take with no time or no card: on REC every device meters for about 1–1.5 s (B-S2: gain settles in 0.4–0.5 s) and locks. Less exact than the card (each device meters its own view; B-S2 measured a 0.26-stop spread across the Pis).
+
+**B7. Manual trims.** On the snapshot page: an overall brightness trim and warmer/cooler, applied to every device on top of its calibration, and a per-device trim. Contrast, saturation and "looks" belong to the editor's colour step (`docs/editor-plan.md`), not to capture.
 
 ### Spikes
 
 | | Spike | Done when |
 |---|---|---|
-| **B-S1** | Live mode: how long the stream blips when a setting changes (MediaMTX `rpiCamera*` parameters). | Measured. |
-| **B-S2** | Auto-then-lock: metering time, and how far apart the cameras' auto values land in the same light. | The hub's pick looks matched on the snapshot page. |
-| **B-S3** | `rpicam-still` on a Zero 2 W while idle: time and memory per snapshot. | Under about 3 s, no effect on camnode. |
-| **B-S4** | Autofocus (only if approved): continuous AF with someone approaching; hunting and breathing. | User verdict on a short test take. |
+| **B-S1** | Live mode: how long the stream blips when a setting changes. | **Done 2026-11-16: no blip** (`docs/phase4-spikes.md`). |
+| **B-S2** | Auto metering time and spread across the cameras. | **Done 2026-11-16.** |
+| **B-S3** | `rpicam-still` on a Zero 2 W while idle. | **Done 2026-11-16: 0.6 s, 21 MB.** |
+| **B-S5** | Card detection: with the printed card, from how far a Zero (low-resolution frames, detection on the hub) and the Pixel 9a still find it, and how fast. User holds the card at a few distances, lights on, about 10 min. | Works at the performers' distance (expected 3–4 m), within about 2 s. |
+| **B-S6** | Phone colour: on the Pixel 9a, whether the page can set exposure, ISO and colour temperature from the card, and how close to neutral the grey gets. User with the phone and the card, about 5 min. One phone stands for all. | Settings apply and lock; the leftover tint is measured. |
+| **B-S7** | Watching for the card on an idle Zero: CPU, temperature, and how much it adds to REC and LIVE start. | No noticeable REC delay; temperature well below 70 °C. |
 
 ### Exit criteria
 
-1. From the snapshot page alone, the user sets up and matches all four cameras for a new light, with no SSH.
-2. A grey card filmed by all four cameras after calibration: white balance and brightness match within a set tolerance (to be fixed in B-S2).
-3. Auto-then-lock takes keep the same exposure and white balance for their whole length, on every camera.
+1. From the hub page alone, the user sets up a new room or light and calibrates every device in the take just by showing the card, with no buttons and no SSH.
+2. After calibration, the card filmed by every Pi: grey brightness and white balance match within a set tolerance (fixed after B-S5/B-S6). Phones: within a looser tolerance, with the leftover recorded for the editor.
+3. Calibrated and auto-then-lock takes keep the same exposure and white balance for their whole length, on every device.
+4. Handheld phones refocus as the distance changes; tripod phones and Pis stay at their set focus.
 
 ## Track C: studio polish
 
@@ -100,8 +116,8 @@ Three things the rig can't do yet:
 
 | | Milestone |
 |---|---|
-| B-S1–S3 | Picture spikes (no user time needed, apart from looking at results). |
-| **M-B** | Snapshot page and focus help; global controls and looks; grey-card calibration; auto-then-lock. Autofocus only if approved. |
+| B-S1–S3 | Picture spikes: done 2026-11-16. B-S5–S7 (card detection, phone colour, idle watching) need the printed card and about 15 min of the user's time. |
+| **M-B** | Snapshot page and focus help; calibration card; automatic calibration by showing the card (Pis and phones); tripod/handheld phones; card readings saved for the editor; auto-then-lock fallback; manual trims. Spikes B-S5–B-S7 first. |
 | A1–A3 | Audio spikes. A1 needs one real session from the user; it can run any time, in parallel with M-B. |
 | **M-A** | Scratch recording during takes; bounce upload; matching and anchors; synced BWF on the drive; UI per take ("synced, confidence high, anchor: hub mic"). Tests. |
 | **M-C** | Recording light (when the bulb is set up); small items; runbook. |

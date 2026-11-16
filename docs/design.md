@@ -143,9 +143,9 @@ After STOP the hub does everything; your only step is pressing Eject and moving 
 
 Mismatched colour and brightness between angles is the most visible flaw in a multicam cut, and per-camera auto modes guarantee it. So every camera runs locked settings during a take, set once from the hub.
 
-- **White balance:** fixed gains per camera (`--awbgains`), calibrated once with a grey card under your studio lights.
+- **White balance:** fixed gains per camera (`--awbgains`), set by calibration with a card for each setup (2026-11-16: show every device the card while idle and it locks on its own; phones too; card readings are kept for the editor's colour match). See `docs/phase4-plan.md`, Track B.
 - **Exposure:** fixed shutter and gain (`--shutter`, `--gain`). 1/50 s (the default) lets in twice the light, which helps the small sensor, and gives softer motion blur; 1/100 s is crisper. Both are whole multiples of the 100 Hz flicker from UK mains lighting, so no banding.
-- **Focus:** a manual lens position per camera, set from a snapshot in the hub UI. Autofocus hunting mid-take is worse than slight softness, and the wide lens has deep depth of field.
+- **Focus:** a manual lens position per camera, set from a snapshot in the hub UI. Autofocus hunting mid-take is worse than slight softness, and the wide lens has deep depth of field. The Pis are fixed on the wall, so this is set once and kept; handheld phones use continuous autofocus, tripod phones lock focus (2026-11-16).
 - **Profiles:** settings live on the hub per camera and are pushed when arming, so a moved camera keeps its look.
 - **Left out of v1:** HDR mode (limited to 30 fps and untested with sync) and lens-distortion correction (Premiere can do it if needed).
 
