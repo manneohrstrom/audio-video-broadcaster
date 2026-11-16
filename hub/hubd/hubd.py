@@ -22,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import budget  # noqa: E402
+import calib  # noqa: E402
 import phones  # noqa: E402
 
 VERSION = "0.3.0"
@@ -230,6 +231,7 @@ class Hub:
         self.log_path = os.path.join(cfg["state_dir"], "takes.json")
         self.phones = phones.Phones(cfg, clock=clock)
         self.budget = budget.limits(None, 0, {}, {})
+        self.card, self.calib_lock = None, threading.Lock()
         # Background work started from the poll loop (tests run it inline).
         self.spawn = lambda fn, *a: threading.Thread(target=fn, args=a, daemon=True).start()
 
@@ -430,6 +432,19 @@ class Hub:
         with self.lock:
             self.message = ("Take %s stopped automatically: %s was out of recording space."
                             % (take_id, "the hub" if by == "hub" else by))
+
+    # -- calibration card (Track B; calib.py)
+    def measure_card(self, jpeg):
+        """Read the card in one picture. Never during a take (settings must not change)."""
+        with self.lock:
+            if self.state != "idle":
+                raise Refused(["rig is %s: the card is ignored during takes" % self.state])
+        if not jpeg:
+            raise ValueError("no picture (or over 8 MB)")
+        if self.card is None:
+            self.card = calib.load_card(self.cfg.get("card_json"))
+        with self.calib_lock:           # one at a time: OpenCV on a full-HD frame uses ~50 MB
+            return calib.measure(jpeg, self.card)
 
     # -- REC
     def rec(self, names=None):
@@ -669,7 +684,7 @@ class Handler(BaseHTTPRequestHandler):
     P_HAVE = re.compile(r"^/api/phone/have/([^/]+)/([^/]+)$")
     P_FINISH = re.compile(r"^/api/phone/finish/([^/]+)/([^/]+)$")
     P_LOG = re.compile(r"^/api/phone/log/([^/]+)$")
-    QUIET = ("/api/status", "/api/time", "/api/phone/poll", "/api/phone/chunk", "/api/phone/log")
+    QUIET = ("/api/status", "/api/time", "/api/phone/poll", "/api/phone/chunk", "/api/phone/log", "/api/calib/measure")
 
     def do_HEAD(self):
         if self.MEDIA.match(self.path.split("?")[0]):
@@ -772,6 +787,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         h = self.hub
         try:
+            if self.path == "/api/calib/measure":
+                return self._send(200, h.measure_card(self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                                                      if int(self.headers.get("Content-Length") or 0) <= 8 << 20 else b""))
             b = self._body()
             if self.path == "/api/phone/poll":
                 return self._send(200, h.phone_poll(b))

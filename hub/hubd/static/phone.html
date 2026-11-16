@@ -54,6 +54,11 @@
     </div>
     <pre id="caps"></pre>
   </details>
+  <div id="cardtest" hidden>
+    <b>Card test (spike B-S6)</b> <span class="dim">card ~1 m in front of the phone, in the studio light, filling about a third of the picture</span>
+    <div class="row"><button id="cardgo" class="main">Run card test</button></div>
+    <pre id="cardout"></pre>
+  </div>
   <p class="dim">Recording starts and stops from the hub page. Keep this page in front, the screen on and the phone plugged in.
   First time on this phone: Chrome needs <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> set to
   <code id="origin"></code>, and the local-network permission.</p>
@@ -493,6 +498,75 @@ setInterval(() => {
   $("stats").innerHTML = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join("");
 }, 500);
 
+// Spike B-S6: can the page set exposure and white balance from the calibration card?
+async function cardShot() {
+  const v = $("preview"), c = document.createElement("canvas");
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext("2d").drawImage(v, 0, 0);
+  const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.92));
+  const r = await fetch("/api/calib/measure", {method: "POST", body: blob});
+  const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+async function cardRead(tries = 20) {      // waits up to ~10 s for the card to be in view
+  for (let i = 0; i < tries; i++) {
+    const m = await cardShot();
+    if (m.grey) return m;
+    msg("Point the phone at the card…"); await wait(500);
+  }
+  throw new Error("card not found");
+}
+const lvl = g => (g[0] + g[1] + g[2]) / 3;
+const wbInfo = g => ({rb: +(g[0] / g[2]).toFixed(3), tint: +(g[1] / ((g[0] + g[2]) / 2)).toFixed(3), level: +lvl(g).toFixed(1)});
+async function cardTest() {
+  if (S.state === "recording") { msg("Not during a take."); return; }
+  const out = $("cardout"), lines = [], res = {ev: "cardtest", model: S.model};
+  const say = t => { lines.push(t); out.textContent = lines.join("\n"); };
+  $("cardgo").disabled = true;
+  try {
+    const caps = S.track.getCapabilities();
+    res.caps = {wb: caps.whiteBalanceMode, k: caps.colorTemperature, exp: caps.exposureMode, iso: caps.iso, et: caps.exposureTime};
+    say("caps: " + JSON.stringify(res.caps));
+    // 1. auto everything, as a reference
+    await setC({exposureMode: "continuous", whiteBalanceMode: "continuous"}); await wait(2000);
+    let m = await cardRead(); res.auto = Object.assign({grey: m.grey, px: m.marker_px}, wbInfo(m.grey));
+    say("auto: " + JSON.stringify(res.auto));
+    // 2. exposure: 1/50 s, ISO searched so the grey reads mid-grey (sRGB 119)
+    let lo = caps.iso.min, hi = caps.iso.max, iso = 0, best = null;
+    for (let i = 0; i < 7; i++) {
+      iso = Math.round(Math.sqrt(lo * hi));
+      await setC({exposureMode: "manual", exposureTime: 200, iso}); await wait(900);
+      m = await cardRead(); const L = lvl(m.grey);
+      if (!best || Math.abs(L - 119) < Math.abs(best.L - 119)) best = {iso, L};
+      if (L < 119) lo = iso; else hi = iso;
+      msg(`exposure: ISO ${iso} → grey ${L.toFixed(0)}`);
+    }
+    await setC({exposureMode: "manual", exposureTime: 200, iso: best.iso}); await wait(900);
+    res.exposure = {iso: best.iso, level: +best.L.toFixed(1)};
+    say("exposure 1/50 s: " + JSON.stringify(res.exposure));
+    // 3. white balance sweep: which colour temperatures actually change the picture
+    res.sweep = [];
+    if (caps.colorTemperature) {
+      for (let k = Math.max(2500, caps.colorTemperature.min); k <= Math.min(8000, caps.colorTemperature.max); k += 250) {
+        await setC({whiteBalanceMode: "manual", colorTemperature: k}); await wait(900);
+        m = await cardRead(); const w = Object.assign({k, set: S.track.getSettings().colorTemperature}, wbInfo(m.grey));
+        res.sweep.push(w); msg(`white balance: ${k} K → R/B ${w.rb}`);
+      }
+      const b = res.sweep.reduce((a, w) => Math.abs(Math.log(w.rb)) < Math.abs(Math.log(a.rb)) ? w : a);
+      res.best = b;
+      const distinct = [...new Set(res.sweep.map(w => w.rb.toFixed(2)))].length;
+      say(`sweep: ${res.sweep.length} settings, ${distinct} distinct results`);
+      say(res.sweep.map(w => `${w.k}K rb ${w.rb} tint ${w.tint}`).join("\n"));
+      say(`best: ${b.k} K → R/B ${b.rb}, green tint ${b.tint} (1.000 = neutral)`);
+      await setC({whiteBalanceMode: "manual", colorTemperature: b.k});
+    } else say("no colour temperature control on this phone");
+    msg("Card test done: results sent to the hub.");
+  } catch (e) { say("ERROR " + e.message); res.err = String(e); msg("Card test: " + e.message, true); }
+  hublog(res);
+  $("cardgo").disabled = false;
+}
+if (new URLSearchParams(location.search).get("test") === "card") $("cardtest").hidden = false;
+$("cardgo").onclick = cardTest;
 $("connect").onclick = startCamera;
 $("lock").onclick = lockThese;
 $("autolock").onclick = autoThenLock;

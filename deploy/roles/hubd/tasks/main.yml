@@ -32,6 +32,16 @@
     mode: "0644"
   notify: Restart hubd
 
+- name: hubd calibration card reader and card layout
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../{{ item.src }}"
+    dest: "/opt/hubd/{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - {src: hub/hubd/calib.py, dest: calib.py}
+    - {src: hub/calib/card.json, dest: card.json}
+  notify: Restart hubd
+
 - name: hubd web UI (static, no restart needed)
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../hub/hubd/static/"

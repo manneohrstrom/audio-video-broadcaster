@@ -60,3 +60,12 @@ Card: A4 laser print (Brother), 80 mm markers. cam1 watched at 1 fps 1080p (B-S7
 - Detection within one frame (≤1 s) of the card being held still; no false detections in 4 min of an empty room.
 - The 1 fps watcher takes ~7 s to deliver its first frame (rpicam startup at 1 fps): fine for calibration, worth knowing for the UI.
 - Next: an A3 print (113 mm markers, expected ~3.4 m) from the user's work printer; repeat the walk once, saving every frame, and tune the detector (small-marker parameters) on those frames. Bigger markers in a card v2 only if still short.
+
+## B-S6: phone exposure and white balance from the card (2026-11-16): done, partial
+
+Pixel 9a, Chrome, phone page `?test=card` (frames sent to the hub's new `/api/calib/measure`, `hub/hubd/calib.py`), card about 1 m away (markers ~190 px), studio lights (the Pis measured ~2455–2513 K in B-S2).
+
+- **Exposure works:** at 1/50 s (`exposureTime: 200`), ISO 170 put the grey at 119.6 (target 119). Auto had it at 87.7.
+- **White balance is presets only.** Chrome accepts 2850–7000 K in 50 K steps but snaps to 7 values: 2850, 2950, 4250, 4600, 5000, 6000, 7000 K (`getSettings()` reports the snapped value).
+- **None reaches neutral in this light.** Best is 2850 K: grey R/B 1.59 (red about 0.67 stop above blue), green tint 1.011 (fine). Auto white balance was further off (R/B 2.44: the Pixel keeps the warm look on purpose). Presets of 4600 K and up crush blue (R/B 25–37).
+- So for phones the card gives exact exposure and the nearest preset; the rest of the colour (here a clear orange cast) has to be corrected after capture, from the card readings. Options: (a) the editor's colour step (planned; a ~0.67-stop blue lift in 8-bit H.264, to be checked for noise and banding); (b) the phone page corrects colour before encoding (WebGL; costs phone performance, untested); (c) lights at 2700 K or cooler would bring the 2850 K preset close to neutral.
