@@ -59,6 +59,11 @@ class FakeRig:
                         "duration_s": 30.0, "dropped_frames": 0,
                         "exit_code": 0, "pts_source": "save-pts", "sync_role": s["role"],
                         "first_frame_wallclock_ns": 1_000_000_000 + (7000 if n == "cam3" else 0)}
+            if path == "/live/settings":
+                if s["mode"] != "live":
+                    raise hubd.NodeError("%s: live mode is off" % n)
+                s.setdefault("live_settings", {}).update(body["settings"])
+                return {"applied": body["settings"]}
             if path == "/live/start":
                 s["mode"] = "live"
                 return {"mode": "live"}
@@ -455,6 +460,12 @@ class SnapshotTest(unittest.TestCase):
         self.hub.rec()
         self.assertGreater(__import__("time").monotonic() - t0, 0.15)
         self.hub.stop()
+
+    def test_no_new_stills_while_rec_or_live_takes_the_cameras(self):
+        with self.hub.holding_cameras():
+            with self.assertRaises(hubd.Refused):
+                self.hub.still("cam1", auto=True)
+        self.hub.still("cam1", auto=True)          # free again afterwards
 
     def test_phone_stills(self):
         ph = self.hub.phones

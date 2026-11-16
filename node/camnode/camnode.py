@@ -18,7 +18,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 NOMINAL_MS = 1000.0 / 30
 TAKE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WC_RE = re.compile(rb'"FrameWallClock":\s*(\d+)')
@@ -101,6 +101,18 @@ def build_still_cmd(cfg, settings, auto=False, metadata=None):
 
 
 SNAPSHOT_KEYS = ("shutter_us", "gain", "awb_gains", "lens_position")
+# Take settings -> MediaMTX rpiCamera parameters, changeable on a running stream without a
+# restart or a gap (spike B-S1). Shutter stays as configured.
+LIVE_KEYS = {"gain": "rpiCameraGain", "awb_gains": "rpiCameraAWBGains", "lens_position": "rpiCameraLensPosition"}
+
+
+def mediamtx_patch(api, params):
+    """Change the running camera path through MediaMTX's API (in memory only: a MediaMTX
+    restart goes back to mediamtx.yml, so the hub re-sends settings on every LIVE start)."""
+    req = urllib.request.Request(api + "/v3/config/paths/patch/cam", method="PATCH",
+                                 data=json.dumps(params).encode(), headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        r.read()
 META_KEYS = ("AnalogueGain", "DigitalGain", "ColourGains", "ColourTemperature", "Lux", "ExposureTime")
 
 
@@ -403,7 +415,7 @@ class Busy(Exception):
 
 class Agent:
     def __init__(self, cfg, probe=probe_system, live_active=mediamtx_active,
-                 live_ctl=mediamtx_ctl, live_ready=None):
+                 live_ctl=mediamtx_ctl, live_ready=None, live_patch=None):
         self.cfg = cfg
         self.led = StatusLed(cfg.get("led_path"))
         self.lock = threading.RLock()
@@ -416,6 +428,7 @@ class Agent:
         self._live_active = live_active
         self._live_ctl = live_ctl
         self._live_ready = live_ready or (lambda: mediamtx_ready(cfg["mediamtx_api"]))
+        self._live_patch = live_patch or (lambda params: mediamtx_patch(cfg["mediamtx_api"], params))
         self._sys = {}
         self._sys_at = 0
         os.makedirs(cfg["takes_dir"], exist_ok=True)
@@ -535,6 +548,7 @@ class Agent:
             return {"camera": self.cfg["host"], "agent_version": VERSION,
                     "mode": self.mode(), "take": take, "last_error": self.last_error,
                     "last_take": _summary(self.last_take), "time_ns": time.time_ns(),
+                    "settings": {k: self.cfg["settings"][k] for k in SNAPSHOT_KEYS},
                     **self.system()}
 
     # -- live
@@ -560,6 +574,18 @@ class Agent:
         if on and not ready:
             raise RuntimeError("live stream not ready after %ss" % self.cfg["live_ready_timeout_s"])
         return self.mode()
+
+    # -- live settings (Track B)
+    def live_settings(self, settings):
+        params = {}
+        for k, v in (settings or {}).items():
+            if k not in LIVE_KEYS:
+                raise ValueError("can't change %s on a live stream" % k)
+            params[LIVE_KEYS[k]] = [float(x) for x in v] if k == "awb_gains" else float(v)
+        if not self._live_active():
+            raise Busy("live mode is off")
+        self._live_patch(params)
+        return {"applied": params}
 
     # -- snapshot (Track B)
     def snapshot(self, settings=None, auto=False):
@@ -767,6 +793,8 @@ class Handler(BaseHTTPRequestHandler):
             m = re.match(r"^/takes/([^/]+)/verified$", self.path)
             if m:
                 return self._send(200, a.mark_verified(m.group(1), self._body()))
+            if self.path == "/live/settings":
+                return self._send(200, a.live_settings(self._body().get("settings")))
             if self.path in ("/live/start", "/live/stop"):
                 return self._send(200, {"mode": a.live(self.path.endswith("start"))})
         except Busy as e:

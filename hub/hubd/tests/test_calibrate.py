@@ -183,3 +183,41 @@ class PhoneCalibrationTest(unittest.TestCase):
         self.hub.phone_poll(self.body)          # the phone is told to record
         s = self.hub.stop()
         self.assertEqual(s["calibration"]["phone:pauls-pixel"]["k"], 2850)
+
+
+class LiveCalibrationTest(unittest.TestCase):
+    def setUp(self):
+        self.cfg = hubd.load_config(None)
+        self.cfg.update(state_dir=tempfile.mkdtemp(), client_head_start_s=0, sync_timeout_s=1)
+        self.rig = FakeRig(self.cfg["nodes"])
+        for st in self.rig.st.values():
+            st["settings"] = {"gain": 2.0, "awb_gains": [1.5, 1.5], "lens_position": 1.0, "shutter_us": 20000}
+        self.hub = hubd.Hub(self.cfg, nodes=self.rig, sleep=lambda s: None)
+        self.hub.spawn = lambda fn, *a: fn(*a)
+        self.hub.set_camera_settings("cam1", {"lens_position": 0.7})
+        self.hub.live(True, ["cam1"])
+        self.hub.poll_once()
+
+        def grab(cam):                   # a frame from the stream, as its current settings make it
+            st = dict(self.rig.st[cam]["settings"], **self.rig.st[cam].get("live_settings", {}))
+            return json.dumps({"cam": cam, "gain": st["gain"], "awb": st["awb_gains"]}).encode()
+        self.hub.grab_live = grab
+
+        def measure(jpg):
+            d = json.loads(jpg)
+            return {"found": [0, 1], "marker_px": 80, "grey_spread": 1.0, "grey": picture(d["gain"], d["awb"]), "patches": {}}
+        self.hub.calibrator._measure = measure
+
+    def test_live_start_sends_the_hubs_settings(self):
+        self.assertEqual(self.rig.st["cam1"]["live_settings"], {"lens_position": 0.7})
+
+    def test_calibrates_a_live_camera_on_its_stream(self):
+        cal = self.hub.calibrator
+        cal.page_open()
+        cal.tick()
+        st = cal.status()["devices"]["cam1"]
+        self.assertEqual(st["status"], "calibrated")
+        ls = self.rig.st["cam1"]["live_settings"]
+        self.assertTrue(calibrate.good(picture(ls["gain"], ls["awb_gains"])))
+        self.assertEqual(self.hub.cam_settings["cam1"]["gain"], ls["gain"])    # kept for the next take too
+        self.assertFalse(any(p == "/snapshot" for n, p, b in self.rig.bodies if n == "cam1"))

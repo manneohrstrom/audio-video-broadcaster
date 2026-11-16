@@ -26,7 +26,7 @@
             rig.json.state == 'idle' and
             (rig.json.nodes | dict2items | map(attribute='value.status')
                | select('mapping') | map(attribute='mode')
-               | reject('in', ['idle']) | list | length == 0))
+               | reject('in', ['idle', 'snapshot']) | list | length == 0))
         fail_msg: "Rig is busy (state {{ rig.json.state | default('?') }}); not deploying. Stop the take/live first."
         quiet: true
       run_once: true

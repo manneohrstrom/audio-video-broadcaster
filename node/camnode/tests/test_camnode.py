@@ -108,13 +108,15 @@ class AgentTest(unittest.TestCase):
         self.cfg.update(takes_dir=self.tmp, rpicam_vid=FAKE, rpicam_still=FAKE_STILL, still_meta_dir=self.tmp, stop_timeout_s=3, min_free_gb=0, led_path="")
         self.live = False
         self.ready_after = 0
+        self.patched = []
         self.agent = self.make()
 
     def make(self):
         return camnode.Agent(self.cfg, probe=lambda d: {"temp_c": 40.0},
                              live_active=lambda: self.live,
                              live_ctl=lambda action: (setattr(self, "live", action == "start") or True, ""),
-                             live_ready=lambda: self.live and self.ready_after <= time.time())
+                             live_ready=lambda: self.live and self.ready_after <= time.time(),
+                             live_patch=lambda params: self.patched.append(params))
 
     def test_snapshot_uses_take_settings_and_overrides(self):
         jpg, meta = self.agent.snapshot()
@@ -148,6 +150,18 @@ class AgentTest(unittest.TestCase):
         self.live = True
         with self.assertRaises(camnode.Busy):
             self.agent.snapshot()
+
+    def test_live_settings_patch_mediamtx(self):
+        with self.assertRaises(camnode.Busy):
+            self.agent.live_settings({"gain": 4})          # not live
+        self.live = True
+        r = self.agent.live_settings({"gain": 4.5, "awb_gains": [1.4, 3.6], "lens_position": 0.8})
+        self.assertEqual(self.patched[-1], {"rpiCameraGain": 4.5, "rpiCameraAWBGains": [1.4, 3.6],
+                                            "rpiCameraLensPosition": 0.8})
+        self.assertEqual(r["applied"], self.patched[-1])
+        with self.assertRaises(ValueError):
+            self.agent.live_settings({"shutter_us": 10000})
+        self.assertEqual(self.agent.status()["settings"]["gain"], 2.0)
 
     def wait_state(self, want, timeout=3):
         end = time.time() + timeout

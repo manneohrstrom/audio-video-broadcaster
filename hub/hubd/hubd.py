@@ -27,7 +27,7 @@ import calib  # noqa: E402
 import calibrate  # noqa: E402
 import phones  # noqa: E402
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -255,6 +255,7 @@ class Hub:
         self.budget = budget.limits(None, 0, {}, {})
         self.card, self.calib_lock = None, threading.Lock()
         self.snaps_in_flight = 0            # camera snapshots running (REC waits for them)
+        self.hold = 0                       # >0 while REC/LIVE takes the cameras: no new stills
         self.cam_locks = {n: threading.Lock() for n in cfg["nodes"]}   # one still per camera at a time
         self.cam_settings_path = os.path.join(cfg["state_dir"], "camera_settings.json")
         try:
@@ -491,7 +492,24 @@ class Hub:
             with open(tmp, "w") as f:
                 json.dump(self.cam_settings, f, indent=1)
             os.replace(tmp, self.cam_settings_path)
-            return dict(self.cam_settings)
+            out = dict(self.cam_settings)
+            live = (self.status.get(cam) or {}).get("mode") == "live"
+        if live:            # a live stream takes the change at once (spike B-S1: no gap)
+            try:
+                self.push_live(cam)
+            except NodeError as e:
+                log("live settings for %s not applied: %s" % (cam, e))
+        return out
+
+    LIVE_KEYS = ("gain", "awb_gains", "lens_position")
+
+    def push_live(self, cam, settings=None):
+        """Send settings (default: the hub's for this camera) to its running live stream."""
+        with self.lock:
+            s = {k: v for k, v in (settings or self.cam_settings.get(cam, {})).items() if k in self.LIVE_KEYS}
+        if s:
+            self.nodes.post(cam, "/live/settings", {"settings": s}, timeout=10)
+        return s
 
     # -- snapshot page (Track B, B1)
     def snap(self, cam, overrides=None):
@@ -522,6 +540,8 @@ class Hub:
         with self.lock:
             if self.state != "idle":
                 raise Refused(["rig is %s: no snapshots during a take" % self.state])
+            if self.hold:
+                raise Refused(["rig is starting REC or LIVE"])
             if self.status[cam] is None:
                 raise Refused(["%s is offline" % cam])
             self.snaps_in_flight += 1
@@ -549,6 +569,22 @@ class Hub:
                 b["settings"] = dict(self.cam_settings[cam])
         return b
 
+    def holding_cameras(self):
+        """Context: stop new stills (calibration watching, snapshot page) and wait for the
+        ones in flight, so REC/LIVE find every camera free."""
+        hub = self
+
+        class Hold:
+            def __enter__(self):
+                with hub.lock:
+                    hub.hold += 1
+                hub.wait_for_snapshots()
+
+            def __exit__(self, *exc):
+                with hub.lock:
+                    hub.hold -= 1
+        return Hold()
+
     def wait_for_snapshots(self, timeout=5.0):
         end = time.monotonic() + timeout
         while self.snaps_in_flight and time.monotonic() < end:
@@ -572,7 +608,8 @@ class Hub:
         if not self.op_lock.acquire(blocking=False):
             raise Refused(["another operation is in progress"])
         try:
-            return self._rec(names)
+            with self.holding_cameras():
+                return self._rec(names)
         finally:
             self.op_lock.release()
 
@@ -583,7 +620,6 @@ class Hub:
         with self.lock:
             if self.state != "idle":
                 raise Refused(["rig is %s" % self.state])
-        self.wait_for_snapshots()      # a camera taking a still can't arm
         self.poll_once()
         missing = []
         with self.lock:
@@ -771,7 +807,13 @@ class Hub:
                     raise Refused(["rig is %s" % self.state])
             names = names or list(self.cfg["nodes"])
             path = "/live/start" if on else "/live/stop"
-            ok, err = self._parallel(names, lambda n: self.nodes.post(n, path, timeout=25))
+            with self.holding_cameras():
+                ok, err = self._parallel(names, lambda n: self.nodes.post(n, path, timeout=25))
+            if on:
+                # MediaMTX starts from mediamtx.yml: give each stream the hub's settings
+                # (calibration, focus), which it otherwise forgets on every restart.
+                _, err2 = self._parallel(sorted(ok), self.push_live)
+                err.update({n: "settings: %s" % e for n, e in err2.items()})
             self.poll_once()
             return {"ok": sorted(ok), "errors": err}
         finally:

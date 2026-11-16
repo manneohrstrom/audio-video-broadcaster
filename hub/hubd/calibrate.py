@@ -173,7 +173,7 @@ class Calibrator:
         if not self.watching():
             return
         with self.hub.lock:
-            ready = [n for n, st in self.hub.status.items() if st and st.get("mode") == "idle"]
+            ready = [n for n, st in self.hub.status.items() if st and st.get("mode") in ("idle", "live")]
         for cam in ready:
             with self.lock:
                 if cam in self.busy:
@@ -197,6 +197,10 @@ class Calibrator:
             return calib.measure(jpg, self.card)
 
     def step(self, cam):
+        with self.hub.lock:
+            st = self.hub.status.get(cam) or {}
+        if st.get("mode") == "live":
+            return self.step_live(cam, st)
         jpg, meta = self.hub.still(cam, auto=True)
         m = self._measure(jpg)
         if not m.get("grey"):
@@ -227,6 +231,43 @@ class Calibrator:
             sens = (sensitivity(prev, cur, 0), sensitivity(prev, cur, 1))
             prev = cur
             g, wb, ok = next_settings(m["grey"], g, wb, sens)
+        self.save(cam, g, wb, ok, m, rounds, good(m["grey"], ok))
+        self.in_view[cam] = True
+
+    def step_live(self, cam, st):
+        """In LIVE the camera belongs to MediaMTX: read frames from the stream and change
+        settings on it (no restart, no gap: spike B-S1). No auto metering here, so start
+        from the settings the stream runs with now."""
+        m = self._measure(self.hub.grab_live(cam))
+        if not m.get("grey"):
+            self.in_view[cam] = False
+            self._set(cam)
+            return
+        if self.in_view.get(cam):
+            return
+        bad = card_problem(m)
+        if bad:
+            self._set(cam, "waiting", bad)
+            return
+        self._set(cam, "calibrating", "hold the card still")
+        with self.hub.lock:
+            base = dict(st.get("settings") or {}, **self.hub.cam_settings.get(cam, {}))
+        g, wb = float(base.get("gain", 2.0)), list(base.get("awb_gains", [1.5, 1.5]))
+        prev, sens, ok, rounds = None, (SENS, SENS), True, 0
+        for rounds in range(1, ROUNDS + 2):
+            if good(m["grey"], ok) and rounds > 1:
+                break
+            cur = (list(wb), m["grey"])
+            if prev:
+                sens = (sensitivity(prev, cur, 0), sensitivity(prev, cur, 1))
+            prev = cur
+            g, wb, ok = next_settings(m["grey"], g, wb, sens)
+            self.hub.push_live(cam, {"gain": g, "awb_gains": wb})
+            self.hub.sleep(1.0)          # let frames with the new settings through
+            m = self._measure(self.hub.grab_live(cam))
+            if not m.get("grey"):
+                self._set(cam, "waiting", "the card moved out of view: hold it still")
+                return
         self.save(cam, g, wb, ok, m, rounds, good(m["grey"], ok))
         self.in_view[cam] = True
 
