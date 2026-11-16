@@ -105,6 +105,16 @@ class FakeRunner:
             return ""
         if tool == "ffmpeg":                       # decode check
             return ""
+        if tool == "ffprobe" and "packet=pts_time" in cmd:     # rewrap verify: frame times
+            man, pts, residual = self._source(cmd[-1])
+            times = [(p + residual / 1e6 + self.time_shift_ms) / 1000 for p in pts]
+            if self.frames_override:
+                times = times[:self.frames_override]
+            return "".join("%.6f\n" % t for t in times)
+        if tool == "ffprobe" and "stream_tags=timecode" in cmd:  # rewrap verify: timecode
+            man, pts, residual = self._source(cmd[-1])
+            return json.dumps({"streams": [{"tags": {"timecode": ingest.grid_origin(
+                man["first_frame_wallclock_ns"])[0]}}]})
         if tool == "ffprobe":
             ing = self.ing_ref[0]
             mov = cmd[-1]
@@ -118,6 +128,16 @@ class FakeRunner:
             return json.dumps({"streams": [{"nb_read_packets": str(n), "avg_frame_rate": "30/1",
                                             "tags": {"timecode": tc}}]})
         raise AssertionError(cmd)
+
+    time_shift_ms = 0.0
+
+    def _source(self, mov):
+        ing = self.ing_ref[0]
+        cam, take = os.path.basename(mov)[:-4], os.path.basename(os.path.dirname(mov))
+        with open(os.path.join(ing.work, take, cam, "manifest.json")) as f:
+            man = json.load(f)
+        pts = ingest.read_pts(os.path.join(ing.work, take, cam, "video.pts"))
+        return man, pts, ingest.grid_origin(man["first_frame_wallclock_ns"])[2]
 
 
 class FakeDrive:
@@ -225,6 +245,7 @@ class IngestTest(Base):
         self.assertEqual(self.ing.tick(), "ingested")
 
     def test_full_take_two_cameras(self):
+        self.ing.cfg["video_timing"] = "conform"        # the Phase 3 path; "real" in RealTimingTest
         self.rig.add_take("cam1")
         self.rig.add_take("cam2", gaps=(10, 200))
         self.command("start")
@@ -656,3 +677,65 @@ class PhoneIngestTest(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RealTimingTest(Base):
+    """video_timing "real" (docs/editor-plan.md M-E1): -c copy, frames at their real times."""
+
+    def setUp(self):
+        super().setUp()
+        self.ing.cfg["video_timing"] = "real"
+
+    def test_rewrap_keeps_every_frame(self):
+        self.rig.add_take("cam1", gaps=(10, 200))
+        self.command("start")
+        self.assertEqual(self.ing.tick(), "ingested")
+        cs = self.load_take()["cameras"]["cam1"]
+        self.assertEqual(cs["timing"], "real")
+        self.assertEqual((cs["frames_out"], cs["frames_in"], cs["repeated"]), (300, 300, 0))
+        self.assertEqual(cs["timecode"], ingest.grid_origin(WC0)[0])
+        self.assertIn("copy", self.runner.cmds)
+        self.assertNotIn("libx264", self.runner.cmds)
+        self.assertIn("-movie_timescale", self.runner.cmds)     # else the edit list rounds to ms
+        i = self.runner.cmds.index("-itsoffset")
+        self.assertAlmostEqual(float(self.runner.cmds[i + 1]), ingest.grid_origin(WC0)[2] / 1e9, places=6)
+        self.assertIn(("cam1", TAKE), self.rig.verified)
+
+    def test_frame_times_off_fails_verify(self):
+        self.rig.add_take("cam1")
+        self.runner.time_shift_ms = 1.5
+        self.command("start")
+        self.ing.tick()
+        cs = self.ing.cam_state(TAKE, "cam1")
+        self.assertIn("frame times off", cs["error"])
+        self.assertNotIn("verified", cs["done"])
+        self.assertEqual(self.rig.verified, {})
+
+    def test_missing_frames_fail_verify(self):
+        self.rig.add_take("cam1")
+        self.runner.frames_override = 299
+        self.command("start")
+        self.ing.tick()
+        self.assertIn("frames 299, expected 300", self.ing.cam_state(TAKE, "cam1")["error"])
+
+    def test_camera_conformed_before_the_switch_verifies_as_conformed(self):
+        self.rig.add_take("cam1")
+        self.ing.cfg["video_timing"] = "conform"
+        self.runner.pause_on = "ffprobe"            # stop after the conform, before verify
+        self.command("start")
+        self.ing.tick()
+        self.assertEqual(self.ing.cam_state(TAKE, "cam1")["timing"], "conform")
+        self.ing.cfg["video_timing"] = "real"
+        self.runner.pause_on = None
+        self.command("start")
+        self.assertEqual(self.ing.tick(), "ingested")
+        cs = self.load_take()["cameras"]["cam1"]
+        self.assertEqual(cs["timing"], "conform")
+        self.assertNotIn("max_time_err_ms", cs)
+
+    def test_phone_rewrapped(self):
+        add_phone(self.ing.cfg["phones_dir"], gaps=(50,))
+        self.command("start")
+        self.assertEqual(self.ing.tick(), "ingested")
+        cs = self.load_take()["cameras"]["pauls-pixel"]
+        self.assertEqual((cs["timing"], cs["repeated"]), ("real", 0))

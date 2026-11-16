@@ -8,3 +8,5 @@ hubd_sync_server: cam1
 ingest_idle_minutes: 30
 ingest_x264_preset: veryfast
 ingest_x264_crf: "16"
+# "real": -c copy at real frame times (editor plan M-E1, since 2026-11-16); "conform": re-encode to 30 fps
+ingest_video_timing: real

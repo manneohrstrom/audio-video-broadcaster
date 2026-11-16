@@ -10,6 +10,8 @@ Rules (CLAUDE.md, docs/phase3-plan.md):
   (rsync is killed and resumes from partial files; ffmpeg is SIGSTOPped).
 - Sync first: frames are placed by their real timestamps onto an exact 30.000 fps
   grid anchored to time of day (Path B); gaps and the 30.011 fps rate become repeats.
+  With video_timing "real" (editor plan M-E1) it rewraps with -c copy instead: every
+  frame keeps its real time, a gap becomes one long frame, and the render conforms.
 - Writes only to a drive labelled STUDIO, to *.part names, then fsync + rename.
 - Never deletes from the drive. Marks each camera's take verified on that camera as
   soon as its own .mov is verified on the drive (not held back by other cameras); the
@@ -32,8 +34,10 @@ import threading
 import time
 import urllib.request
 
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 FPS = 30
+TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
+TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
 
 # ETA model: seconds of work per second of video, per step. Starting values from the
 # rig (2026-11-15: conform about 1x real time); learned as takes go through.
@@ -70,6 +74,10 @@ DEFAULT_CONFIG = {
     "playback_idle_s": 300,     # read-only mount kept this long after the last playback request
     "x264_preset": "veryfast",
     "x264_crf": "16",
+    # "conform": re-encode onto an exact 30.000 fps grid (Phase 3, as built).
+    # "real": -c copy, every frame at its real capture time (docs/editor-plan.md, M-E1);
+    # the render conforms the final cut instead. Default since spike E1 passed (2026-11-16).
+    "video_timing": "real",
     # Phone cameras (docs/phone-plan.md): hubd stages their takes here, already in the
     # camera layout, so a phone's "pull" is a hard link and its "mark" deletes the staging copy.
     "phones_dir": "/var/lib/hubd/phones",
@@ -644,6 +652,8 @@ class Ingest:
         return os.path.join(self.work, take_id, "%s.mov" % cam)
 
     def conform(self, take_id, cam, man):
+        if self.cfg.get("video_timing") == "real":
+            return self.rewrap(take_id, cam, man)
         d = self.cam_dir(take_id, cam)
         tc, origin, residual = grid_origin(man["first_frame_wallclock_ns"])
         mkv = os.path.join(d, "ts.mkv")
@@ -668,9 +678,34 @@ class Ingest:
                         on_poll=lambda: self.progress(take_id, cam, ffmpeg_progress(prog, dur)))
         os.replace(out + ".tmp", out)
         os.remove(mkv)
-        self.mark(take_id, cam, "conformed", timecode=tc)
+        self.mark(take_id, cam, "conformed", timecode=tc, timing="conform")
+
+    def rewrap(self, take_id, cam, man):
+        """-c copy into .mov with every frame at its real time: video.pts (µs precision)
+        via mkvmerge at a 1 µs timestamp scale, then the first frame's offset from its
+        30 fps timecode slot (residual) as -itsoffset. The mov keeps it as an edit list,
+        which is in the movie timescale, so that is 90 kHz too (the default 1000 rounds
+        to whole ms). Spike E1 (2026-11-16): every frame within 6 µs, gaps included."""
+        d = self.cam_dir(take_id, cam)
+        tc, origin, residual = grid_origin(man["first_frame_wallclock_ns"])
+        mkv = os.path.join(d, "ts.mkv")
+        self.runner.run(["mkvmerge", "-q", "-o", mkv, "--timestamp-scale", "1000",
+                         "--timestamps", "0:" + os.path.join(d, "video.pts"),
+                         os.path.join(d, "video.h264")], pause="stop")
+        out = self.out_name(take_id, cam)
+        self.runner.run(["ffmpeg", "-nostdin", "-v", "error", "-y",
+                         "-itsoffset", "%.6f" % (residual / 1e9), "-i", mkv, "-map", "0:v", "-c", "copy",
+                         "-video_track_timescale", str(TIMESCALE), "-movie_timescale", str(TIMESCALE),
+                         "-timecode", tc, "-metadata", "title=%s %s" % (take_id, man.get("label") or cam),
+                         "-metadata", "comment=studio-multicam %s; real frame times (copy)" % VERSION,
+                         "-movflags", "+faststart", "-f", "mov", out + ".tmp"], pause="stop")
+        os.replace(out + ".tmp", out)
+        os.remove(mkv)
+        self.mark(take_id, cam, "conformed", timecode=tc, timing="real")
 
     def verify(self, take_id, cam, man):
+        if self.cam_state(take_id, cam).get("timing") == "real":
+            return self.verify_real(take_id, cam, man)
         d = self.cam_dir(take_id, cam)
         out = self.out_name(take_id, cam)
         tc, origin, residual = grid_origin(man["first_frame_wallclock_ns"])
@@ -702,6 +737,39 @@ class Ingest:
         repeated = got - len(pts)
         self.mark(take_id, cam, "verified", frames_out=got, frames_in=len(pts), repeated=repeated,
                   dropped=man.get("dropped_frames"), sha256=sha256_file(out))
+
+    def verify_real(self, take_id, cam, man):
+        """A rewrapped camera: exactly the source's frames, each at its real time
+        (video.pts plus the residual) within TIME_TOLERANCE_MS, the take's timecode,
+        and a full decode."""
+        d = self.cam_dir(take_id, cam)
+        out = self.out_name(take_id, cam)
+        tc, origin, residual = grid_origin(man["first_frame_wallclock_ns"])
+        pts = read_pts(os.path.join(d, "video.pts"))
+        info = json.loads(self.runner.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream_tags=timecode",
+             "-of", "json", out], pause="stop"))
+        got = sorted(float(t) * 1000 for t in self.runner.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time",
+             "-of", "csv=p=0", out], pause="stop").split())
+        problems = []
+        if len(got) != len(pts):
+            problems.append("frames %d, expected %d" % (len(got), len(pts)))
+        off = residual / 1e6
+        err = max((abs(g - (p + off)) for g, p in zip(got, pts)), default=0.0)
+        if err > TIME_TOLERANCE_MS:
+            problems.append("frame times off by up to %.3f ms" % err)
+        st = (info.get("streams") or [{}])[0]
+        if (st.get("tags") or {}).get("timecode") != tc:
+            problems.append("timecode %s, expected %s" % ((st.get("tags") or {}).get("timecode"), tc))
+        prog = os.path.join(d, "progress.txt")
+        dur = man.get("duration_s") or 0
+        self.runner.run(["ffmpeg", "-nostdin", "-v", "error", "-progress", prog, "-i", out, "-f", "null", "-"],
+                        pause="stop", on_poll=lambda: self.progress(take_id, cam, ffmpeg_progress(prog, dur)))
+        if problems:
+            raise RuntimeError("verify failed: " + "; ".join(problems))
+        self.mark(take_id, cam, "verified", frames_out=len(got), frames_in=len(pts), repeated=0,
+                  max_time_err_ms=round(err, 4), dropped=man.get("dropped_frames"), sha256=sha256_file(out))
 
     def take_folder(self, take_id):
         day = "%s-%s-%s" % (take_id[0:4], take_id[4:6], take_id[6:8])

@@ -1,0 +1,38 @@
+<!doctype html><meta charset="utf-8"><title>E1 playback</title>
+<body><script>
+const files = ["pi-short", "pi-gaps", "synth-jitter"];
+async function pts(name) {
+  const t = await (await fetch(name + ".pts")).text();
+  return t.split("\n").filter(l => l && !l.startsWith("#")).map(Number);
+}
+function test(name) {
+  return new Promise(async res => {
+    const exp = await pts(name);
+    const v = document.createElement("video");
+    v.muted = true; v.src = name + ".mov"; document.body.append(v);
+    const seen = [];
+    const cb = (now, md) => { seen.push(md.mediaTime * 1000); v.requestVideoFrameCallback(cb); };
+    v.requestVideoFrameCallback(cb);
+    v.onerror = () => res({name, error: v.error && v.error.message});
+    v.onended = () => {
+      // Offset the player applies (edit list): first shown frame vs the file's first pts.
+      const off = seen[0] - exp[0];
+      let mx = 0, j = 0;
+      for (const s of seen) {
+        while (j + 1 < exp.length && Math.abs(exp[j + 1] + off - s) <= Math.abs(exp[j] + off - s)) j++;
+        mx = Math.max(mx, Math.abs(exp[j] + off - s));
+      }
+      res({name, expected: exp.length, shown: seen.length, first_media_ms: +seen[0].toFixed(3),
+           max_err_ms: +mx.toFixed(3), duration_s: v.duration, w: v.videoWidth, h: v.videoHeight});
+    };
+    v.play().catch(e => res({name, error: String(e)}));
+  });
+}
+(async () => {
+  const out = [];
+  for (const f of files) out.push(await test(f));
+  console.log("E1RESULT " + JSON.stringify(out));
+  document.title = "done";
+  document.body.insertAdjacentHTML("beforeend", "<pre id=r>" + JSON.stringify(out, null, 1) + "</pre>");
+})();
+</script>
