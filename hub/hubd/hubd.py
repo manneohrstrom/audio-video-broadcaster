@@ -30,7 +30,7 @@ import lamp  # noqa: E402
 import phones  # noqa: E402
 import scratch  # noqa: E402
 
-VERSION = "0.10.2"
+VERSION = "0.11.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -57,6 +57,13 @@ DEFAULT_CONFIG = {
     "checks": {"max_offset_ms": 5.0, "max_temp_c": 70.0, "min_free_hours": 1.0},
     # A client can report "Sync achieved" while starting late (S2: up to 969 ms).
     "max_sync_difference_us": 1000,
+    # "Red only when in sync": a follower that starts more than this far from the server
+    # (2026-11-16: Wi-Fi multicast delivered the server's sync packets 8-21 s late) makes
+    # REC stop and start again by itself, up to resync_retries times; then it records
+    # anyway, with a warning and a flashing light. 1 frame = 33 333 us.
+    "resync_limit_us": 33333,
+    "resync_retries": 2,
+    "resync_pause_s": 1.0,
     # Record-time limit (budget.py): shown on the page; at zero hubd stops the take.
     # Rates are starting guesses (Pi measured ~8 Mbps, phones ~15); during a take the
     # measured rates take over after a minute.
@@ -219,6 +226,12 @@ def sync_warnings(diffs, limit_us):
     return out
 
 
+def exit_ok(c):
+    """A camera's exit is fine: code 0, or the known rpicam exit crash (SIGABRT,
+    "malloc_consolidate") after every file was written (the PTS file came out complete)."""
+    return c.get("exit_code") in (0, None) or (c.get("exit_code") in (-6, 134) and c.get("pts_source") == "save-pts")
+
+
 def take_summary(take_id, manifests, errors, limit_us=1000):
     cams = {}
     wcs = []
@@ -239,7 +252,7 @@ def take_summary(take_id, manifests, errors, limit_us=1000):
         "frame_count_spread": (max(frames) - min(frames)) if frames else None,
         "dropped_frames_total": sum(c["dropped_frames"] or 0 for c in cams.values()),
         "all_clean": (not errors and not warn
-                      and all(c["exit_code"] == 0 and not c["dropped_frames"] for c in cams.values())),
+                      and all(exit_ok(c) and not c["dropped_frames"] for c in cams.values())),
     }
 
 
@@ -631,7 +644,10 @@ class Hub:
         return r.stdout
 
     def arm_body(self, cam, take_id, role):
-        b = {"take_id": take_id, "role": role}
+        # Every take (and every restart) syncs on its own UDP port: a late multicast packet
+        # from an earlier start can't be mistaken for this one. MMSS of the take id: unique
+        # within the hour, and a restart always gets a new take id.
+        b = {"take_id": take_id, "role": role, "sync_port": 20000 + int(take_id[-4:])}
         with self.lock:
             if self.cam_settings.get(cam):
                 b["settings"] = dict(self.cam_settings[cam])
@@ -685,12 +701,13 @@ class Hub:
         finally:
             self.op_lock.release()
 
-    def _rec(self, names):
+    def _rec(self, names, attempt=1, missing_before=None, restarts=None):
         """names=None (the REC button): every camera that is online; offline ones
         are skipped with a warning. An explicit list is strict: all must be ready.
-        Either way, an online camera that isn't ready blocks the take."""
+        Either way, an online camera that isn't ready blocks the take.
+        attempt > 1: a restart after a follower started out of sync (resync_limit_us)."""
         with self.lock:
-            if self.state != "idle":
+            if self.state != ("starting" if attempt > 1 else "idle"):
                 raise Refused(["rig is %s" % self.state])
         self.poll_once()
         missing = []
@@ -707,7 +724,13 @@ class Hub:
         bud = self.compute_budget(names)
         if bud["total_s"] is not None and bud["total_s"] < self.cfg["budget"]["min_rec_s"]:
             raise Refused(["only %d s of recording space (%s)" % (bud["total_s"], bud["limited_by"])])
+        if missing_before is not None:
+            missing = missing_before
         take_id = time.strftime("%Y%m%d-%H%M%S", time.localtime(self.clock()))
+        restarts = list(restarts or [])
+        if restarts and take_id <= restarts[-1]["take_id"]:     # same second as the aborted one
+            self.sleep(1.0)
+            take_id = time.strftime("%Y%m%d-%H%M%S", time.localtime(self.clock()))
         server = self.pick_server(names)
         clients = [n for n in names if n != server]
         with self.lock:
@@ -742,8 +765,20 @@ class Hub:
             raise
         with self.lock:
             diffs = {n: ((self.status[n] or {}).get("take") or {}).get("sync_difference_us") for n in names}
-            warn = sync_warnings(diffs, self.cfg["max_sync_difference_us"])
+        warn = sync_warnings(diffs, self.cfg["max_sync_difference_us"])
+        off = sync_warnings({n: d for n, d in diffs.items() if n != server}, self.cfg["resync_limit_us"])
+        if off and attempt <= self.cfg["resync_retries"]:
+            # Out of sync: throw this start away and start again (the light stays amber).
+            log("take %s: %s; restarting (attempt %d)" % (take_id, "; ".join(off), attempt + 1))
+            with self.lock:
+                self.state = "starting"
+            self._stop_all(names, aborted="restarted: out of sync (%s)" % "; ".join(off), keep_state=True)
+            restarts.append({"take_id": take_id, "out_of_sync": off})
+            self.sleep(self.cfg["resync_pause_s"])
+            return self._rec(names, attempt + 1, missing, restarts)
+        with self.lock:
             self.state = "recording"
+            self.take["restarts"] = restarts
             self.take["recording_at"] = self.clock()
             # After arming: a camera may have just freed space (lazy delete), so this,
             # not the value before REC, is the baseline for its measured rate.
@@ -752,10 +787,18 @@ class Hub:
             notes = []
             if missing:
                 notes.append("Recording %s only: %s offline." % (", ".join(names), ", ".join(missing)))
-            if warn:
+            if off:
+                notes.append("Out of sync after %d tries: %s. Recording anyway; STOP and REC again, "
+                             "and check the cameras' Wi-Fi." % (attempt, "; ".join(off)))
+            elif warn:
                 notes.append("Sync warning: %s. Consider STOP and REC again." % "; ".join(warn))
+            if restarts and not off:
+                notes.append("Restarted %d× to get every camera in sync." % len(restarts))
             self.message = " ".join(notes) or None
-            return dict(self.take)
+            result = dict(self.take)
+        if off:
+            self.lamp.alert("out of sync: %s" % "; ".join(off))
+        return result
 
     # -- STOP
     def stop(self):
@@ -770,9 +813,9 @@ class Hub:
         finally:
             self.op_lock.release()
 
-    def _stop_all(self, names, aborted=None):
+    def _stop_all(self, names, aborted=None, keep_state=False):
         with self.lock:
-            self.state = "stopping"
+            self.state = "starting" if keep_state else "stopping"
             take = dict(self.take or {})
         # Only nodes that are mid-take; a node that never armed has nothing to stop.
         self.poll_once()
@@ -791,8 +834,12 @@ class Hub:
         sc = self.scratch.stop()
         summary["scratch"] = ({k: sc.get(k) for k in ("device", "rate", "channels", "samples", "problems")}
                               if sc else None)
+        summary["restarts"] = take.get("restarts") or []
         self.append_log(summary)
         with self.lock:
+            if keep_state:              # a restart: REC goes on, the rig isn't idle
+                self.take = None
+                return summary
             self.state, self.take = "idle", None
             self.message = ("take aborted: %s" % aborted) if aborted else None
         return summary
@@ -818,7 +865,7 @@ class Hub:
             problems = list(e.get("sync_warnings") or [])
             problems += ["%s: %s" % (n, err) for n, err in sorted((e.get("errors") or {}).items())]
             problems += ["%s exited with code %s" % (n, c.get("exit_code")) for n, c in sorted(cams.items())
-                         if c.get("exit_code") not in (0, None)]
+                         if not exit_ok(c)]
             # Dropped frames are shown with each camera's frame count, not repeated here.
             takes.setdefault(tid, {})["recorded"] = {
                 "problems": problems,

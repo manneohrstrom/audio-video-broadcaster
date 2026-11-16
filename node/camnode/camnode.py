@@ -18,7 +18,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.5.1"
+VERSION = "0.6.0"
 NOMINAL_MS = 1000.0 / 30
 TAKE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WC_RE = re.compile(rb'"FrameWallClock":\s*(\d+)')
@@ -30,6 +30,8 @@ DEFAULT_CONFIG = {
     "port": 8080,
     "takes_dir": "/var/lib/camnode/takes",
     "rpicam_vid": "rpicam-vid",
+    # Base tuning file; a copy with the take's own sync port goes into each take (sync_tuning).
+    "tuning_file": "/usr/share/libcamera/ipa/rpi/vc4/imx708_wide.json",
     "rpicam_still": "rpicam-still",
     "snapshot_timeout_s": 10,
     "still_meta_dir": "/dev/shm",        # rpicam-still's metadata for one snapshot (RAM)
@@ -66,10 +68,32 @@ def load_config(path):
     return cfg
 
 
-def build_cmd(cfg, role, outdir, settings):
+def sync_tuning(base, port, outdir):
+    """A copy of the tuning file whose software sync (rpi.sync) uses its own UDP port, so
+    a sync packet from an earlier take (Wi-Fi multicast arriving seconds late, 2026-11-16)
+    can't be taken for this one. Returns its path, or None if the base can't be read."""
+    try:
+        with open(base) as f:
+            t = json.load(f)
+        found = False
+        for a in t.get("algorithms", []):
+            if "rpi.sync" in a:
+                a["rpi.sync"] = dict(a["rpi.sync"] or {}, port=int(port))
+                found = True
+        if not found:
+            t.setdefault("algorithms", []).append({"rpi.sync": {"port": int(port)}})
+        path = os.path.join(outdir, "tuning.json")
+        with open(path, "w") as f:
+            json.dump(t, f)
+        return path
+    except (OSError, ValueError):
+        return None
+
+
+def build_cmd(cfg, role, outdir, settings, tuning=None):
     s = settings
-    return [
-        cfg["rpicam_vid"], "-n", "-t", "0", "--sync", role,
+    return ([cfg["rpicam_vid"], "--tuning-file", tuning] if tuning else [cfg["rpicam_vid"]]) + [
+        "-n", "-t", "0", "--sync", role,
         "--mode", "2304:1296:10:P", "--width", "1920", "--height", "1080",
         "--framerate", "30", "--codec", "h264", "--bitrate", str(int(s["bitrate"])),
         "--denoise", "cdn_off",
@@ -654,7 +678,7 @@ class Agent:
                     self.state = "idle"
 
     # -- takes
-    def arm(self, take_id, role, settings=None):
+    def arm(self, take_id, role, settings=None, sync_port=None):
         if not TAKE_ID_RE.match(take_id or ""):
             raise ValueError("bad take_id")
         if role not in ("client", "server"):
@@ -677,8 +701,10 @@ class Agent:
                     "settings": s, "armed_at": time.time_ns(), "dir": d}
             write_json_atomic(os.path.join(d, "take.json"),
                               {k: v for k, v in take.items() if k not in ("dir", "gap_counter")})
+            tuning = sync_tuning(self.cfg["tuning_file"], sync_port, d) if sync_port else None
+            take["sync_port"] = sync_port if tuning else None
             log = open(os.path.join(d, "rpicam.log"), "w")
-            self.proc = subprocess.Popen(build_cmd(self.cfg, role, d, s), stdin=subprocess.DEVNULL,
+            self.proc = subprocess.Popen(build_cmd(self.cfg, role, d, s, tuning), stdin=subprocess.DEVNULL,
                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                          text=True, errors="replace")
             self.take, self.state, self.last_error = take, "armed", None
@@ -811,7 +837,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self.path == "/take/arm":
                 b = self._body()
-                return self._send(200, a.arm(b.get("take_id"), b.get("role"), b.get("settings")))
+                return self._send(200, a.arm(b.get("take_id"), b.get("role"), b.get("settings"), b.get("sync_port")))
             if self.path == "/take/stop":
                 return self._send(200, a.stop())
             m = re.match(r"^/takes/([^/]+)/verified$", self.path)

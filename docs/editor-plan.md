@@ -101,11 +101,17 @@ It runs right after a bounce is synced, so the cut is ready the first time the u
 - The camera strips need small thumbnails along the whole take. The hub makes them once per take (for example one 160-pixel frame per second per camera, packed into sprite sheets) as a step after ingest, and keeps them on its SD card. Hover previews and strips use them; playback and the video window use WebCodecs on the real files (spike E2), for exact frames in sync with the bounce.
 - Media is served from `STUDIO`, mounted read-only for playback and unmounted 5 minutes after the last playback (the existing playback rule).
 
+**Mock-up feedback (user, 2026-11-16), changes the above:**
+- **Choosing a camera is press, drag, release** on a camera's strip: where you press is the start, you drag left or right, and where you release is the end. That camera is shown for exactly that stretch; before and after it, the cut stays as it was (the camera that was on before comes back at the end). This replaces "click = this camera from here until the next cut". The user found the click model hard to judge; the mock-up gets drag-select next, before more usability judgement.
+- **A splitter between the video (top) and the timeline (bottom)**, dragged up and down, in both steps; the video window is sizeable in both.
+- **Zoom is a horizontal slider**, not − / + buttons.
+- The rest of the layout: "really great".
+
 ## 5. Editor UI: step 2, the look
 
 *Revised with the user, 2026-11-16: replaces "colour per camera". The look is global, for the whole video, not per camera.*
 
-A second step (a tab, after the cut is done): **what's the vibe of this video?** It works like Instagram, with Instagram's words: **Filters** (tap through, see the result at once; tap the chosen one again for its strength) and **Effects**. A first set is proposed in the mock-up for the user to trim.
+A second step (a tab, after the cut is done): **what's the vibe of this video?** It works like Instagram, with Instagram's words: **Filters** (tap through, see the result at once; tap the chosen one again for its strength) and **Effects**. A first set is proposed in the mock-up for the user to trim. **No tabs between Filters and Effects** (user, 2026-11-16, mock-up feedback): one horizontally scrolling row of filters, and below it one horizontally scrolling row of effects, both visible at once.
 
 - **Two separate choices:**
   - **Colour look:** a preset grade (a LUT), e.g. warm film, faded, cool night, punchy, black-and-white.

@@ -277,6 +277,59 @@ class HubTest(unittest.TestCase):
         self.assertFalse(s["all_clean"])
         self.assertEqual(len(s["sync_warnings"]), 1)
 
+    def test_out_of_sync_start_restarts_by_itself(self):
+        self.rig.diff["cam3"] = -8403876            # sync packets 8.4 s late (2026-11-16)
+        orig, arms = self.rig.post, []
+
+        def post(n, path, body=None, **kw):
+            r = orig(n, path, body, **kw)
+            if path == "/take/arm" and body["role"] == "server":
+                arms.append(body["take_id"])
+                self.rig.diff.pop("cam3", None)      # in sync from the second try on
+            return r
+        self.rig.post = post
+        clock = [1794855195.0]
+        self.hub.clock = lambda: clock[0]
+        self.hub.sleep = lambda s: clock.__setitem__(0, clock[0] + max(s, 1.0))
+        t = self.hub.rec()
+        self.assertEqual(len(arms), 2)
+        self.assertEqual(t["take_id"], arms[1])
+        self.assertNotEqual(arms[0], arms[1])
+        self.assertEqual(t["sync_warnings"], [])
+        self.assertEqual(len(t["restarts"]), 1)
+        self.assertIn("cam3 started 8403.9 ms late", t["restarts"][0]["out_of_sync"][0])
+        self.assertIn("Restarted 1×", self.hub.snapshot()["message"])
+        self.assertEqual(self.hub.snapshot()["state"], "recording")
+        log = self.hub.read_log()
+        self.assertEqual(log[-1]["take_id"], arms[0])
+        self.assertIn("restarted: out of sync", log[-1]["aborted"])
+        self.assertNotIn(arms[0], self.hub.take_ids())         # the thrown-away start is no take
+        s = self.hub.stop()
+        self.assertTrue(s["all_clean"])
+        self.assertEqual(s["take_id"], arms[1])
+
+    def test_still_out_of_sync_records_with_warning_and_light(self):
+        self.rig.diff["cam4"] = -21192397
+        alerts = []
+        self.hub.lamp.alert = alerts.append
+        t = self.hub.rec()
+        self.assertEqual(len(t["restarts"]), self.cfg["resync_retries"])
+        self.assertEqual(self.hub.snapshot()["state"], "recording")
+        self.assertIn("Out of sync after 3 tries", self.hub.snapshot()["message"])
+        self.assertTrue(alerts and "cam4" in alerts[0])
+
+    def test_small_offsets_dont_restart(self):
+        self.rig.diff["cam2"] = -5000                # 5 ms: warned, not restarted
+        t = self.hub.rec()
+        self.assertEqual(t["restarts"], [])
+        self.assertEqual(len(t["sync_warnings"]), 1)
+
+    def test_exit_crash_after_complete_write_is_fine(self):
+        self.assertTrue(hubd.exit_ok({"exit_code": -6, "pts_source": "save-pts"}))
+        self.assertFalse(hubd.exit_ok({"exit_code": -6, "pts_source": "rebuilt-from-metadata"}))
+        self.assertFalse(hubd.exit_ok({"exit_code": 1, "pts_source": "save-pts"}))
+        self.assertTrue(hubd.exit_ok({"exit_code": 0}))
+
     def test_dropped_frames_not_clean(self):
         self.hub.rec()
         orig = self.rig.post

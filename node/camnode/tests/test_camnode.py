@@ -67,6 +67,27 @@ class Helpers(unittest.TestCase):
             self.assertIn(want, s)
 
 
+class SyncPortTest(unittest.TestCase):
+    def test_tuning_copy_gets_the_port(self):
+        d = tempfile.mkdtemp()
+        base = os.path.join(d, "base.json")
+        with open(base, "w") as f:
+            json.dump({"version": 2.0, "algorithms": [{"rpi.black_level": {"black_level": 4096}},
+                                                      {"rpi.sync": {}}]}, f)
+        path = camnode.sync_tuning(base, 24620, d)
+        with open(path) as f:
+            t = json.load(f)
+        self.assertEqual(t["algorithms"][1], {"rpi.sync": {"port": 24620}})
+        self.assertEqual(t["algorithms"][0], {"rpi.black_level": {"black_level": 4096}})
+        cmd = camnode.build_cmd(camnode.load_config(None), "client", d, camnode.load_config(None)["settings"], path)
+        self.assertEqual(cmd[1:3], ["--tuning-file", path])
+
+    def test_missing_base_falls_back(self):
+        self.assertIsNone(camnode.sync_tuning("/nonexistent.json", 24620, tempfile.mkdtemp()))
+        cmd = camnode.build_cmd(camnode.load_config(None), "client", "/x", camnode.load_config(None)["settings"])
+        self.assertNotIn("--tuning-file", cmd)
+
+
 class LedTest(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
