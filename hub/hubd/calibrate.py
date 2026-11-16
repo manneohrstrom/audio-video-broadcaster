@@ -10,7 +10,14 @@ Showing the card again recalibrates, but only after it has left the picture, so 
 left lying in view doesn't recalibrate over and over. Nothing happens during takes or LIVE.
 
 Exposure maths in linear light: the JPEG is roughly sRGB, so level v (0-255) is about
-(v/255)^2.2 in linear terms. The check round absorbs the tone curve's difference."""
+(v/255)^2.2 in linear terms. Gain is a plain multiplier, so one step nearly lands.
+
+White balance is not: the camera's colour matrix runs after the colour gains and mixes the
+channels, so raising the red gain also lowers green. Measured on cam1 (2026-11-16):
+doubling the red gain moved R/G by about 2^2.2. A plain "gain *= G/R" step then overshoots
+about 2x and swings further each round (the first version did exactly that). So each
+step is scaled by the measured sensitivity: starting at SENS, then estimated from the
+previous round (secant), kept within SENS_RANGE."""
 import json
 import os
 import threading
@@ -25,7 +32,9 @@ TOL_LEVEL = 0.08        # grey's brightness within ±8 % (linear)
 TOL_WB = 0.04           # R/G and B/G within ±4 %
 MIN_MARKER_PX = 30      # smaller: card too far away to read well
 MAX_SPREAD = 14.0       # grey patch noise/texture above this: glare or a fold
-ROUNDS = 3
+ROUNDS = 5
+SENS = 2.2              # d log(R/G) / d log(red gain), measured on cam1; same for blue
+SENS_RANGE = (0.8, 4.0)
 WATCH_S = 20            # watching stays on this long after a page last asked for status
 
 
@@ -33,9 +42,28 @@ def lin(v):
     return (max(float(v), 0.5) / 255.0) ** GAMMA
 
 
-def next_settings(grey, gain, awb):
+def ratios(grey):
+    R, G, B = (lin(v) for v in grey)
+    return R / G, B / G
+
+
+def sensitivity(prev, cur, i):
+    """Secant estimate of d log(ratio) / d log(gain) for channel i (0 red, 1 blue) from two
+    rounds: (awb, grey) each. SENS if the gain hardly moved."""
+    import math
+    if not prev:
+        return SENS
+    dg = math.log(cur[0][i] / prev[0][i])
+    if abs(dg) < 0.02:
+        return SENS
+    s = math.log(ratios(cur[1])[i] / ratios(prev[1])[i]) / dg
+    return min(max(s, SENS_RANGE[0]), SENS_RANGE[1])
+
+
+def next_settings(grey, gain, awb, sens=(SENS, SENS)):
     """Gain and colour gains that bring this grey reading to TARGET and neutral.
     grey: [r, g, b] read at total gain `gain` and colour gains `awb` = [red, blue].
+    sens: how strongly R/G and B/G respond to the red and blue gains (log-log).
     Returns (gain, [red, blue], enough_light)."""
     R, G, B = (lin(v) for v in grey)
     want = gain * lin(TARGET) / G
@@ -43,8 +71,8 @@ def next_settings(grey, gain, awb):
         want = gain * 0.5
     ok = want <= MAX_GAIN * 1.02
     g = min(max(want, 1.0), MAX_GAIN)
-    r = min(max(awb[0] * G / R, 0.3), 10.0)
-    b = min(max(awb[1] * G / B, 0.3), 10.0)
+    r = min(max(awb[0] * (G / R) ** (1 / sens[0]), 0.3), 10.0)
+    b = min(max(awb[1] * (G / B) ** (1 / sens[1]), 0.3), 10.0)
     return round(g, 3), [round(r, 3), round(b, 3)], ok
 
 
@@ -148,6 +176,7 @@ class Calibrator:
         self._set(cam, "calibrating", "hold the card still")
         gain = float(meta.get("AnalogueGain", 1.0)) * float(meta.get("DigitalGain", 1.0))
         awb = meta.get("ColourGains") or [1.5, 1.5]
+        prev = (list(awb), m["grey"])
         g, wb, ok = next_settings(m["grey"], gain, awb)
         rounds = 0
         for rounds in range(1, ROUNDS + 1):
@@ -158,7 +187,10 @@ class Calibrator:
                 return
             if good(m["grey"], ok) or rounds == ROUNDS:
                 break
-            g, wb, ok = next_settings(m["grey"], g, wb)
+            cur = (list(wb), m["grey"])
+            sens = (sensitivity(prev, cur, 0), sensitivity(prev, cur, 1))
+            prev = cur
+            g, wb, ok = next_settings(m["grey"], g, wb, sens)
         self.save(cam, g, wb, ok, m, rounds, good(m["grey"], ok))
         self.in_view[cam] = True
 

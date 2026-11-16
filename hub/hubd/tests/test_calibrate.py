@@ -15,24 +15,54 @@ from test_hubd import FakeRig  # noqa: E402
 RAW = (0.0440, 0.0210, 0.0076)
 
 
-def picture(gain, awb, raw=RAW):
-    lin = [raw[0] * gain * awb[0], raw[1] * gain, raw[2] * gain * awb[1]]
-    return [round(min(255.0, 255 * min(1.0, v) ** (1 / 2.2)), 1) for v in lin]
+# The colour matrix after the colour gains mixes the channels (raising red lowers green),
+# like the real camera: this is what made a plain multiplicative step diverge.
+CCM = [[1.9, -0.7, -0.2], [-0.45, 1.75, -0.3], [-0.05, -0.75, 1.8]]
+
+
+def picture(gain, awb, raw=RAW, ccm=CCM):
+    wb = [raw[0] * gain * awb[0], raw[1] * gain, raw[2] * gain * awb[1]]
+    lin = [sum(ccm[i][j] * wb[j] for j in range(3)) for i in range(3)]
+    return [round(min(255.0, 255 * min(1.0, max(v, 0.0)) ** (1 / 2.2)), 1) for v in lin]
+
+
+def run(gain, awb, raw=RAW, rounds=calibrate.ROUNDS):
+    """The calibrator's loop against the simulated camera."""
+    grey = picture(gain, awb, raw)
+    prev = (list(awb), grey)
+    g, wb, ok = calibrate.next_settings(grey, gain, awb)
+    for _ in range(rounds):
+        grey = picture(g, wb, raw)
+        if calibrate.good(grey, ok):
+            break
+        cur = (list(wb), grey)
+        sens = (calibrate.sensitivity(prev, cur, 0), calibrate.sensitivity(prev, cur, 1))
+        prev = cur
+        g, wb, ok = calibrate.next_settings(grey, g, wb, sens)
+    return g, wb, ok, picture(g, wb, raw)
 
 
 class MathTest(unittest.TestCase):
     def test_converges_from_auto(self):
-        g, wb, ok = calibrate.next_settings(picture(4.0, [1.2, 2.0]), 4.0, [1.2, 2.0])
-        self.assertTrue(ok)
-        self.assertTrue(calibrate.good(picture(g, wb)))
-        self.assertAlmostEqual(picture(g, wb)[1], calibrate.TARGET, delta=3)
+        for start in ([1.2, 2.0], [2.5, 1.0], [0.8, 4.0], [1.24, 4.12]):
+            g, wb, ok, grey = run(4.0, start)
+            self.assertTrue(ok, start)
+            self.assertTrue(calibrate.good(grey), (start, grey, wb))
+
+    def test_plain_step_would_diverge(self):
+        # Guard for the bug of 2026-11-16: with the colour matrix, sensitivity 1 overshoots.
+        grey = picture(4.0, [1.2, 2.0])
+        g, wb, _ = calibrate.next_settings(grey, 4.0, [1.2, 2.0], sens=(1.0, 1.0))
+        for _ in range(4):
+            g, wb, _ = calibrate.next_settings(picture(g, wb), g, wb, sens=(1.0, 1.0))
+        self.assertFalse(calibrate.good(picture(g, wb)))
 
     def test_not_enough_light(self):
         dark = tuple(v / 20 for v in RAW)
-        g, wb, ok = calibrate.next_settings(picture(8.0, [2, 3], dark), 8.0, [2, 3])
+        g, wb, ok, grey = run(8.0, [1.2, 2.0], dark)
         self.assertFalse(ok)
         self.assertEqual(g, calibrate.MAX_GAIN)
-        self.assertTrue(calibrate.good(picture(g, wb, dark), light_ok=False))   # neutral, just dark
+        self.assertTrue(calibrate.good(grey, light_ok=False))   # neutral, just dark
 
     def test_clipped_reading_steps_down(self):
         g, _, _ = calibrate.next_settings([255, 255, 255], 10.0, [1.5, 1.5])
