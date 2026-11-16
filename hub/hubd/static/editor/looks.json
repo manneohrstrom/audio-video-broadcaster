@@ -1,22 +1,211 @@
 {
-  "about": "The editor's Filters and Effects (docs/editor-plan.md section 5). Read by the editor (preview, WebGL) and by the render (hub/ingest/grade.py, ffmpeg), so the preview matches the finished video. A filter is a set of grade settings (see grade.js / grade.py); its strength blends between the original colour (0) and the full filter (1). Effects have a default strength.",
-  "filters": [
-    { "id": "normal",  "name": "Normal",  "grade": {} },
-    { "id": "punch",   "name": "Punch",   "grade": { "contrast": 1.25, "saturation": 1.35 } },
-    { "id": "golden",  "name": "Golden",  "grade": { "temperature": 0.35, "saturation": 1.15, "exposure": 0.1, "highlights": [1.0, 0.92, 0.75] } },
-    { "id": "faded",   "name": "Faded",   "grade": { "contrast": 0.8, "fade": 0.12, "saturation": 0.8, "shadows": [0.9, 0.88, 1.0] } },
-    { "id": "film",    "name": "Film",    "grade": { "contrast": 1.08, "saturation": 0.85, "fade": 0.05, "shadows": [0.85, 1.0, 1.0], "highlights": [1.0, 0.96, 0.85] } },
-    { "id": "cinema",  "name": "Cinema",  "grade": { "contrast": 1.18, "saturation": 1.1, "shadows": [0.75, 0.95, 1.05], "highlights": [1.05, 0.95, 0.82] } },
-    { "id": "night",   "name": "Night",   "grade": { "exposure": -0.25, "saturation": 0.7, "contrast": 1.1, "temperature": -0.45 } },
-    { "id": "dream",   "name": "Dream",   "grade": { "exposure": 0.15, "contrast": 0.85, "saturation": 1.1, "fade": 0.06, "highlights": [1.0, 0.92, 1.0] } },
-    { "id": "mono",    "name": "Mono",    "grade": { "mono": true, "contrast": 1.1 } },
-    { "id": "noir",    "name": "Noir",    "grade": { "mono": true, "contrast": 1.6, "exposure": -0.15 } }
-  ],
-  "effects": [
-    { "id": "grain",    "name": "Grain",      "default_strength": 0.35 },
-    { "id": "vignette", "name": "Vignette",   "default_strength": 0.5 },
-    { "id": "leak",     "name": "Light leak", "default_strength": 0.5 },
-    { "id": "glow",     "name": "Glow",       "default_strength": 0.4 },
-    { "id": "vhs",      "name": "VHS",        "default_strength": 0.5 }
-  ]
+ "about": "The editor's Filters and Effects (docs/editor-plan.md section 5). Read by the editor (preview, WebGL) and by the render (hub/ingest/grade.py, ffmpeg), so the preview matches the finished video. A filter is a set of grade settings (see grade.js / grade.py); its strength blends between the original colour (0) and the full filter (1). Effects have a default strength. Adjustments are the primary correction applied before the filter: each slider value v (-1..1, 0 = off) becomes grade setting = base + v * scale (fade only uses v > 0).",
+ "filters": [
+  {
+   "id": "normal",
+   "name": "Normal",
+   "grade": {}
+  },
+  {
+   "id": "punch",
+   "name": "Punch",
+   "grade": {
+    "contrast": 1.25,
+    "saturation": 1.35
+   }
+  },
+  {
+   "id": "golden",
+   "name": "Golden",
+   "grade": {
+    "temperature": 0.35,
+    "saturation": 1.15,
+    "exposure": 0.1,
+    "highlights": [
+     1.0,
+     0.92,
+     0.75
+    ]
+   }
+  },
+  {
+   "id": "faded",
+   "name": "Faded",
+   "grade": {
+    "contrast": 0.8,
+    "fade": 0.12,
+    "saturation": 0.8,
+    "shadows": [
+     0.9,
+     0.88,
+     1.0
+    ]
+   }
+  },
+  {
+   "id": "film",
+   "name": "Film",
+   "grade": {
+    "contrast": 1.08,
+    "saturation": 0.85,
+    "fade": 0.05,
+    "shadows": [
+     0.85,
+     1.0,
+     1.0
+    ],
+    "highlights": [
+     1.0,
+     0.96,
+     0.85
+    ]
+   }
+  },
+  {
+   "id": "cinema",
+   "name": "Cinema",
+   "grade": {
+    "contrast": 1.18,
+    "saturation": 1.1,
+    "shadows": [
+     0.75,
+     0.95,
+     1.05
+    ],
+    "highlights": [
+     1.05,
+     0.95,
+     0.82
+    ]
+   }
+  },
+  {
+   "id": "night",
+   "name": "Night",
+   "grade": {
+    "exposure": -0.25,
+    "saturation": 0.7,
+    "contrast": 1.1,
+    "temperature": -0.45
+   }
+  },
+  {
+   "id": "dream",
+   "name": "Dream",
+   "grade": {
+    "exposure": 0.15,
+    "contrast": 0.85,
+    "saturation": 1.1,
+    "fade": 0.06,
+    "highlights": [
+     1.0,
+     0.92,
+     1.0
+    ]
+   }
+  },
+  {
+   "id": "mono",
+   "name": "Mono",
+   "grade": {
+    "mono": true,
+    "contrast": 1.1
+   }
+  },
+  {
+   "id": "noir",
+   "name": "Noir",
+   "grade": {
+    "mono": true,
+    "contrast": 1.6,
+    "exposure": -0.15
+   }
+  }
+ ],
+ "effects": [
+  {
+   "id": "grain",
+   "name": "Grain",
+   "default_strength": 0.35
+  },
+  {
+   "id": "vignette",
+   "name": "Vignette",
+   "default_strength": 0.5
+  },
+  {
+   "id": "leak",
+   "name": "Light leak",
+   "default_strength": 0.5
+  },
+  {
+   "id": "glow",
+   "name": "Glow",
+   "default_strength": 0.4
+  },
+  {
+   "id": "vhs",
+   "name": "VHS",
+   "default_strength": 0.5
+  }
+ ],
+ "adjustments": [
+  {
+   "id": "brightness",
+   "name": "Brightness",
+   "setting": "exposure",
+   "base": 0,
+   "scale": 1.0
+  },
+  {
+   "id": "contrast",
+   "name": "Contrast",
+   "setting": "contrast",
+   "base": 1,
+   "scale": 0.5
+  },
+  {
+   "id": "highlights",
+   "name": "Highlights",
+   "setting": "highlight_lift",
+   "base": 0,
+   "scale": 1.0
+  },
+  {
+   "id": "shadows",
+   "name": "Shadows",
+   "setting": "shadow_lift",
+   "base": 0,
+   "scale": 1.0
+  },
+  {
+   "id": "saturation",
+   "name": "Saturation",
+   "setting": "saturation",
+   "base": 1,
+   "scale": 1.0
+  },
+  {
+   "id": "warmth",
+   "name": "Warmth",
+   "setting": "temperature",
+   "base": 0,
+   "scale": 1.5
+  },
+  {
+   "id": "tint",
+   "name": "Tint",
+   "setting": "tint",
+   "base": 0,
+   "scale": 1.5
+  },
+  {
+   "id": "fade",
+   "name": "Fade",
+   "setting": "fade",
+   "base": 0,
+   "scale": 0.25,
+   "positive_only": true
+  }
+ ]
 }

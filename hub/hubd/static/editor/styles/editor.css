@@ -108,3 +108,9 @@
 .adjust-row input[type=range] { width: min(360px, 50vw); accent-color: var(--color-accent); }
 .adjust-row output { font: 500 13px var(--font-numbers); color: var(--color-text); min-width: 34px; }
 .video-hold { position: absolute; right: 10px; top: 10px; padding: 4px 9px; border-radius: 6px; background: rgba(10, 10, 12, 0.72); font-size: var(--font-size-small); color: var(--color-text-muted); pointer-events: none; }
+.adjust-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px var(--space-4); }
+.adjust-slider { display: grid; grid-template-columns: 84px 1fr 38px; align-items: center; gap: var(--space-2); color: var(--color-text-muted); }
+.adjust-slider.changed span { color: var(--color-text); }
+.adjust-slider input { accent-color: var(--color-accent); min-width: 0; }
+.adjust-slider output { font: 500 12px var(--font-numbers); text-align: right; }
+.text-button { background: none; border: 0; padding: 0; color: var(--color-text-muted); text-decoration: underline; cursor: pointer; font: inherit; text-transform: none; letter-spacing: 0; }

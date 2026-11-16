@@ -8,7 +8,7 @@
 //   glow      a soft bright halo: a blur of the picture added on top (screen)
 //   vhs       red/blue shifted sideways, scanlines, a little noise
 // Every effect has a strength 0..1; 0 (or absent) means off.
-import { buildLut, LUT_SIZE } from "./grade.js";
+import { buildLut, LUT_SIZE, adjustmentSettings } from "./grade.js";
 
 const VERTEX_SHADER = `#version 300 es
 in vec2 corner;
@@ -124,15 +124,21 @@ export class LookRenderer {
     return texture;
   }
 
-  /** Rebuild the colour table only when the filter or its strength changes. */
-  setFilter(settings, strength) {
-    const key = JSON.stringify([settings, strength]);
+  /** The look's colour: Adjust sliders (with their definitions from looks.json), then the filter. */
+  setLook(adjustSliders, adjustDefinitions, filterSettings, strength) {
+    this.setFilter(filterSettings, strength, adjustmentSettings(adjustSliders, adjustDefinitions));
+  }
+
+  /** Rebuild the colour table only when something in it changes. */
+  setFilter(settings, strength, adjust = {}) {
+    const key = JSON.stringify([settings, strength, adjust]);
     if (key === this.lutKey) return;
     this.lutKey = key;
     const gl = this.gl;
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_3D, this.lutTexture);
-    gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA8, LUT_SIZE, LUT_SIZE, LUT_SIZE, 0, gl.RGBA, gl.UNSIGNED_BYTE, buildLut(settings, strength));
+    gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA8, LUT_SIZE, LUT_SIZE, LUT_SIZE, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+                  buildLut(settings, strength, LUT_SIZE, adjust));
   }
 
   /** Draw `source` (a canvas, image or VideoFrame) through the filter and effects. */

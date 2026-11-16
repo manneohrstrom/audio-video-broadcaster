@@ -1,6 +1,8 @@
 // Step 2, the look: a row of Filters and a row of Effects (no tabs, user 2026-11-16),
 // Instagram-style: tap to try, tap the chosen one again for its strength. The tiles show
-// the current picture through each choice, refreshed twice a second.
+// the current picture through each choice, refreshed twice a second. Below them the
+// Adjust sliders: the primary correction (brightness, contrast, highlights, shadows,
+// saturation, warmth, tint, fade), applied before the filter as in a DI grade.
 import { useEffect, useRef } from "preact/hooks";
 import { html } from "./html.js";
 import { LookRenderer } from "../look/look-renderer.js";
@@ -26,11 +28,12 @@ export function LookPanel({ store }) {
         if (!tile.isConnected) continue;
         const [kind, id] = key.split(":");
         if (kind === "filter") {
-          renderer.setFilter(store.filterSettings(id), id === store.look.filter ? store.look.filter_strength : 1);
+          renderer.setLook(store.look.adjust, looks.adjustments, store.filterSettings(id),
+                           id === store.look.filter ? store.look.filter_strength : 1);
           renderer.render(store.pictureCanvas, {}, store.playheadSeconds);
         } else {
           const effect = looks.effects.find(e => e.id === id);
-          renderer.setFilter(store.filterSettings(), store.look.filter_strength);
+          renderer.setLook(store.look.adjust, looks.adjustments, store.filterSettings(), store.look.filter_strength);
           renderer.render(store.pictureCanvas, { [id]: store.look.effects[id] ?? effect.default_strength }, store.playheadSeconds);
         }
         tile.getContext("2d").drawImage(offscreen, 0, 0);
@@ -57,6 +60,22 @@ export function LookPanel({ store }) {
                                           store.look.effects[effect.id] != null, () => store.tapEffect(effect.id)))}
       </div>
       <div class="adjust-row">${adjustRow(store, looks)}</div>
+      <div class="row-title">Adjust${Object.keys(store.look.adjust).length
+        ? html` · <button class="text-button" onClick=${() => store.resetAdjustments()}>reset all</button>` : ""}</div>
+      <div class="adjust-grid">
+        ${looks.adjustments.map(adjustment => {
+          const value = store.look.adjust[adjustment.id] || 0;
+          const shown = Math.round(value * 100);
+          return html`
+            <label class=${"adjust-slider" + (value ? " changed" : "")} key=${adjustment.id}
+                   title="Double-click to set back to 0" onDblClick=${() => store.setAdjustment(adjustment.id, 0)}>
+              <span>${adjustment.name}</span>
+              <input type="range" min=${adjustment.positive_only ? 0 : -100} max="100" value=${shown}
+                     aria-label=${adjustment.name} onInput=${event => store.setAdjustment(adjustment.id, event.target.value / 100)} />
+              <output>${shown > 0 ? "+" : ""}${shown}</output>
+            </label>`;
+        })}
+      </div>
     </section>`;
 }
 

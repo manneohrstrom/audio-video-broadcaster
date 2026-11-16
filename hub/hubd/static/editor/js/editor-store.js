@@ -28,7 +28,7 @@ export class EditorStore {
     // number of effects with a strength each, for the whole song. Definitions: looks.json.
     this.step = "cut";                       // "cut" | "look"
     this.looks = null;                       // looks.json, loaded by the page
-    this.look = { filter: "normal", filter_strength: 1, effects: {}, ...(project.edit.look || {}) };
+    this.look = { filter: "normal", filter_strength: 1, effects: {}, adjust: {}, ...(project.edit.look || {}) };
     this.adjusting = null;                   // "filter" or an effect id: its strength slider is open
     this.comparing = false;                  // held down on the video: show without the look
     this.history = new EditModel.History();
@@ -202,6 +202,21 @@ export class EditorStore {
   setStrength(target, strength) {
     if (target === "filter") this.look = { ...this.look, filter_strength: strength };
     else this.look = { ...this.look, effects: { ...this.look.effects, [target]: strength } };
+    this.scheduleSave();
+    this.notify();
+  }
+
+  /** An Adjust slider: -1..1, 0 = untouched (definitions in looks.json "adjustments"). */
+  setAdjustment(id, value) {
+    const adjust = { ...this.look.adjust, [id]: value };
+    if (!value) delete adjust[id];
+    this.look = { ...this.look, adjust };
+    this.scheduleSave();
+    this.notify();
+  }
+
+  resetAdjustments() {
+    this.look = { ...this.look, adjust: {} };
     this.scheduleSave();
     this.notify();
   }

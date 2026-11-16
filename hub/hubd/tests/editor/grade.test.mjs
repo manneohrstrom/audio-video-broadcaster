@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { gradeWithStrength, buildLut, LUT_SIZE } from "../../static/editor/js/look/grade.js";
+import { gradeWithStrength, buildLut, LUT_SIZE, lookColour, adjustmentSettings } from "../../static/editor/js/look/grade.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const looksPath = join(here, "../../static/editor/looks.json");
@@ -17,7 +17,9 @@ test("every filter gives the same colours in JavaScript and Python", () => {
   const byId = Object.fromEntries(looks.filters.map(f => [f.id, f.grade]));
   assert.ok(vectors.length >= looks.filters.length * 12);
   for (const v of vectors) {
-    const got = gradeWithStrength(v.in, byId[v.filter], v.strength);
+    const got = v.sliders
+      ? lookColour(v.in, adjustmentSettings(v.sliders, looks.adjustments), byId[v.filter], v.strength)
+      : gradeWithStrength(v.in, byId[v.filter], v.strength);
     got.forEach((value, i) => assert.ok(Math.abs(value - v.out[i]) < 1e-5, `${v.filter} ${v.strength} ${v.in}: ${got} vs ${v.out}`));
   }
 });

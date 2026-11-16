@@ -5,10 +5,11 @@ change both together. `python3 grade.py --vectors` prints test vectors that the 
 test (hub/hubd/tests/editor/grade.test.mjs) checks the JavaScript against.
 
 Colours are r, g, b in 0..1 (display, gamma-encoded, as in the video). Steps, in order:
-exposure (stops) -> temperature and tint -> contrast around 0.5 -> saturation (or mono)
--> shadows/highlights colour -> fade -> clamp. The filter's strength blends between the
-original (0) and the graded colour (1). The render writes the result as a .cube file
-for ffmpeg's lut3d filter.
+exposure (stops) -> temperature and tint -> contrast around 0.5 -> highlight and shadow
+lift -> saturation (or mono) -> shadows/highlights colour -> fade -> clamp. A look is the
+Adjust sliders first (primary correction), then the filter, whose strength blends between
+its input (0) and the filtered colour (1): look_colour(). The render writes the result as
+a .cube file for ffmpeg's lut3d filter.
 """
 import json
 import sys
@@ -31,12 +32,19 @@ def grade_colour(colour, settings):
     shadows = settings.get("shadows", [1, 1, 1])
     highlights = settings.get("highlights", [1, 1, 1])
     fade = settings.get("fade", 0)
+    highlight_lift = settings.get("highlight_lift", 0)
+    shadow_lift = settings.get("shadow_lift", 0)
     gain = 2 ** exposure
     r, g, b = r * gain, g * gain, b * gain
     r *= 1 + 0.1 * temperature
     b *= 1 - 0.1 * temperature
     g *= 1 - 0.08 * tint
     r, g, b = [(c - 0.5) * contrast + 0.5 for c in (r, g, b)]
+
+    def tone(c):
+        x = clamp01(c)
+        return c + highlight_lift * 0.25 * x * x * x + shadow_lift * 0.25 * (1 - x) * (1 - x) * (1 - x)
+    r, g, b = tone(r), tone(g), tone(b)
     luma = LUMA[0] * r + LUMA[1] * g + LUMA[2] * b
     r, g, b = [luma + (c - luma) * saturation for c in (r, g, b)]
     light = clamp01(luma)
@@ -52,13 +60,29 @@ def grade_with_strength(colour, settings, strength):
     return [c + (d - c) * strength for c, d in zip(colour, graded)]
 
 
-def write_cube(path, settings, strength, size=LUT_SIZE):
+def adjustment_settings(sliders, definitions):
+    """Grade settings from the Adjust sliders ({id: -1..1}), as defined in looks.json."""
+    settings = {}
+    for definition in definitions or []:
+        value = (sliders or {}).get(definition["id"], 0) or 0
+        if definition.get("positive_only"):
+            value = max(0, value)
+        settings[definition["setting"]] = definition["base"] + value * definition["scale"]
+    return settings
+
+
+def look_colour(colour, adjust, settings, strength):
+    """The whole look on one colour: Adjust first, then the filter at its strength."""
+    return grade_with_strength(grade_colour(colour, adjust), settings, strength)
+
+
+def write_cube(path, settings, strength, size=LUT_SIZE, adjust=None):
     """A .cube 3D LUT for ffmpeg's lut3d (red fastest, then green, then blue)."""
     lines = ["TITLE \"studio-multicam look\"", "LUT_3D_SIZE %d" % size]
     for bi in range(size):
         for gi in range(size):
             for ri in range(size):
-                r, g, b = grade_with_strength([ri / (size - 1), gi / (size - 1), bi / (size - 1)], settings, strength)
+                r, g, b = look_colour([ri / (size - 1), gi / (size - 1), bi / (size - 1)], adjust or {}, settings, strength)
                 lines.append("%.6f %.6f %.6f" % (r, g, b))
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -73,6 +97,16 @@ def test_vectors(looks):
             for colour in inputs:
                 out.append({"filter": look["id"], "strength": strength, "in": colour,
                             "out": [round(v, 6) for v in grade_with_strength(colour, look["grade"], strength)]})
+    # The Adjust sliders, alone and together with a filter.
+    for sliders in ({"brightness": 0.6, "contrast": -0.3, "highlights": -0.8, "shadows": 0.7},
+                    {"saturation": -0.5, "warmth": 0.8, "tint": -0.4, "fade": 0.9},
+                    {"brightness": -0.4, "highlights": 0.5, "shadows": -0.6, "warmth": -1, "fade": -1}):
+        adjust = adjustment_settings(sliders, looks["adjustments"])
+        for filter_id, strength in (("normal", 1.0), ("golden", 0.7)):
+            grade = next(f["grade"] for f in looks["filters"] if f["id"] == filter_id)
+            for colour in inputs:
+                out.append({"sliders": sliders, "filter": filter_id, "strength": strength, "in": colour,
+                            "out": [round(v, 6) for v in look_colour(colour, adjust, grade, strength)]})
     return out
 
 

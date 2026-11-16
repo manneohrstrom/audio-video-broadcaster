@@ -50,7 +50,8 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
     noteRef.current.hidden = !note;
     if (renderer) {
       const withLook = !store.comparing;
-      renderer.setFilter(withLook ? store.filterSettings() : {}, withLook ? store.look.filter_strength : 0);
+      if (withLook) renderer.setLook(store.look.adjust, store.looks?.adjustments, store.filterSettings(), store.look.filter_strength);
+      else renderer.setFilter({}, 0);
       renderer.render(picture, withLook ? store.look.effects : {}, seconds);
     }
     const shown = skimCamera || store.cameraAt(seconds);
