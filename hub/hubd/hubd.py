@@ -31,7 +31,7 @@ import phones  # noqa: E402
 import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 
-VERSION = "0.15.0"
+VERSION = "0.16.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -863,9 +863,10 @@ class Hub:
         except (OSError, ValueError):
             st = {"status": "ingest service not running", "takes": {}}
         takes = st.setdefault("takes", {})
+        removed = st.get("removed_takes") or {}     # deleted from the drive by the user: not listed
         for e in self.read_log():                   # later entries win (adopted duplicates)
             tid = e.get("take_id")
-            if not tid or e.get("aborted"):
+            if not tid or e.get("aborted") or tid in removed:
                 continue
             cams = e.get("cameras") or {}
             if not cams and "recorded" in takes.get(tid, {}):

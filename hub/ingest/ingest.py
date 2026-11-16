@@ -39,7 +39,7 @@ import render  # noqa: E402
 import thumbnails  # noqa: E402
 import proxies  # noqa: E402
 
-VERSION = "0.9.1"
+VERSION = "0.10.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -96,6 +96,9 @@ DEFAULT_CONFIG = {
     "thumbs_dir": "/var/lib/hubd/thumbs",
     # Editing proxies for the editor's video window (proxies.py), on the hub's SD card.
     "proxies_dir": "/var/lib/hubd/proxies",
+    # hubd's own state folder: the editor's waveforms and edits of a removed take go too.
+    "hubd_state_dir": "/var/lib/hubd",
+    "removed_check_s": 600,     # how often to look for takes deleted from the drive
 }
 TAKE_RE = re.compile(r"^\d{8}-\d{6}$")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -248,6 +251,18 @@ class Drive:
     def present(self):
         return os.path.exists(self.dev_path)
 
+    def filesystem_id(self):
+        """The drive's filesystem UUID (from /dev/disk/by-uuid), or None. Tells this drive
+        apart from another one with the same label (e.g. the coming 1 TB drive)."""
+        device = self.device()
+        try:
+            for name in os.listdir("/dev/disk/by-uuid"):
+                if os.path.realpath(os.path.join("/dev/disk/by-uuid", name)) == device:
+                    return name
+        except OSError:
+            pass
+        return None
+
     def device(self):
         return os.path.realpath(self.dev_path)
 
@@ -345,6 +360,7 @@ class Ingest:
         self.rendering = False                # a render reads the drive: keep it mounted read-only
         self.lease = os.path.join(self.sd, "playback.lease")   # touched by hubd per media request
         self.state = self._load()
+        self.last_removed_check = 0.0
         # Nothing is running yet: drop step markers left by a previous run (restart, crash).
         for cams in self.state.get("takes", {}).values():
             for cs in cams.values():
@@ -877,6 +893,64 @@ class Ingest:
             "size": size, "mtime_ns": mtime_ns, "sha256": sha, "path": dst}
         self.save()
 
+    # -- takes deleted from the drive by the user
+    def note_drive_of_takes(self, drive_id):
+        """Remember which drive each ingested take is on (only takes whose folder is there)."""
+        for take_id, take in (self.state.get("takes") or {}).items():
+            if take.get("complete") and not take.get("drive_id") and os.path.isdir(self.take_folder(take_id)):
+                take["drive_id"] = drive_id
+
+    def forget_removed_takes(self):
+        """Takes whose folder the user deleted from their drive (e.g. on the Mac) are removed
+        from the hub: from the page, the queues and the hub's own copies (thumbnails,
+        proxies, waveforms, edits, staged audio). Only takes known to be on the drive that is
+        plugged in now are judged, so plugging in another drive removes nothing.
+        The cameras' copies are verified, so ingest never pulls them again; the cameras
+        delete them by themselves when they need the space."""
+        drive_id = self.drive.filesystem_id()
+        if not drive_id or not self.drive.mounted():
+            return []
+        self.note_drive_of_takes(drive_id)
+        removed = []
+        for take_id, take in sorted((self.state.get("takes") or {}).items()):
+            if take.get("drive_id") == drive_id and not os.path.isdir(self.take_folder(take_id)):
+                removed.append(take_id)
+        for take_id in removed:
+            self.forget_take(take_id, "deleted from the drive")
+        if removed:
+            self.save()
+        return removed
+
+    def forget_take(self, take_id, why):
+        if not TAKE_RE.match(take_id):
+            return
+        take = (self.state.get("takes") or {}).pop(take_id, None) or {}
+        self.state.setdefault("removed_takes", {})[take_id] = {
+            "at": self.clock(), "why": why, "drive_id": take.get("drive_id")}
+        for jobs in (self.state.get("renders") or {}, self.state.get("syncs") or {}):
+            for key in [k for k in jobs if k.startswith(take_id + "/")]:
+                del jobs[key]
+        (self.state.get("audio") or {}).pop(take_id, None)
+        hubd_state = self.cfg["hubd_state_dir"]
+        for folder in (os.path.join(self.cfg["thumbs_dir"], take_id), os.path.join(self.cfg["proxies_dir"], take_id),
+                       os.path.join(hubd_state, "waveforms", take_id), os.path.join(hubd_state, "edits", take_id),
+                       os.path.join(self.cfg["audio_dir"], take_id)):
+            shutil.rmtree(folder, ignore_errors=True)
+        sys.stderr.write("take %s removed: %s\n" % (take_id, why))
+
+    def check_for_removed_takes(self):
+        """Every removed_check_s while the rig is idle: mount read-only if needed and look."""
+        if self.clock() - self.last_removed_check < self.cfg["removed_check_s"]:
+            return
+        self.last_removed_check = self.clock()
+        if self.rig_busy() or not self.drive.present() or self.state.get("drive") == "ejected":
+            return
+        try:
+            with self.reading_drive():
+                self.forget_removed_takes()
+        except RuntimeError:
+            pass
+
     # -- strip thumbnails for the editor (thumbnails.py)
     @contextlib.contextmanager
     def reading_drive(self):
@@ -1346,6 +1420,7 @@ class Ingest:
         self.state["drive_free_gb"] = self.drive_free()
         if self.syncs_ready():              # needs neither the drive nor 30 min idle, only a quiet rig
             self.run_syncs()
+        self.check_for_removed_takes()
         ok, why = self.should_run()
         if not ok:
             self.settle_drive()

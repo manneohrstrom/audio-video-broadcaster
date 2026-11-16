@@ -145,6 +145,10 @@ class FakeRunner:
 class FakeDrive:
     def __init__(self, mp):
         self.mp, self.is_present, self.is_mounted, self.ejected, self.clean = mp, True, False, 0, True
+        self.uuid = "6AF9-DC1A"
+
+    def filesystem_id(self):
+        return self.uuid
 
     def present(self):
         return self.is_present
@@ -1009,3 +1013,40 @@ class ProxyStepTest(Base):
             self.assertEqual(self.ing.proxies_pending(), [])
         finally:
             ingest.proxies.make_proxy, ingest.thumbnails.make_thumbnails = orig_proxy, orig_thumbs
+
+
+class RemovedTakesTest(Base):
+    def ingest_one(self):
+        self.ing.cfg.update(thumbs_dir=os.path.join(self.tmp, "thumbs"), proxies_dir=os.path.join(self.tmp, "proxies"),
+                            hubd_state_dir=os.path.join(self.tmp, "hubd"), audio_dir=os.path.join(self.tmp, "audio"))
+        self.rig.add_take("cam1")
+        self.command("start")
+        self.assertEqual(self.ing.tick(), "ingested")
+        self.assertTrue(self.ing.state["takes"][TAKE]["complete"])
+        for folder in ("thumbs", "proxies", "hubd/edits", "audio"):
+            os.makedirs(os.path.join(self.tmp, folder, TAKE), exist_ok=True)
+
+    def look(self):
+        self.drive.is_mounted = True
+        self.now[0] += 10_000
+        return self.ing.forget_removed_takes()
+
+    def test_a_take_deleted_from_its_drive_is_forgotten_everywhere(self):
+        self.ingest_one()
+        self.assertEqual(self.look(), [])                        # still there: notes the drive
+        self.assertEqual(self.ing.state["takes"][TAKE]["drive_id"], "6AF9-DC1A")
+        shutil.rmtree(self.folder())                             # the user deletes it on the Mac
+        self.assertEqual(self.look(), [TAKE])
+        self.assertNotIn(TAKE, self.ing.state["takes"])
+        self.assertEqual(self.ing.state["removed_takes"][TAKE]["why"], "deleted from the drive")
+        for folder in ("thumbs", "proxies", "hubd/edits", "audio"):
+            self.assertFalse(os.path.exists(os.path.join(self.tmp, folder, TAKE)))
+        self.assertEqual(self.ing.pending(), {})                 # the camera copy is verified: never pulled again
+
+    def test_another_drive_removes_nothing(self):
+        self.ingest_one()
+        self.look()
+        shutil.rmtree(self.folder())
+        self.drive.uuid = "1TB-NEW-DRIVE"                        # a different drive with the same label
+        self.assertEqual(self.look(), [])
+        self.assertIn(TAKE, self.ing.state["takes"])
