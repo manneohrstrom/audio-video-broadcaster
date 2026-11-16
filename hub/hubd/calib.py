@@ -16,6 +16,9 @@ def _cv2():
     if _cv is None:
         import cv2
         import numpy
+        # One thread: reading one still doesn't need more, and OpenCV's thread pool (on top
+        # of hubd's request threads) made glibc keep hundreds of MB it had freed (2026-11-16).
+        cv2.setNumThreads(1)
         _cv = (cv2, numpy, cv2.aruco.ArucoDetector(
             cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50), cv2.aruco.DetectorParameters()))
     return _cv

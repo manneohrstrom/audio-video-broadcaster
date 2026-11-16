@@ -290,7 +290,11 @@ class Audio:
                  "sync": self.sync_state(take, s["id"], v["version"], syncs.get("%s/v%d" % (s["id"], v["version"]))),
                  "render": {k: (renders.get("%s/v%d" % (s["id"], v["version"])) or {}).get(k)
                             for k in ("status", "progress", "eta_s", "error", "file", "status_note")}
-                 if renders.get("%s/v%d" % (s["id"], v["version"])) else None}
+                 if renders.get("%s/v%d" % (s["id"], v["version"])) else None,
+                 # The editor's finished video ("Make video" in the editor), shown on the take card too.
+                 "final_render": {k: (renders.get("%s/v%d:edit" % (s["id"], v["version"])) or {}).get(k)
+                                  for k in ("status", "progress", "eta_s", "error", "file", "status_note")}
+                 if renders.get("%s/v%d:edit" % (s["id"], v["version"])) else None}
                 for v in s["versions"]]} for s in doc["songs"]]
         try:
             with open(os.path.join(self.root, take, "scratch", "scratch.json")) as f:

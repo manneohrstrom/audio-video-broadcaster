@@ -12,12 +12,12 @@ How (an extension of the quick mix's pipe, render.py / spike E3):
   - at each cut the next shot's decoder starts a little early, so for the dissolve both
     are running: this script mixes their frames (smoothstep, centred on the cut, the
     same curve as the editor's preview);
-  - the look's effects are applied per frame in numpy (look_render.py);
-  - frames go to one x264 encoder, which also takes the bounce as the only sound.
+  - frames go, as YUV, to one x264 encoder, whose ffmpeg filter graph adds the look's
+    effects (look_render.effect_filter_graph) and which takes the bounce as the only sound.
 
-Without effects the frames stay YUV (no conversion); a dissolve mixes YUV frames, which
-is the same as mixing RGB (the conversion is linear). Memory: at most two decoders plus
-the encoder (spike E3 measured ~340 MB for the encoder, ~90 MB per decoder at 2 threads).
+A dissolve mixes YUV frames, which is the same as mixing RGB (the conversion is linear).
+This script only passes frames along (no RGB, no per-frame effects in Python): numpy
+effects needed ~270 MB here and ran the 1 GB hub out of memory (2026-11-16).
 
 Small, known difference to the preview: the preview mixes the two pictures and then
 applies the colour table; the render applies the table to each shot and then mixes.
@@ -86,28 +86,39 @@ def decoder_command(source, start_s, frames, lut_path, pixel_format):
     filters = "fps=%d:round=near,scale=%d:%d" % (FPS, WIDTH, HEIGHT)
     if lut_path:
         filters += ",lut3d=file='%s':interp=trilinear" % lut_path.replace("'", "")
-    return ["ffmpeg", "-nostdin", "-v", "error", "-threads", "2", "-ss", "%.6f" % max(0.0, start_s), "-i", source,
+    return ["ffmpeg", "-nostdin", "-v", "error", "-threads", DECODER_THREADS, "-ss", "%.6f" % max(0.0, start_s), "-i", source,
             "-vf", filters, "-frames:v", str(frames), "-f", "rawvideo", "-pix_fmt", pixel_format, "-"]
 
 
 # The finished video is the one that goes to YouTube (user, 2026-11-16: "high quality,
-# ready to push up"), so it follows YouTube's recommended upload settings and spends
-# encoding time on quality: H.264 High profile, preset slow, CRF 16, a keyframe every
-# half second (closed GOP, half the frame rate), 2 B-frames, Rec. 709 colour tags, AAC-LC
-# 384 kbit/s 48 kHz stereo, moov at the front (faststart).
-FINAL_PRESET = "slow"
+# ready to push up"), so it follows YouTube's recommended upload settings: H.264 High
+# profile, CRF 16, a keyframe every half second (closed GOP, half the frame rate),
+# 2 B-frames, Rec. 709 colour tags, AAC-LC 384 kbit/s 48 kHz stereo, faststart.
+#
+# Memory decides the rest (the hub has 1 GB; 2026-11-16 the first render was killed for
+# memory during a dissolve: encoder "slow" 386 MB + two decoders 123 MB each + hubd 142 MB).
+# "medium", 2 threads, lookahead 20: ~334 MB, and at CRF 16 it looks the same as "slow"
+# (which mainly makes files smaller; YouTube re-encodes anyway). Decoders: 1 thread each.
+FINAL_PRESET = "medium"
 FINAL_CRF = "16"
+ENCODER_THREADS = "2"
+DECODER_THREADS = "1"
 AUDIO_BITRATE = "384k"
 
 
-def encoder_command(bounce, audio_start_s, frames, out, pixel_format, preset=FINAL_PRESET, crf=FINAL_CRF):
+def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir=".", preset=FINAL_PRESET, crf=FINAL_CRF):
     command = render.encoder_cmd(bounce, audio_start_s, frames, out, preset=preset, crf=crf)
-    command[command.index("-pix_fmt") + 1] = pixel_format             # the raw input's format
     command[command.index("-b:a") + 1] = AUDIO_BITRATE
-    if pixel_format == "rgb24":                                       # effects ran in RGB: back to Rec. 709 YUV
-        command[command.index("-map"):command.index("-map")] = ["-vf", "scale=out_color_matrix=bt709:out_range=tv"]
+    command[command.index("-threads") + 1] = ENCODER_THREADS
+    if effects:
+        # Inputs: 0 = the frames, 1 = the bounce, 2... = effect masks.
+        extra_inputs, graph = look_render.effect_filter_graph(effects, work_dir, first_extra_input=2)
+        audio_input_end = command.index(bounce) + 1
+        command[audio_input_end:audio_input_end] = extra_inputs
+        at = command.index("-map")
+        command[at:at + 2] = ["-filter_complex", graph, "-map", "[video]"]
     quality = ["-profile:v", "high", "-g", str(FPS // 2), "-bf", "2", "-flags", "+cgop",
-               "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
+               "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709:rc-lookahead=20",
                "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv"]
     at = command.index("-c:a")
     command[at:at] = quality
@@ -125,11 +136,11 @@ class EditRenderer:
         self.dissolve_s = float(edit.get("dissolve_s") or 0)
         self.shots, self.total_frames = plan_shots(edit, take_doc, self.dissolve_s)
         self.half_dissolve = int(round(self.dissolve_s * FPS / 2))
-        self.effects = look_render.EffectProcessor(look_render.active_effects(look), WIDTH, HEIGHT, FPS)
+        self.effects = look_render.active_effects(look)
+        self.work_dir = work_dir
         self.lut_path = look_render.write_look_lut(os.path.join(work_dir, "look.cube"), look, looks)
-        self.pixel_format = "rgb24" if self.effects.effects else "yuv420p"
-        self.frame_bytes = WIDTH * HEIGHT * (3 if self.pixel_format == "rgb24" else 1.5)
-        self.frame_bytes = int(self.frame_bytes)
+        self.pixel_format = "yuv420p"
+        self.frame_bytes = WIDTH * HEIGHT * 3 // 2
         self.cameras = render.cameras(take_doc)
         self.processes = []
         self.suspended = False
@@ -167,8 +178,6 @@ class EditRenderer:
         return data
 
     def as_array(self, data):
-        if self.pixel_format == "rgb24":
-            return np.frombuffer(data, np.uint8).reshape(HEIGHT, WIDTH, 3)
         return np.frombuffer(data, np.uint8)
 
     def wait_while_busy(self):
@@ -189,7 +198,7 @@ class EditRenderer:
 
     def run(self, out_path):
         encoder = self.spawn(encoder_command(self.bounce, self.audio_start_s(), self.total_frames, out_path,
-                                             self.pixel_format), stdin=subprocess.PIPE)
+                                             self.effects, self.work_dir), stdin=subprocess.PIPE)
         try:
             current = 0
             self.start_decoder(self.shots[0])
@@ -218,8 +227,6 @@ class EditRenderer:
                         outgoing = self.as_array(self.read_frame(previous))
                         mix = dissolve_mix(frame_number, shot.first_frame, self.half_dissolve)
                         picture = (outgoing.astype(np.float32) * (1 - mix) + picture.astype(np.float32) * mix + 0.5).astype(np.uint8)
-                if self.pixel_format == "rgb24":
-                    picture = self.effects.process(picture, frame_number)
                 encoder.stdin.write(picture.tobytes() if isinstance(picture, np.ndarray) else picture)
                 # The outgoing shot's decoder is done once its overlap has been read.
                 if current > 0 and self.shots[current - 1].process is not None and frame_number + 1 >= self.shots[current - 1].decode_to:

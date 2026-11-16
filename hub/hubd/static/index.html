@@ -475,6 +475,11 @@ function audioTxt(id, t) {
       const v = videoTxt(id, sg.id, cur);
       x += " " + v.inline;
       if (v.steps) blocks.push(`<div class="camrow"><span class="camname" title="${esc(sg.name)}">♪ video</span><div class="steps">${v.steps}</div></div>`);
+      const f = cur.final_render;           // the editor's "Make video": its own row, steps and Watch button
+      if (f) {
+        const watch = f.status === "done" && f.file ? ` <button class="play" data-video="${esc(f.file)}" data-take="${esc(id)}">▶ Watch final video</button>` : "";
+        blocks.push(`<div class="camrow"><span class="camname" title="${esc(sg.name)}: the editor's video">♪ final</span><div class="steps">${videoSteps(f)}${watch}</div></div>`);
+      }
     }
     return x;
   });

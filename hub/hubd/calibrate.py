@@ -97,6 +97,17 @@ def card_problem(m):
     return None
 
 
+def release_freed_memory():
+    """Give memory freed by OpenCV (full-size stills, every few seconds while a page is open)
+    back to the system. Without this hubd kept it and grew past 1 GB (2026-11-16), which
+    starved the renders on the 1 GB hub. glibc only; a no-op elsewhere."""
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
+
+
 class Calibrator:
     def __init__(self, hub, clock=time.time):
         self.hub, self.clock = hub, clock
@@ -211,7 +222,9 @@ class Calibrator:
         if self.card is None:
             self.card = calib.load_card(self.hub.cfg.get("card_json"))
         with self.hub.calib_lock:
-            return calib.measure(jpg, self.card)
+            result = calib.measure(jpg, self.card)
+            release_freed_memory()
+            return result
 
     def step(self, cam):
         with self.hub.lock:
