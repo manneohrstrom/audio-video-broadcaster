@@ -16,7 +16,9 @@
   button { font:inherit; font-size:20px; font-weight:600; padding:16px 28px; border:0; border-radius:10px; color:#fff; cursor:pointer; min-width:140px; }
   button:disabled { opacity:.35; cursor:default; }
   #rec { background:var(--rec); } #stop { background:#555; } #live { background:var(--live); }
-  #rig { font-size:22px; font-weight:700; margin-left:auto; align-self:center; }
+  #rigbox { margin-left:auto; align-self:center; text-align:right; }
+  #rig { font-size:22px; font-weight:700; }
+  #budget { font-size:14px; color:var(--dim); } #budget.warn { color:var(--warn); font-weight:700; }
   #rig.recording { color:var(--rec); } #rig.starting, #rig.stopping { color:var(--warn); }
   #msg { min-height:1.4em; margin-bottom:12px; color:var(--warn); white-space:pre-line; }
   #msg.err { color:var(--bad); }
@@ -84,7 +86,7 @@
   <button id="rec">● REC</button>
   <button id="stop">■ STOP</button>
   <button id="live">LIVE</button>
-  <div id="rig">…</div>
+  <div id="rigbox"><div id="rig">…</div><div id="budget"></div></div>
 </div>
 <div id="msg"></div>
 <div class="grid" id="cards"></div>
@@ -192,6 +194,15 @@ function phoneCard(id, p) {
   </div>`;
 }
 
+function hm(s) { s = Math.max(0, Math.round(s / 60)); return s >= 60 ? `${s / 60 | 0} h ${s % 60} min` : `${s} min`; }
+const LIMIT_NAMES = { hub: "hub SD card" };
+function budgetTxt(b, state) {
+  if (!b || b.total_s == null) return "";
+  const by = LIMIT_NAMES[b.limited_by] || b.limited_by + " SD card";
+  const who = `${b.cameras} camera${b.cameras === 1 ? "" : "s"}` + (b.phones ? ` + ${b.phones} phone${b.phones === 1 ? "" : "s"}` : "");
+  if (state === "recording") return `${hm(b.remaining_s)} left · stops itself at ${hm(b.total_s)} (${by})`;
+  return `≈ ${hm(b.total_s)} of recording space · ${who} · limit: ${by}`;
+}
 function render() {
   if (!snap) return;
   $("#ver").textContent = "hubd " + snap.hub_version;
@@ -201,6 +212,10 @@ function render() {
   if (snap.state === "recording" && snap.take) label = "● REC " + hms(Date.now() / 1000 - snap.take.recording_at);
   else if (snap.state === "idle" && live) label = "LIVE";
   rig.textContent = label.toUpperCase(); rig.className = snap.state;
+  const bd = $("#budget");
+  bd.textContent = budgetTxt(snap.budget, snap.state);
+  bd.className = snap.budget && snap.budget.warn ? "warn" : "";
+  bd.title = snap.budget && snap.budget.per ? Object.entries(snap.budget.per).map(([k, v]) => `${k}: ${hm(v)}`).join("\n") : "";
   $("#rec").disabled = busy || snap.state !== "idle";
   $("#stop").disabled = busy || snap.state !== "recording";
   $("#live").disabled = busy || snap.state !== "idle";

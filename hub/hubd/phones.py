@@ -203,6 +203,7 @@ class Phones:
         self.phones = {}        # name -> {"page", "seen", "status", "cmd"}
         self.cmd_id = 0
         self.recorded = {}      # take_id -> set of phone names sent "rec"
+        self.uploaded = {}      # take_id -> video bytes received (record-time estimate)
         os.makedirs(self.dir, exist_ok=True)
 
     # -- registry
@@ -258,6 +259,13 @@ class Phones:
         if mine and mine != rig_take:
             return ("stop", mine)
         return None
+
+    def ready(self):
+        """Phones that are online and would record on the next REC."""
+        now = self.clock()
+        with self.lock:
+            return sorted(n for n, p in self.phones.items()
+                          if self._online(p, now) and (p["status"] or {}).get("state") == "ready")
 
     def phones_in(self, take_id):
         with self.lock:
@@ -337,6 +345,9 @@ class Phones:
                 os.remove(p + ".part")
                 raise PhoneError("chunk metadata is not JSON") from None
         os.replace(p + ".part", p)      # the page sends .json after .h264: it marks the chunk complete
+        if ext == "h264":
+            with self.lock:
+                self.uploaded[take_id] = self.uploaded.get(take_id, 0) + length
         return {"ok": True, "bytes": length}
 
     def have(self, take_id, phone):

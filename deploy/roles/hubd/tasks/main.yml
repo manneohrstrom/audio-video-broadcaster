@@ -25,6 +25,13 @@
     mode: "0644"
   notify: Restart hubd
 
+- name: hubd record-time estimate module
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/hubd/budget.py"
+    dest: /opt/hubd/budget.py
+    mode: "0644"
+  notify: Restart hubd
+
 - name: hubd web UI (static, no restart needed)
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../hub/hubd/static/"

@@ -21,9 +21,10 @@ from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import budget  # noqa: E402
 import phones  # noqa: E402
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -50,6 +51,11 @@ DEFAULT_CONFIG = {
     "checks": {"max_offset_ms": 5.0, "max_temp_c": 70.0, "min_free_hours": 1.0},
     # A client can report "Sync achieved" while starting late (S2: up to 969 ms).
     "max_sync_difference_us": 1000,
+    # Record-time limit (budget.py): shown on the page; at zero hubd stops the take.
+    # Rates are starting guesses (Pi measured ~8 Mbps, phones ~15); during a take the
+    # measured rates take over after a minute.
+    "budget": {"hub_reserve_gb": 15.0, "node_reserve_gb": 1.0, "pi_mbps": 10.0, "phone_mbps": 15.0,
+               "warn_s": 300, "min_rec_s": 120, "auto_stop": True},
 }
 
 # vcgencmd get_throttled: bits 0-3 are "now" (under-voltage, freq capped,
@@ -94,8 +100,9 @@ def load_config(path):
         with open(path) as f:
             user = json.load(f)
         checks = dict(cfg["checks"], **user.pop("checks", {}))
+        bud = dict(cfg["budget"], **user.pop("budget", {}))
         cfg.update(user)
-        cfg["checks"] = checks
+        cfg["checks"], cfg["budget"] = checks, bud
     return cfg
 
 
@@ -222,6 +229,9 @@ class Hub:
         os.makedirs(cfg["state_dir"], exist_ok=True)
         self.log_path = os.path.join(cfg["state_dir"], "takes.json")
         self.phones = phones.Phones(cfg, clock=clock)
+        self.budget = budget.limits(None, 0, {}, {})
+        # Background work started from the poll loop (tests run it inline).
+        self.spawn = lambda fn, *a: threading.Thread(target=fn, args=a, daemon=True).start()
 
     @property
     def state(self):
@@ -297,6 +307,7 @@ class Hub:
             t = time.monotonic()
             self.poll_once()
             self.health = hub_health(self.cfg["state_dir"])
+            self.check_budget()
             stop.wait(max(0.1, self.cfg["poll_s"] - (time.monotonic() - t)))
 
     def snapshot(self):
@@ -309,6 +320,7 @@ class Hub:
                                   "problems": arm_problems(n, self.status[n], self.cfg["checks"])}
                               for n in self.cfg["nodes"]},
                     "phones": self.phones.snapshot(self.health.get("free_gb")),
+                    "budget": self.budget,
                     "last_take": self.last_take()}
 
     # -- phones
@@ -361,6 +373,64 @@ class Hub:
     def pick_server(self, names):
         return self.cfg["sync_server"] if self.cfg["sync_server"] in names else names[0]
 
+    # -- record-time limit (budget.py)
+    def compute_budget(self, names=None, phone_names=None):
+        """How long the current (or next) take can run. Before REC: the online
+        cameras and the ready phones; during a take: its cameras and its phones."""
+        b = self.cfg["budget"]
+        hub_free = self.health.get("free_gb")
+        with self.lock:
+            take = dict(self.take or {}) if self.state == "recording" else None
+            status = dict(self.status)
+        elapsed = max(0.0, self.clock() - take["recording_at"]) if take else 0.0
+        if names is None:
+            names = take["nodes"] if take else [n for n in self.cfg["nodes"] if status[n] is not None]
+        if phone_names is None:
+            phone_names = set(self.phones.ready())
+            if take:
+                phone_names |= set(self.phones.phones_in(take["take_id"]))
+        start_free = (take or {}).get("node_free_gb", {})
+        pis = {}
+        for n in names:
+            free = (status.get(n) or {}).get("free_gb")
+            written = (start_free[n] - free) * 1e9 if free is not None and start_free.get(n) is not None else None
+            rate = budget.measured_rate(written, elapsed, b["pi_mbps"] * budget.MBPS)
+            pis[n] = (free * 1e9 if free is not None else None, rate)
+        ph = {}
+        if phone_names:
+            up = self.phones.uploaded.get(take["take_id"]) if take else None
+            total = budget.measured_rate(up, elapsed, len(phone_names) * b["phone_mbps"] * budget.MBPS)
+            ph = {n: total / len(phone_names) for n in phone_names}
+        r = budget.limits(hub_free * 1e9 if hub_free is not None else None, b["hub_reserve_gb"] * 1e9,
+                          pis, ph, elapsed, b["node_reserve_gb"] * 1e9)
+        r.update(cameras=len(pis), phones=len(ph),
+                 warn=r["remaining_s"] is not None and r["remaining_s"] <= b["warn_s"])
+        return r
+
+    def check_budget(self):
+        """Every poll: refresh the estimate; stop the take when it runs out."""
+        try:
+            self.budget = r = self.compute_budget()
+        except Exception as e:  # noqa: BLE001 - an estimate must never break polling
+            log("record-time estimate failed: %s" % e)
+            return
+        with self.lock:
+            due = (self.state == "recording" and self.cfg["budget"]["auto_stop"]
+                   and r["remaining_s"] is not None and r["remaining_s"] <= 0)
+            take_id = (self.take or {}).get("take_id")
+        if due:
+            log("take %s: storage limit reached (%s), stopping" % (take_id, r["limited_by"]))
+            self.spawn(self._auto_stop, take_id, r["limited_by"])
+
+    def _auto_stop(self, take_id, by):
+        try:
+            self.stop()
+        except Refused:
+            return          # already stopping or stopped
+        with self.lock:
+            self.message = ("Take %s stopped automatically: %s was out of recording space."
+                            % (take_id, "the hub" if by == "hub" else by))
+
     # -- REC
     def rec(self, names=None):
         if not self.op_lock.acquire(blocking=False):
@@ -389,13 +459,17 @@ class Hub:
             live = [n for n in names if self.status[n]["mode"] == "live"] if not problems else []
         if problems:
             raise Refused(problems)
+        bud = self.compute_budget(names)
+        if bud["total_s"] is not None and bud["total_s"] < self.cfg["budget"]["min_rec_s"]:
+            raise Refused(["only %d s of recording space (%s)" % (bud["total_s"], bud["limited_by"])])
         take_id = time.strftime("%Y%m%d-%H%M%S", time.localtime(self.clock()))
         server = self.pick_server(names)
         clients = [n for n in names if n != server]
         with self.lock:
             self.state = "starting"
             self.take = {"take_id": take_id, "nodes": names, "server": server,
-                         "started_at": self.clock(), "missing": missing}
+                         "started_at": self.clock(), "missing": missing,
+                         "limit_s": bud["total_s"]}
             self.message = None
         try:
             if live:
@@ -424,6 +498,9 @@ class Hub:
             warn = sync_warnings(diffs, self.cfg["max_sync_difference_us"])
             self.state = "recording"
             self.take["recording_at"] = self.clock()
+            # After arming: a camera may have just freed space (lazy delete), so this,
+            # not the value before REC, is the baseline for its measured rate.
+            self.take["node_free_gb"] = {n: (self.status[n] or {}).get("free_gb") for n in names}
             self.take["sync_warnings"] = warn
             notes = []
             if missing:
