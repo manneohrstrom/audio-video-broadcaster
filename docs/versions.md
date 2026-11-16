@@ -64,3 +64,4 @@ No software installed; the page runs in Chrome. Tested: Pixel 3 (Chrome 157) and
 | Library | Version | Where |
 |---|---|---|
 | qrcode-generator (Kazuhiko Arase, MIT) | 1.4.4, sha256 `18ae399f…1780` (from jsdelivr), unmodified | `hub/hubd/static/qrcode.js`: the phone-page QR code on the hub page |
+| mp4box.js (GPAC, BSD-3-Clause) | 0.5.2, sha256 `07ccf31d…1391219` (from jsdelivr), unmodified | `hub/spike/e2/vendor/mp4box.all.min.js`: editor spike E2 (MP4/MOV sample tables for WebCodecs) |

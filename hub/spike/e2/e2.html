@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E2 playback</title>
+<style>
+  :root { --bg: #111; --fg: #ddd; --mute: #888; --line: #333; --acc: #4a9eff; --bad: #ff6b5b; --ok: #5bd17a; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, sans-serif; }
+  header, section { padding: 8px 16px; }
+  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  #main { display: block; width: min(100%, 1280px); aspect-ratio: 16/9; background: #000; margin: 0 auto; }
+  #thumbs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; padding: 6px 16px; }
+  .thumb { position: relative; cursor: pointer; border: 2px solid transparent; }
+  .thumb.sel { border-color: var(--acc); }
+  .thumb canvas { display: block; width: 240px; height: 135px; background: #000; }
+  .thumb span { position: absolute; left: 4px; top: 2px; font-size: 11px; text-shadow: 0 0 3px #000; }
+  #bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #scrub { flex: 1; min-width: 200px; }
+  button, select { background: #222; color: var(--fg); border: 1px solid var(--line); padding: 4px 10px; border-radius: 4px; }
+  button:hover { border-color: var(--acc); }
+  #time { font-variant-numeric: tabular-nums; min-width: 150px; }
+  table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td, th { padding: 2px 10px; border-bottom: 1px solid var(--line); text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .bad { color: var(--bad); } .ok { color: var(--ok); } .mute { color: var(--mute); }
+  pre { white-space: pre-wrap; background: #000; padding: 8px; max-height: 240px; overflow: auto; }
+</style>
+</head>
+<body>
+<header>
+  <b>E2 playback spike</b>
+  <select id="take"></select>
+  <button id="load">Load</button>
+  <span id="status" class="mute"></span>
+</header>
+<canvas id="main" width="1920" height="1080"></canvas>
+<div id="thumbs"></div>
+<section id="bar">
+  <button id="play">▶ Play</button>
+  <button id="back">−1 frame</button><button id="fwd">+1 frame</button>
+  <input id="scrub" type="range" min="0" max="1000" step="0.001" value="0">
+  <span id="time">–</span>
+  <label><input id="audioOn" type="checkbox" checked> audio</label>
+</section>
+<section id="bar2" style="display:flex;gap:8px;flex-wrap:wrap">
+  <button id="seekTest">Seek test (30 random seeks)</button>
+  <button id="playTest">Play test (60 s, then stats)</button>
+  <button id="reset">Reset stats</button>
+  <button id="copy">Copy results</button>
+  <span class="mute">Keys: space play/pause · ←/→ one frame · 1–6 pick camera</span>
+</section>
+<section><table id="stats"></table></section>
+<section><pre id="out"></pre></section>
+
+<script src="vendor/mp4box.all.min.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const FPS = 30;
+const results = {ua: navigator.userAgent, cores: navigator.hardwareConcurrency, tests: []};
+const log = s => { $("out").textContent += s + "\n"; };
+
+// ---------------------------------------------------------------- one camera
+class Cam {
+  constructor(take, name, fileZeroMs, idx) {
+    Object.assign(this, {take, name, zero: fileZeroMs, idx});
+    this.url = `/media/${take}/${name}.mov`;
+    this.frames = [];          // decoded, not yet shown, sorted by timestamp (µs)
+    this.cur = null;           // the frame on screen (kept open for redraws)
+    this.gen = 0;
+    this.gops = new Map();     // key sample index -> Promise<ArrayBuffer>
+    this.st = {fed: 0, decoded: 0, discarded: 0, shown: 0, skipped: 0, late: 0, bytes: 0, seeks: []};
+  }
+  async range(a, b) {
+    const r = await fetch(this.url, {headers: {Range: `bytes=${a}-${b}`}});
+    if (!r.ok) throw new Error(`${this.url}: HTTP ${r.status}`);
+    const buf = await r.arrayBuffer();
+    this.st.bytes += buf.byteLength;
+    return buf;
+  }
+  async open() {
+    const t0 = performance.now();
+    const mp = MP4Box.createFile();
+    let info = null;
+    mp.onReady = i => { info = i; };
+    mp.onError = e => { throw new Error(e); };
+    let pos = 0, chunk = 1 << 20;
+    while (!info) {
+      const buf = await this.range(pos, pos + chunk - 1);
+      buf.fileStart = pos;
+      const next = mp.appendBuffer(buf);
+      if (buf.byteLength < chunk) { mp.flush(); break; }
+      pos = typeof next === "number" && next > pos ? next : pos + buf.byteLength;
+      chunk = Math.min(chunk * 2, 16 << 20);
+    }
+    if (!info) throw new Error(this.name + ": no moov");
+    const vt = info.videoTracks[0];
+    const trak = mp.getTrackById(vt.id);
+    if (!trak.samples || trak.samples.length !== vt.nb_samples) mp.buildSampleLists();
+    const entry = trak.mdia.minf.stbl.stsd.entries[0];
+    const ds = new DataStream(undefined, 0, DataStream.BIG_ENDIAN);
+    (entry.avcC || entry.hvcC).write(ds);
+    this.config = {codec: vt.codec, description: new Uint8Array(ds.buffer, 8),
+                   codedWidth: vt.video.width, codedHeight: vt.video.height,
+                   hardwareAcceleration: "prefer-hardware", optimizeForLatency: true};
+    const sup = await VideoDecoder.isConfigSupported(this.config);
+    if (!sup.supported) throw new Error(this.name + ": codec not supported " + vt.codec);
+    // Samples in decode order; t = timeline ms (real capture time relative to the take's T0).
+    this.s = trak.samples.map(x => ({t: this.zero + x.cts / x.timescale * 1000, key: x.is_sync,
+                                     off: x.offset, size: x.size, dur: x.duration / x.timescale * 1000}));
+    this.bframes = this.s.some((x, i) => i && x.t < this.s[i - 1].t);
+    this.pres = this.s.map((x, i) => i).sort((a, b) => this.s[a].t - this.s[b].t);
+    this.keys = this.s.map((x, i) => x.key ? i : -1).filter(i => i >= 0);
+    this.openMs = performance.now() - t0;
+    this.codec = vt.codec;
+    this.moovBytes = this.st.bytes;
+    this.makeDecoder();
+    return this;
+  }
+  makeDecoder() {
+    if (this.dec && this.dec.state !== "closed") this.dec.close();
+    this.dec = new VideoDecoder({output: f => this.onFrame(f), error: e => { this.err = String(e); log(this.name + " decoder error: " + e); }});
+    this.dec.configure(this.config);
+  }
+  get start() { return this.s[this.pres[0]].t; }
+  get end() { const x = this.s[this.pres[this.pres.length - 1]]; return x.t + x.dur; }
+  // index (decode order) of the frame on screen at timeline time t: latest t_i <= t
+  frameAt(t) {
+    let lo = 0, hi = this.pres.length - 1;
+    if (t < this.s[this.pres[0]].t) return -1;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (this.s[this.pres[m]].t <= t) lo = m; else hi = m - 1; }
+    return this.pres[lo];
+  }
+  keyOf(i) { let lo = 0, hi = this.keys.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (this.keys[m] <= i) lo = m; else hi = m - 1; } return this.keys[lo]; }
+  gop(k) {
+    if (!this.gops.has(k)) {
+      const ki = this.keys.indexOf(k), endI = ki + 1 < this.keys.length ? this.keys[ki + 1] - 1 : this.s.length - 1;
+      let a = Infinity, b = 0;
+      for (let i = k; i <= endI; i++) { a = Math.min(a, this.s[i].off); b = Math.max(b, this.s[i].off + this.s[i].size); }
+      const p = this.range(a, b - 1).then(buf => ({base: a, buf}));
+      this.gops.set(k, p);
+      while (this.gops.size > 6) this.gops.delete(this.gops.keys().next().value);   // keep the last few GOPs
+    }
+    return this.gops.get(k);
+  }
+  onFrame(f) {
+    if (f.timestamp < this.discardBefore) { this.st.discarded++; f.close(); return; }
+    this.st.decoded++;
+    let i = this.frames.length;
+    while (i > 0 && this.frames[i - 1].timestamp > f.timestamp) i--;
+    this.frames.splice(i, 0, f);
+  }
+  // Feed the decoder, staying a few frames ahead of the screen.
+  async pump(gen) {
+    while (gen === this.gen) {
+      if (this.next >= this.s.length || this.dec.decodeQueueSize >= 3 || this.frames.length >= 6) { await sleep(4); continue; }
+      const i = this.next, k = this.keyOf(i);
+      const g = await this.gop(k);
+      if (gen !== this.gen) return;
+      const x = this.s[i];
+      // prefetch the next GOP once we're into this one
+      const ki = this.keys.indexOf(k);
+      if (i === k && ki + 1 < this.keys.length) this.gop(this.keys[ki + 1]);
+      this.dec.decode(new EncodedVideoChunk({type: x.key ? "key" : "delta", timestamp: Math.round(x.t * 1000),
+                                             duration: Math.round(x.dur * 1000), data: new Uint8Array(g.buf, x.off - g.base, x.size)}));
+      this.next++; this.st.fed++;
+    }
+  }
+  seek(t) {
+    this.gen++;
+    this.makeDecoder();                  // reset() then configure() works too; a fresh one is simplest
+    for (const f of this.frames) f.close();
+    this.frames = [];
+    const target = Math.max(0, this.frameAt(t));
+    this.target = target;
+    this.next = this.keyOf(target);
+    this.discardBefore = Math.round(this.s[target].t * 1000) - 1;
+    this.seekStarted = performance.now();
+    this.pump(this.gen);
+  }
+  // Show the frame due at t; returns true if the picture changed.
+  show(t, playing) {
+    const tu = t * 1000;
+    let pick = -1;
+    for (let i = 0; i < this.frames.length && this.frames[i].timestamp <= tu + 1; i++) pick = i;
+    const due = this.frameAt(t);
+    if (pick < 0) {
+      if (playing && due >= 0 && t < this.end && (!this.cur || this.cur.timestamp < Math.round(this.s[due].t * 1000) - 1)) this.st.late++;
+      return false;
+    }
+    for (let i = 0; i < pick; i++) { this.frames[i].close(); if (playing) this.st.skipped++; }
+    const f = this.frames[pick];
+    this.frames.splice(0, pick + 1);
+    if (this.cur) this.cur.close();
+    this.cur = f;
+    this.st.shown++;
+    if (playing && due >= 0 && f.timestamp < Math.round(this.s[due].t * 1000) - 1) this.st.late++;
+    if (this.seekStarted != null && f.timestamp >= Math.round(this.s[this.target].t * 1000) - 1) {
+      this.st.seeks.push(performance.now() - this.seekStarted);
+      this.seekStarted = null;
+    }
+    this.tctx.drawImage(f, 0, 0, this.tc.width, this.tc.height);
+    return true;
+  }
+}
+
+// ---------------------------------------------------------------- the take
+let cams = [], sel = 0, T = 0, playing = false, dur = 0, audio = null;
+const actx = new AudioContext({sampleRate: 24000, latencyHint: "interactive"});
+let clockBase = null;   // {t, ctx}: timeline ms t at audio context time ctx (s)
+
+function originNs(ffw) {               // the 30 fps time-of-day grid slot at or before ffw
+  const sec = Math.floor(ffw / 1e9), frac = ffw - sec * 1e9;
+  return sec * 1e9 + Math.floor(frac * FPS / 1e9) * 1e9 / FPS;
+}
+
+async function loadTake(take, files) {
+  stopPlay();
+  for (const c of cams) { c.gen++; if (c.dec.state !== "closed") c.dec.close(); for (const f of c.frames) f.close(); if (c.cur) c.cur.close(); }
+  cams = []; $("thumbs").innerHTML = ""; $("out").textContent = "";
+  const tj = await (await fetch(`/media/${take}/take.json`)).json();
+  const names = files.filter(f => f.endsWith(".mov")).map(f => f.slice(0, -4));
+  const zero = {};
+  for (const n of names) {
+    const ffw = tj.manifests[n].first_frame_wallclock_ns;     // double: ~256 ns precision, plenty
+    zero[n] = (tj.cameras[n] || {}).timing === "real" ? ffw : originNs(ffw);
+  }
+  const T0 = Math.min(...Object.values(zero));
+  $("status").textContent = "opening " + names.length + " cameras…";
+  const t0 = performance.now();
+  cams = await Promise.all(names.map((n, i) => new Cam(take, n, (zero[n] - T0) / 1e6, i).open()));
+  const openAll = performance.now() - t0;
+  dur = Math.max(...cams.map(c => c.end));
+  for (const c of cams) {
+    const d = document.createElement("div"); d.className = "thumb";
+    d.innerHTML = `<canvas width="480" height="270"></canvas><span>${c.idx + 1} ${c.name}</span>`;
+    d.onclick = () => pick(c.idx);
+    $("thumbs").append(d);
+    c.tc = d.querySelector("canvas"); c.tctx = c.tc.getContext("2d");
+    c.el = d;
+  }
+  $("scrub").max = dur / 1000;
+  results.take = take;
+  results.open = {all_ms: Math.round(openAll), cams: cams.map(c => ({name: c.name, codec: c.codec, frames: c.s.length,
+    keyframes: c.keys.length, offset_ms: +c.zero.toFixed(3), open_ms: Math.round(c.openMs), moov_fetch_bytes: c.moovBytes, bframes: c.bframes}))};
+  log(`opened ${cams.length} cameras in ${openAll.toFixed(0)} ms; ${(dur / 1000).toFixed(1)} s`);
+  cams.forEach(c => log(`  ${c.name}: ${c.codec}, ${c.s.length} frames, ${c.keys.length} keyframes, starts at ${c.zero.toFixed(3)} ms, moov in ${(c.moovBytes / 1e6).toFixed(1)} MB`));
+  // audio: audio.json {"file": "...", "offset_ms": timeline ms of the audio's t=0}, else a click every second
+  audio = null;
+  try {
+    const aj = await (await fetch(`/media/${take}/audio.json`)).json();
+    $("status").textContent = "decoding audio…";
+    const buf = await actx.decodeAudioData(await (await fetch(`/media/${take}/${aj.file}`)).arrayBuffer());
+    audio = {buf, offset: aj.offset_ms};
+    log(`audio: ${aj.file}, ${buf.duration.toFixed(1)} s, starts at ${aj.offset_ms} ms on the timeline`);
+  } catch (e) {
+    const n = Math.ceil(dur / 1000) + 1, buf = actx.createBuffer(1, n * actx.sampleRate, actx.sampleRate), d = buf.getChannelData(0);
+    for (let s = 0; s < n; s++) for (let i = 0; i < 240; i++) d[s * actx.sampleRate + i] = Math.sin(i / 3) * (1 - i / 240) * 0.5;
+    audio = {buf, offset: 0};
+    log("audio: no audio.json, a click on every timeline second");
+  }
+  pick(0);
+  seekAll(Math.max(...cams.map(c => c.start)));
+  $("status").textContent = "ready";
+}
+
+function pick(i) {
+  if (i >= cams.length) return;
+  sel = i;
+  cams.forEach(c => c.el.classList.toggle("sel", c.idx === i));
+  drawMain();
+}
+const mctx = $("main").getContext("2d");
+function drawMain() { const c = cams[sel]; if (c && c.cur) mctx.drawImage(c.cur, 0, 0, 1920, 1080); }
+
+// ---------------------------------------------------------------- clock and transport
+let src = null;
+function now() {
+  if (!playing) return T;
+  const ts = actx.getOutputTimestamp();      // what's being heard right now
+  const ctxNow = ts.contextTime + (performance.now() - ts.performanceTime) / 1000;
+  return clockBase.t + (ctxNow - clockBase.ctx) * 1000;
+}
+function startPlay() {
+  if (playing || !cams.length) return;
+  actx.resume();
+  const when = actx.currentTime + 0.15;      // a little headroom to start audio cleanly
+  clockBase = {t: T, ctx: when};
+  if ($("audioOn").checked && audio) {
+    src = actx.createBufferSource(); src.buffer = audio.buf; src.connect(actx.destination);
+    const a = (T - audio.offset) / 1000;
+    if (a >= 0) src.start(when, a); else src.start(when - a, 0);
+  }
+  playing = true; $("play").textContent = "❚❚ Pause";
+}
+function stopPlay() {
+  if (!playing) return;
+  T = now(); playing = false;
+  if (src) { try { src.stop(); } catch (e) {} src = null; }
+  $("play").textContent = "▶ Play";
+}
+function seekAll(t) {
+  const was = playing; stopPlay();
+  T = Math.max(0, Math.min(dur, t));
+  cams.forEach(c => c.seek(T));
+  if (was) startPlay();
+}
+function step(dir) {
+  stopPlay();
+  const c = cams[sel], i = c.frameAt(T), p = c.pres.indexOf(i);
+  const j = c.pres[Math.max(0, Math.min(c.pres.length - 1, p + dir))];
+  seekAll(c.s[j].t + 0.01);
+}
+
+// ---------------------------------------------------------------- render loop and stats
+let ticks = 0, lastTick = 0, maxGap = 0;
+function frame(ts) {
+  if (lastTick && playing) maxGap = Math.max(maxGap, ts - lastTick);
+  lastTick = ts; ticks++;
+  if (cams.length) {
+    const t = now();
+    let mainDirty = false;
+    cams.forEach(c => { if (c.show(t, playing) && c.idx === sel) mainDirty = true; });
+    if (mainDirty) drawMain();
+    if (playing && t >= dur) stopPlay();
+    if (ticks % 6 === 0) {
+      const c = cams[sel], due = c.frameAt(t);
+      $("time").textContent = `${(t / 1000).toFixed(3)} s · ${c.name} frame ${due < 0 ? "–" : c.pres.indexOf(due)}`;
+      if (document.activeElement !== $("scrub")) $("scrub").value = t / 1000;
+    }
+    if (ticks % 30 === 0) statsTable();
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+function pct(a, p) { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; }
+function camStats(c) {
+  return {name: c.name, fed: c.st.fed, decoded: c.st.decoded, discarded: c.st.discarded, shown: c.st.shown,
+          skipped: c.st.skipped, late_ticks: c.st.late, queue: c.dec.decodeQueueSize, buffered: c.frames.length,
+          mb_fetched: +(c.st.bytes / 1e6).toFixed(1), seeks: c.st.seeks.length,
+          seek_p50_ms: pct(c.st.seeks, 0.5) && Math.round(pct(c.st.seeks, 0.5)), seek_max_ms: c.st.seeks.length ? Math.round(Math.max(...c.st.seeks)) : null,
+          error: c.err || null};
+}
+function statsTable() {
+  const rows = cams.map(camStats);
+  if (!rows.length) return;
+  const keys = Object.keys(rows[0]);
+  $("stats").innerHTML = "<tr>" + keys.map(k => `<th>${k}</th>`).join("") + "</tr>" +
+    rows.map(r => "<tr>" + keys.map(k => `<td class="${(k === "skipped" || k === "late_ticks") && r[k] > 0 ? "bad" : ""}">${r[k] ?? ""}</td>`).join("") + "</tr>").join("") +
+    `<tr><td colspan="${keys.length}" class="mute">render loop: max gap between frames while playing ${maxGap.toFixed(1)} ms · audio output latency ${((actx.outputLatency || 0) * 1000).toFixed(0)} ms</td></tr>`;
+}
+function resetStats() {
+  cams.forEach(c => Object.assign(c.st, {fed: 0, decoded: 0, discarded: 0, shown: 0, skipped: 0, late: 0, bytes: 0, seeks: []}));
+  maxGap = 0;
+}
+
+// ---------------------------------------------------------------- tests
+async function waitShown(timeout = 5000) {
+  const t0 = performance.now();
+  while (cams.some(c => c.seekStarted != null && T >= c.start && T < c.end) && performance.now() - t0 < timeout) await sleep(5);
+}
+async function seekTest() {
+  stopPlay(); resetStats();
+  $("status").textContent = "seek test…";
+  const lat = [];
+  for (let k = 0; k < 30; k++) {
+    const t = Math.random() * dur, t0 = performance.now();
+    seekAll(t);
+    await waitShown();
+    lat.push(performance.now() - t0);
+    // frame accuracy: every camera shows exactly the frame due at t
+    for (const c of cams) {
+      const due = c.frameAt(T);
+      if (due >= 0 && T < c.end && (!c.cur || c.cur.timestamp !== Math.round(c.s[due].t * 1000))) log(`  ${c.name}: wrong frame after seek to ${T.toFixed(1)}`);
+    }
+    await sleep(150);
+  }
+  const r = {test: "seek", n: lat.length, all_cams_p50_ms: Math.round(pct(lat, 0.5)), all_cams_p90_ms: Math.round(pct(lat, 0.9)),
+             all_cams_max_ms: Math.round(Math.max(...lat)), cams: cams.map(camStats)};
+  results.tests.push(r);
+  log(`seek test: all cameras showing the exact frame after p50 ${r.all_cams_p50_ms} ms, p90 ${r.all_cams_p90_ms} ms, max ${r.all_cams_max_ms} ms`);
+  $("status").textContent = "ready";
+}
+let hiddenWhilePlaying = false;
+document.addEventListener("visibilitychange", () => { if (document.hidden && playing) hiddenWhilePlaying = true; });
+async function playTest() {
+  resetStats(); hiddenWhilePlaying = false;
+  seekAll(Math.max(...cams.map(c => c.start)) + Math.random() * Math.max(0, dur - 70000));
+  await waitShown();
+  const t0 = T;
+  startPlay();
+  $("status").textContent = "play test (60 s)…";
+  while (playing && now() - t0 < 60000) await sleep(200);
+  stopPlay();
+  const r = {test: "play", from_s: +(t0 / 1000).toFixed(1), seconds: +((T - t0) / 1000).toFixed(1), max_raf_gap_ms: +maxGap.toFixed(1),
+             output_latency_ms: Math.round((actx.outputLatency || 0) * 1000), tab_hidden: hiddenWhilePlaying, cams: cams.map(camStats)};
+  if (hiddenWhilePlaying) log("play test NOT VALID: the tab was hidden while playing (Chrome pauses drawing in hidden tabs). Keep it in front and run it again.");
+  results.tests.push(r);
+  log(`play test: ${r.seconds} s; per camera shown/skipped/late: ` + cams.map(c => `${c.name} ${c.st.shown}/${c.st.skipped}/${c.st.late}`).join(", "));
+  $("status").textContent = "ready";
+}
+
+// ---------------------------------------------------------------- UI
+(async () => {
+  const takes = await (await fetch("/takes")).json();
+  for (const [t, files] of Object.entries(takes)) {
+    const o = document.createElement("option"); o.value = t;
+    o.textContent = `${t} (${files.filter(f => f.endsWith(".mov")).length} cameras)`;
+    $("take").append(o);
+  }
+  $("load").onclick = () => loadTake($("take").value, takes[$("take").value]).catch(e => { log("error: " + e.stack); $("status").textContent = "error"; });
+})();
+$("play").onclick = () => playing ? stopPlay() : startPlay();
+$("back").onclick = () => step(-1);
+$("fwd").onclick = () => step(1);
+$("scrub").oninput = e => { stopPlay(); T = +e.target.value * 1000; scrubTo(T); };
+let scrubPending = null, scrubBusy = false;
+async function scrubTo(t) {             // one seek at a time; the latest position wins
+  scrubPending = t;
+  if (scrubBusy) return;
+  scrubBusy = true;
+  while (scrubPending != null) { const x = scrubPending; scrubPending = null; seekAll(x); await waitShown(1500); }
+  scrubBusy = false;
+}
+$("seekTest").onclick = seekTest;
+$("playTest").onclick = playTest;
+$("reset").onclick = resetStats;
+$("copy").onclick = () => { results.final = cams.map(camStats); navigator.clipboard.writeText(JSON.stringify(results, null, 1)); $("copy").textContent = "copied"; setTimeout(() => $("copy").textContent = "Copy results", 1500); };
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" && e.target.type !== "range") return;
+  if (e.key === " ") { e.preventDefault(); playing ? stopPlay() : startPlay(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); step(1); }
+  else if (/^[1-6]$/.test(e.key)) pick(+e.key - 1);
+});
+</script>
+</body>
+</html>

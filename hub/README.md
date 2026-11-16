@@ -22,6 +22,8 @@ The hub is also the **clock** for the whole rig (chrony, `chrony/studio-hub.conf
 | `ingest/tests/` | Unit tests |
 | `systemd/` | `hubd.service` and `hub-ingest.service` |
 | `chrony/studio-hub.conf` | NTP server config for the cameras |
+| `spike/e2/` | Editor spike E2: WebCodecs multicam playback test page (`e2.html`, `serve.py` with Range; run on the Mac) |
+| `spike/e3/` | Editor spike E3: multicam render cost on the hub (`e3.py`) |
 | `spike/e1/` | Editor spike E1: rewrap at real frame times and check them (`e1.py`), run ingest's own rewrap/verify on raw folders (`run_ingest_path.py`), browser playback check (`play.html`) |
 | `spike/convert.py` | Phase 3 test tool: converts one camera's take two ways, native timing and conformed to 30 fps, for comparison in Premiere |
 
