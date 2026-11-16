@@ -142,3 +142,7 @@
 .strength-heading output { font: 500 13px var(--font-numbers); }
 .strength-block input[type=range] { width: 100%; accent-color: var(--color-accent); }
 .strength-actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
+.strength-row { display: grid; grid-template-columns: 84px 1fr 38px; align-items: center; gap: var(--space-2); padding: 6px 10px; background: var(--color-panel); border-radius: var(--radius-small); }
+.strength-row span { color: var(--color-text); font-weight: 500; }
+.strength-row input { accent-color: var(--color-accent); min-width: 0; }
+.strength-row output { font: 500 12px var(--font-numbers); text-align: right; }

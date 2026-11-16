@@ -1,6 +1,7 @@
-// Step 2, the look: a row of Filters and a row of Effects (no tabs, user 2026-11-16),
-// Instagram-style: tap to try, tap the chosen one again for its strength. The tiles show
-// the current picture through each choice, refreshed twice a second. Below them the
+// Step 2, the look: a row of Filters and a row of Effects (no tabs, user 2026-11-16).
+// Tap a filter to choose it; tap an effect to turn it on, again to turn it off. Under each
+// row: the strength sliders of the chosen filter and of every effect that is on. The tiles
+// show the current picture through each choice, refreshed twice a second. Below them the
 // Adjust sliders: the primary correction (brightness, contrast, highlights, shadows,
 // saturation, warmth, tint, fade), applied before the filter as in a DI grade.
 import { useEffect, useRef } from "preact/hooks";
@@ -57,16 +58,19 @@ export function LookPanel({ store }) {
         <div class="look-row">
           ${looks.filters.map(filter => tile(`filter:${filter.id}`, filter, store.look.filter === filter.id, false, () => store.tapFilter(filter.id)))}
         </div>
-        ${store.adjusting === "filter" && strengthBlock(store, looks)}
+        ${store.look.filter !== "normal" && strengthRow(
+          looks.filters.find(f => f.id === store.look.filter)?.name, store.look.filter_strength,
+          value => store.setStrength("filter", value))}
       </div>
       <div class="look-section">
         <div class="row-title">Effects${effectsOn ? ` · ${effectsOn} on` : ""}</div>
         <div class="look-row">
-          ${looks.effects.map(effect => tile(`effect:${effect.id}`, effect, store.adjusting === effect.id,
+          ${looks.effects.map(effect => tile(`effect:${effect.id}`, effect, store.look.effects[effect.id] != null,
                                             store.look.effects[effect.id] != null, () => store.tapEffect(effect.id)))}
         </div>
-        ${store.adjusting && store.adjusting !== "filter" && strengthBlock(store, looks)}
-        ${!store.adjusting && html`<p class="look-hint">Tap a filter to try it, an effect to add it. Tap again for its strength. Effects stack.</p>`}
+        ${looks.effects.filter(effect => store.look.effects[effect.id] != null).map(effect =>
+          strengthRow(effect.name, store.look.effects[effect.id], value => store.setStrength(effect.id, value)))}
+        ${!effectsOn && html`<p class="look-hint">Tap an effect to turn it on, tap it again to turn it off. Effects stack.</p>`}
       </div>
       <div class="look-section">
         <div class="section-header">
@@ -92,21 +96,14 @@ export function LookPanel({ store }) {
     </section>`;
 }
 
-/** The strength of the chosen filter or effect, as a block under its row. */
-function strengthBlock(store, looks) {
-  const isFilter = store.adjusting === "filter";
-  const item = isFilter ? looks.filters.find(f => f.id === store.look.filter) : looks.effects.find(e => e.id === store.adjusting);
-  const value = isFilter ? store.look.filter_strength : store.look.effects[store.adjusting];
-  if (!item || value == null) return null;
-  const close = () => { store.adjusting = null; store.notify(); };
+/** One strength slider (0-100) under the Filters or Effects row. */
+function strengthRow(name, value, onChange) {
+  if (!name || value == null) return null;
   return html`
-    <div class="strength-block">
-      <div class="strength-heading"><strong>${item.name}</strong><output>${Math.round(value * 100)}</output></div>
-      <input type="range" min="0" max="100" value=${Math.round(value * 100)} aria-label=${`${item.name} strength`}
-             onInput=${event => store.setStrength(isFilter ? "filter" : item.id, event.target.value / 100)} />
-      <div class="strength-actions">
-        ${!isFilter && html`<button class="button small" onClick=${() => store.removeEffect(item.id)}>Remove</button>`}
-        <button class="button small" onClick=${close}>Done</button>
-      </div>
-    </div>`;
+    <label class="strength-row" key=${name}>
+      <span>${name}</span>
+      <input type="range" min="0" max="100" value=${Math.round(value * 100)} aria-label=${`${name} strength`}
+             onInput=${event => onChange(event.target.value / 100)} />
+      <output>${Math.round(value * 100)}</output>
+    </label>`;
 }

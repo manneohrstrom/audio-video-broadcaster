@@ -29,7 +29,6 @@ export class EditorStore {
     this.step = "cut";                       // "cut" | "look"
     this.looks = null;                       // looks.json, loaded by the page
     this.look = { filter: "normal", filter_strength: 1, effects: {}, adjust: {}, ...(project.edit.look || {}) };
-    this.adjusting = null;                   // "filter" or an effect id: its strength slider is open
     this.comparing = false;                  // held down on the video: show without the look
     this.history = new EditModel.History();
 
@@ -171,7 +170,6 @@ export class EditorStore {
     this.step = step;
     this.hover = null;
     this.gesture = null;
-    this.adjusting = null;
     this.notify();
   }
 
@@ -179,23 +177,23 @@ export class EditorStore {
     return this.looks?.filters.find(filter => filter.id === id)?.grade || {};
   }
 
-  /** Tap a filter: choose it; tap the chosen one again: open or close its strength. */
+  /** Tap a filter: choose it (at full strength). Its strength slider shows under the row. */
   tapFilter(id) {
-    if (this.look.filter === id) this.adjusting = id !== "normal" && this.adjusting !== "filter" ? "filter" : null;
-    else { this.look = { ...this.look, filter: id, filter_strength: 1 }; this.adjusting = null; this.scheduleSave(); }
+    if (this.look.filter === id) return;
+    this.look = { ...this.look, filter: id, filter_strength: 1 };
+    this.scheduleSave();
     this.notify();
   }
 
-  /** Tap an effect: add it (at its default strength); tap it again: open or close its strength. */
+  /** Tap an effect: on (at its default strength) or, if it's on, off (user, 2026-11-16). */
   tapEffect(id) {
-    if (this.look.effects[id] == null) {
-      const effect = this.looks.effects.find(e => e.id === id);
-      this.look = { ...this.look, effects: { ...this.look.effects, [id]: effect.default_strength } };
-      this.adjusting = id;
-      this.scheduleSave();
-    } else {
-      this.adjusting = this.adjusting === id ? null : id;
+    if (this.look.effects[id] != null) {
+      this.removeEffect(id);
+      return;
     }
+    const effect = this.looks.effects.find(e => e.id === id);
+    this.look = { ...this.look, effects: { ...this.look.effects, [id]: effect.default_strength } };
+    this.scheduleSave();
     this.notify();
   }
 
@@ -225,7 +223,6 @@ export class EditorStore {
     const effects = { ...this.look.effects };
     delete effects[id];
     this.look = { ...this.look, effects };
-    this.adjusting = null;
     this.scheduleSave();
     this.notify();
   }
