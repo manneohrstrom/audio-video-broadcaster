@@ -26,6 +26,7 @@ class FakeRig:
     def __init__(self, root):
         self.root = root
         self.busy = False
+        self.node_mode = None      # overrides the cameras' mode (e.g. "snapshot")
         self.offline = set()
         self.verified = {}
 
@@ -51,7 +52,7 @@ class FakeRig:
     def get(self, url, timeout=None):
         if url.endswith("/api/status"):
             mode = "recording" if self.busy else "idle"
-            return {"state": mode, "nodes": {c: {"status": {"mode": mode}} for c in os.listdir(self.root)}}
+            return {"state": mode, "nodes": {c: {"status": {"mode": self.node_mode or mode}} for c in os.listdir(self.root)}}
         cam = url.split("//")[1].split(".")[0]
         if cam in self.offline:
             raise OSError("offline")
@@ -281,6 +282,12 @@ class IngestTest(Base):
         self.command("start")
         self.assertEqual(self.ing.tick(), "rig busy")
         self.assertEqual(self.runner.calls, [])
+
+    def test_snapshots_dont_block_ingest(self):
+        self.rig.add_take("cam1")
+        self.rig.node_mode = "snapshot"          # calibration watcher taking a still
+        self.command("start")
+        self.assertEqual(self.ing.tick(), "ingested")
 
     def test_sha_mismatch_repulls(self):
         man = self.rig.add_take("cam1")

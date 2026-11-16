@@ -30,7 +30,7 @@ import lamp  # noqa: E402
 import phones  # noqa: E402
 import scratch  # noqa: E402
 
-VERSION = "0.10.0"
+VERSION = "0.10.2"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {

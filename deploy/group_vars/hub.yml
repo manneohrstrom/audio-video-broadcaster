@@ -9,8 +9,18 @@ hubd_sync_server: cam1
 # Recording light (Phase 4 C1, hub/hubd/lamp.py). type: tasmota | esphome | log | null.
 # Fill in when the bulb is set up: firmware type and its reserved IP (esphome also needs light_id).
 hubd_lamp:
-  type: null
-  address: null
+  type: tasmota        # LocalBytes bulb, Tasmota 11.1.0 (checked 2026-11-16)
+  address: 192.168.68.70   # DHCP reservation on the router
+  looks:
+    ready: {dim: 0}      # user, 2026-11-16: off when nothing is happening
+    ingest_done: {dim: 0}   # user, 2026-11-16: no purple "safe to eject" either
+    ingest: {rgb: [150, 0, 255]}   # user, 2026-11-16: ingest pulses purple, not cyan
+# Hub mic (scratch.py): mixer set before every recording. C-Media "USB PnP Sound Device":
+# Mic 0-16 (6 = about 9 dB: loud claps near the hub just below clipping, 2026-11-16).
+hubd_scratch:
+  mixer:
+    Mic: 6
+    "Auto Gain Control": "off"
 # Ingest (docs/phase3-plan.md): starts after this long idle, or "Ingest now".
 ingest_idle_minutes: 30
 ingest_x264_preset: veryfast

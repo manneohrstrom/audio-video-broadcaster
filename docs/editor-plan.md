@@ -1,6 +1,6 @@
 # Editor plan: from takes to finished videos
 
-Status: **accepted by the user (2026-11-16), with the recommended answers to all four decisions below.** Spikes E1–E3 run alongside Phase 4 Track B; the main work (M-E2 on) follows Track A. Sources: the user's direction of 2026-11-15 (our own editor; `docs/design.md`, "Editing"), the conversation of 2026-11-16 (web editor on the hub, bounce upload, automatic cut, changes by hand, render for YouTube), Phase 3 results (`docs/phase3-results.md`) and the ingest-time question (`docs/phone-plan.md`).
+Status: **accepted by the user (2026-11-16), with the recommended answers to all four decisions below. Sections 4 and 5 (the UI) revised from the user's requirements the same day; a clickable mock-up first, then building M-E3 against the S1 take (user OK to start now).** Spikes E1–E3 run alongside Phase 4 Track B; the main work (M-E2 on) follows Track A. Sources: the user's direction of 2026-11-15 (our own editor; `docs/design.md`, "Editing"), the conversation of 2026-11-16 (web editor on the hub, bounce upload, automatic cut, changes by hand, render for YouTube), Phase 3 results (`docs/phase3-results.md`) and the ingest-time question (`docs/phone-plan.md`).
 
 ## Goal
 
@@ -8,7 +8,7 @@ Get from a take on `STUDIO` to a finished, synced video with no outside editing 
 
 1. Upload the Logic bounce, one or more per take (one per song is normal). It's synced to the take automatically (Phase 4 Track A).
 2. The hub makes an **automatic cut** for each song: which camera is on, from when to when.
-3. In the browser, the user **changes the cut** if they want: moves cut points, swaps cameras, sets colour per camera.
+3. In the browser, the user **changes the cut** if they want: chooses which camera is on at each moment (step 1), then picks a look for the whole video (step 2).
 4. The hub **renders** the result: a YouTube master with the bounce as its soundtrack, and optionally (a maybe, see below) a vertical story version.
 
 The first automatic cut uses simple rules. An agent that listens to the music, watches the video and cuts in a style the user asks for comes later. This plan only makes sure the data is ready for it.
@@ -17,7 +17,7 @@ The first automatic cut uses simple rules. An agent that listens to the music, w
 
 - **Hub (Pi 5):** stores and serves the media, runs the automatic cut, does the render. Like ingest, the render runs only when no take or live session is active, and pauses (SIGSTOP) on REC or LIVE.
 - **Browser (on the Mac, or any computer on the LAN):** the editor UI. Playback and scrubbing are decoded in the browser, so the Pi 5's lack of a hardware encoder doesn't matter while editing.
-- Plain HTML and JS served by the hub, no build step (as for the hub page).
+- Served by the hub, no build step. The editor uses Preact with `htm` (user decision 2026-11-16), copied into the repo and pinned. It has its own design system (CSS tokens plus our own components: buttons, sliders, filter tiles, strips, tabs) and type checking with JSDoc and `tsc --checkJs` on the Mac. The hub's other pages stay plain JS.
 
 ## 1. Ingest: copy at real timing instead of re-encoding (changes a settled decision; needs the user's OK)
 
@@ -46,7 +46,7 @@ One JSON file per song, the edit. It's what the automatic cut writes, what the t
     {"at_ns": 0, "camera": "cam1"},
     {"at_ns": 5400000000, "camera": "cam3"}
   ],
-  "colour": {"cam1": {"exposure": 0.0, "temperature": 0, "tint": 0, "contrast": 1.0, "saturation": 1.0}},
+  "look": {"colour": "warm-film", "colour_strength": 0.6, "overlay": "grain", "overlay_strength": 0.25},
   "outputs": ["youtube"],
   "made_by": "auto-v1",
   "notes": []
@@ -69,22 +69,52 @@ Per synced song segment (from Track A), using the rules already in `docs/design.
 
 It runs right after a bounce is synced, so the cut is ready the first time the user opens the song.
 
-## 4. Timeline UI
+## 4. Editor UI: step 1, the cut
 
-A page per song, reached from the take in the hub's take list:
+*Revised with the user, 2026-11-16 (requirements below are theirs; replaces the first draft of this section). Needs the user's OK before building.*
 
-- **Viewer** showing the program output (the active camera, with colour), plus a strip of small live thumbnails, one per camera, at the playhead.
-- **Timeline:** the bounce waveform with beat and bar marks, one lane per camera with rough sections greyed out and gaps in recording shown, and a program lane showing the cut.
-- **Editing:** click a camera at a point in time to cut to it there; drag cut points (they snap to beats, with a modifier key for free movement); delete a cut; undo and redo. "Re-run automatic cut" for the whole song or a selected range.
-- **Play and scrub** with the bounce as audio. Playback must be frame-accurate against the bounce, so it uses WebCodecs (decoding frames by timestamp) rather than plain `<video>` seeking, which is imprecise, especially on files with variable frame timing. Spike E2 checks this works with four or more cameras at once.
+**Who and where.** The main editor is not technical. The interface has to be simple and quick, in the spirit of the Instagram video editor or early iMovie (visual filmstrip timelines). It runs on a Mac mini with two monitors, so there's plenty of room.
+
+**The model: choose, never arrange.** The take is fixed. The only editing decision is *which camera is showing from this moment on*. Nothing is moved, trimmed, duplicated or reordered, and there's no non-linear editing. A cut holds until the next one (the edit format in section 2 already works this way).
+
+**Layout (one screen):**
+- **Video window:** the program output (the chosen camera) at the playhead. With the look from step 2 applied, so it looks like the result.
+- **Program strip** across the top: the cut as made so far, as coloured blocks per camera, with filmstrip thumbnails.
+- **One strip per camera** below it, always all of them, laid out horizontally over the song's whole length: filmstrip thumbnails, so you see at a glance what every camera is doing over time. Rough sections and times a camera didn't record are greyed out.
+- **Audio waveform** of the bounce under the strips, to see where the parts of the song are.
+- **Hover:** with the mouse over any strip, that camera's frame at that exact time shows larger (a tooltip-sized preview), and a hover line runs across every strip so you can compare all cameras at that moment.
+
+**Interactions:**
+- **Scrub:** click or drag anywhere on the timeline to move the playhead; very fast and responsive. Space plays and pauses with the bounce as audio.
+- **Choose a camera:** click a camera's strip at a time to show that camera from there on (until the next cut). Keys 1–6 do the same at the playhead.
+- Drag a cut's edge in the program strip to move it; delete a cut (the previous camera continues). Undo and redo.
+- **No snapping** to beats or bars (user: it would be annoying; can be added later if missed). Cut points land where you click.
+- Zoom in and out of the timeline (whole song down to a few seconds).
+- The automatic cut (section 3) fills the program strip the first time a song is opened, as a starting point; the user overrides it freely.
+- Saved automatically as you go.
+
+**No transitions to choose from.** Every camera change is a short, subtle dissolve (user, 2026-11-16; length to settle in the mock-up, starting at about 0.3 s). The render needs two decoders running during each dissolve: check memory on the hub (E3 measured ~88 MB per decoder at 2 threads, 180–290 MB free).
+
+**Screens:** must work on one screen, including a laptop (the editor may work on one). **Stretch goal:** "Pop out video" opens the video in its own window for the second monitor, with the strips on the first (user, 2026-11-16).
+
+**Under the hood:**
+- The camera strips need small thumbnails along the whole take. The hub makes them once per take (for example one 160-pixel frame per second per camera, packed into sprite sheets) as a step after ingest, and keeps them on its SD card. Hover previews and strips use them; playback and the video window use WebCodecs on the real files (spike E2), for exact frames in sync with the bounce.
 - Media is served from `STUDIO`, mounted read-only for playback and unmounted 5 minutes after the last playback (the existing playback rule).
 
-## 5. Colour
+## 5. Editor UI: step 2, the look
 
-- **Per camera, per song or per take** (copied across songs by default): exposure, white balance (temperature and tint), contrast, saturation. Optionally a `.cube` LUT for a look.
-- **The preview must match the render.** The parameters are turned into one 3D LUT per camera. The browser applies it in WebGL, and the render applies the same LUT with ffmpeg `lut3d`. One source of truth, so what you see is what you get.
-- **Phase 4 Track B** does the camera-side matching (gain, AWB, grey card) at recording time. This is the correction afterwards, for what Track B can't fix.
-- **Not in v1:** masks, keyframed colour, transitions other than hard cuts, titles, split screen and picture-in-picture (future ideas in `docs/design.md`).
+*Revised with the user, 2026-11-16: replaces "colour per camera". The look is global, for the whole video, not per camera.*
+
+A second step (a tab, after the cut is done): **what's the vibe of this video?** It works like Instagram, with Instagram's words: **Filters** (tap through, see the result at once; tap the chosen one again for its strength) and **Effects**. A first set is proposed in the mock-up for the user to trim.
+
+- **Two separate choices:**
+  - **Colour look:** a preset grade (a LUT), e.g. warm film, faded, cool night, punchy, black-and-white.
+  - **Overlay:** a texture or effect on top, e.g. analogue film grain, light leaks, vignette, VHS, soft glow.
+- **Strength slider for each** (0–100 %, e.g. 25 % grain), blending the effect with the image.
+- **One look per song** (user, 2026-11-16): one video per bounce, one bounce per song, so one look per bounce, not per session. Effects can be stacked (e.g. grain and vignette), each with its own strength.
+- **Camera matching stays automatic and invisible:** each device's correction from its calibration card readings (Phase 4 Track B, B4: the phones' tint and colour rendering against the Pis') is applied before the look. The user never sees per-camera controls.
+- **The preview must match the render:** the look and overlays run in WebGL in the browser and the same maths in the hub's render (ffmpeg `lut3d` for colour; overlays generated the same way on both sides, e.g. grain from a fixed seed). Per camera, the match correction and the look combine into one LUT, so colour costs what spike E3 measured (0.53× real time). Overlays add render cost; to measure.
+- **Not in v1:** per-camera colour controls, keyframed or changing looks, masks, titles, split screen, picture-in-picture.
 
 ## 6. Render
 
@@ -121,8 +151,8 @@ What's known so far:
 | E1–E3 | Spikes; no user time needed apart from looking at E2 on the Mac. |
 | **M-E1** | Ingest switched to `-c copy` with real timing (if the user OKs section 1). Tests; `CLAUDE.md` and `docs/design.md` updated. |
 | **M-E2** | Edit format; automatic cut v1; render (YouTube master); render progress on the hub page. A finished video with no UI work yet. |
-| **M-E3** | Timeline UI: viewer, lanes, cutting, play and scrub, save. |
-| **M-E4** | Colour: parameters, LUTs, preview in WebGL, applied in the render. |
+| **M-E3** | Step 1, the cut (section 4): thumbnails after ingest, video window, camera strips, waveform, hover, scrub, choose a camera, save. Can be built now against the S1 take (synced by hand), ahead of Track A. |
+| **M-E4** | Step 2, the look (section 5): colour presets and overlays with strength, preview in WebGL, the same in the render, automatic camera match from the card readings. |
 | **M-EX** | Exit checks; `docs/editor-results.md`. |
 
 **Depends on Phase 4 Track A** (synced bounces and song segments) for everything from M-E2 on. M-E1 and the spikes don't, and can run alongside Track B.
@@ -131,7 +161,7 @@ What's known so far:
 
 1. A real session's song goes from bounce upload to a rendered YouTube file with no step outside the hub page.
 2. The render stays in sync with the bounce within one frame from the start to the end of the song (checked with claps, as in Track A's acceptance test).
-3. The rendered colour matches the browser preview (side-by-side stills, no visible difference).
+3. The rendered look matches the browser preview (side-by-side stills, no visible difference).
 4. Ingest of a real session with `-c copy` keeps every frame's time and passes verify (if section 1 is accepted).
 5. REC or LIVE during a render pauses it at once without affecting the take, and the render then resumes.
 

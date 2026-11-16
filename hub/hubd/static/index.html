@@ -374,7 +374,7 @@ function camSteps(cs, paused) {
     return `<span class="st">○ ${name}</span>`;
   }).join("");
 }
-const isCam = c => c !== "recorded";       // Pi cameras (camN) and phones (their file ids)
+const isCam = c => c !== "recorded" && c !== "audio";   // Pi cameras (camN) and phones (their file ids); "audio" is the songs and hub mic
 function roughTxt(v) {          // stretches to avoid in an edit (dropped frames), from ingest
   const r = v && v.rough;
   if (!r || !r.length) return "";
@@ -478,7 +478,9 @@ function audioTxt(id, t) {
     }
     return x;
   });
-  if (a.scratch) parts.push(`hub mic ${fmtDur(a.scratch.seconds)}` + (a.scratch.problems.length ? ` <span class="bad">⚠ ${esc(a.scratch.problems[0])}</span>` : ""));
+  if (a.scratch) parts.push(`🎙 hub mic recorded ${fmtDur(a.scratch.seconds)}` +
+    (a.scratch.on_drive ? ' <span class="good">on drive</span>' : " · waiting for ingest") +
+    (a.scratch.problems.length ? ` <span class="bad">⚠ ${esc(a.scratch.problems[0])}</span>` : ""));
   const btn = t.recorded ? `<button class="addaudio" data-audio="${esc(id)}">♪ Add audio</button>` : "";
   return parts.length || btn ? `<div class="audio">${parts.join(" · ")} ${btn}</div>${blocks.join("")}` : "";
 }

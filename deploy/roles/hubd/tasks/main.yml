@@ -78,6 +78,7 @@
       static_dir: /opt/hubd/static
       state_dir: /var/lib/hubd
       lamp: "{{ hubd_lamp }}"
+      scratch: "{{ hubd_scratch }}"
   notify: Restart hubd
 
 - name: hubd systemd unit

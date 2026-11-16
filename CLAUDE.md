@@ -30,7 +30,7 @@ Start by writing a Phase 3 plan in `docs/phase3-plan.md` and get my OK before bu
   - It writes to temporary names and renames when done, and checks the filesystem on plug-in.
   - The hub never deletes from the drive.
 - **Phone cameras** (user decisions 2026-11-15, `docs/phone-plan.md`): Pixel phones join offline takes from a page on the hub (browser, no app; camera access through a one-off Chrome flag, no HTTPS). Ready phones record on the hub's REC/STOP; phones never block REC. Chunks upload live to the hub's SD card during the take. One capture-delay correction per model (default −40 ms); one tested phone stands for all, so no per-phone tests. Dropped frames, on phones and Pi cameras alike, are tolerated: marked as rough sections, not fixed.
-- **Editing** (user decision 2026-11-15): our own editor. The plan is a custom editor with an agent that listens to the music, analyses the video and proposes cut points, plus a simple timeline UI to pick which camera is on at each point. Everything the rig produces (timecode, manifests, `gaps`, rough sections, bounce sync) is data for that editor; nothing targets a commercial editor's formats. Plan: `docs/editor-plan.md` (accepted 2026-11-16): web editor on the hub, rule-based automatic cut first (agent later), basic colour per camera, hub renders a YouTube master; a vertical story version is a maybe.
+- **Editing** (user decision 2026-11-15): our own editor. The plan is a custom editor with an agent that listens to the music, analyses the video and proposes cut points, plus a simple timeline UI to pick which camera is on at each point. Everything the rig produces (timecode, manifests, `gaps`, rough sections, bounce sync) is data for that editor; nothing targets a commercial editor's formats. Plan: `docs/editor-plan.md` (accepted 2026-11-16): web editor on the hub, rule-based automatic cut first (agent later), one look per song (filters and effects with a strength, Instagram-style; camera matching automatic from the card readings), a short dissolve at every cut, hub renders a YouTube master; a vertical story version is a maybe.
 - **Audio sync:** a clap or slate by default. LTC from the hub is Phase 4 and optional.
 - **Network:** cameras on their own 2.4 GHz channel. Wi-Fi power saving off on the nodes.
 
@@ -52,6 +52,8 @@ Start by writing a Phase 3 plan in `docs/phase3-plan.md` and get my OK before bu
 ## Stack
 
 Python 3 from Raspberry Pi OS, a lightweight HTTP service for the node agent and hub API, plain HTML and JS for the hub UI (no build step), systemd for services, Ansible for provisioning.
+
+The editor (user decision 2026-11-16, `docs/editor-plan.md`) uses Preact with `htm`: copied into the repo and pinned like mp4box.js, still no build step. It gets its own design system (CSS tokens plus a few components of our own) and type checking with JSDoc and `tsc --checkJs` on the Mac. The hub's other pages stay plain JS.
 
 ## Working rules
 

@@ -26,7 +26,17 @@ import subprocess
 import threading
 import time
 
-DEFAULT_SCRATCH = {"enabled": True, "device": None, "rate": 48000, "channels": 1, "block_ms": 100}
+DEFAULT_SCRATCH = {"enabled": True, "device": None, "rate": 48000, "channels": 1, "block_ms": 100,
+                   # Mixer controls set (amixer sset) before every recording, e.g. {"Mic": 6,
+                   # "Auto Gain Control": "off"}: a fixed level, so claps never clip and the level
+                   # doesn't wander during a take. Names are the mic's own (amixer -c N scontrols).
+                   "mixer": {}}
+
+
+def card_of(dev):
+    """ALSA card (name or number) of a device string like plughw:CARD=Device,DEV=0 or hw:2,0."""
+    m = re.search(r"CARD=([^,]+)", dev or "") or re.match(r"^(?:plug)?hw:(\w+)", dev or "")
+    return m.group(1) if m else None
 
 
 def find_usb_mic(proc="/proc/asound"):
@@ -65,9 +75,12 @@ def finish_wav(part, final, rate, channels):
 
 
 class Scratch:
-    def __init__(self, cfg, root, log, clock_ns=time.time_ns, popen=subprocess.Popen, find_device=find_usb_mic):
+    def __init__(self, cfg, root, log, clock_ns=time.time_ns, popen=subprocess.Popen, find_device=find_usb_mic,
+                 run=subprocess.run):
         self.cfg = dict(DEFAULT_SCRATCH, **(cfg or {}))
         self.root, self.log, self.clock_ns, self.popen, self.find_device = root, log, clock_ns, popen, find_device
+        self.run = run
+        self.stopping = False
         self.lock = threading.Lock()
         self.proc = self.thread = None
         self.take_id = self.error = None
@@ -77,6 +90,19 @@ class Scratch:
 
     def device(self):
         return self.cfg["device"] or self.find_device()
+
+    def set_mixer(self, dev):
+        """Apply cfg["mixer"] to dev's card. Returns problems (never raises)."""
+        card, problems = card_of(dev), []
+        for name, val in (self.cfg.get("mixer") or {}).items():
+            try:
+                r = self.run(["amixer", "-q", "-c", str(card), "sset", name, str(val)],
+                             capture_output=True, text=True, timeout=3)
+                if r.returncode:
+                    problems.append("mixer %s=%s: %s" % (name, val, (r.stderr or "").strip()[-120:]))
+            except Exception as e:  # noqa: BLE001
+                problems.append("mixer %s=%s: %s" % (name, val, e))
+        return problems
 
     def dir(self, take_id):
         return os.path.join(self.root, take_id, "scratch")
@@ -103,16 +129,20 @@ class Scratch:
                     return
                 d = self.dir(take_id)
                 os.makedirs(d, exist_ok=True)
+                mixer_problems = self.set_mixer(dev)
+                for p in mixer_problems:
+                    self.log("scratch: " + p)
                 r, c = self.cfg["rate"], self.cfg["channels"]
                 cmd = ["arecord", "-q", "-D", dev, "-f", "S16_LE", "-r", str(r), "-c", str(c), "-t", "raw",
                        "--period-time=10000", "--buffer-time=500000"]
                 # stderr to a file: a long take's overrun messages could fill a pipe and stall arecord
                 self.errlog = open(os.path.join(d, "arecord.log"), "wb")
                 self.proc = self.popen(cmd, stdout=subprocess.PIPE, stderr=self.errlog)
-                self.take_id, self.error, self.samples = take_id, None, 0
+                self.take_id, self.error, self.samples, self.stopping = take_id, None, 0, False
                 self.started_ns = self.clock_ns()
                 self.meta = {"take_id": take_id, "device": dev, "rate": r, "channels": c, "format": "S16_LE",
-                             "started_ns": self.started_ns, "command": cmd, "problems": []}
+                             "started_ns": self.started_ns, "command": cmd, "mixer": dict(self.cfg.get("mixer") or {}),
+                             "problems": list(mixer_problems)}
                 self.thread = threading.Thread(target=self._run, args=(d,), daemon=True)
                 self.thread.start()
             self.log("scratch: recording take %s from %s" % (take_id, dev))
@@ -150,7 +180,8 @@ class Scratch:
         except OSError:
             err = ""
         with self.lock:
-            if code not in (0, -15, 143) and self.take_id:
+            # arecord exits with 1 when it's stopped with SIGTERM: only a stop we didn't ask for is a problem
+            if code not in (0, -15, 143) and self.take_id and not self.stopping:
                 self.error = "arecord stopped (code %s): %s" % (code, err[-200:])
                 self.meta["problems"].append(self.error)
                 self.log("scratch: %s" % self.error)
@@ -163,6 +194,7 @@ class Scratch:
             proc, thread, take = self.proc, self.thread, self.take_id
         if thread is None:
             return None
+        self.stopping = True
         try:
             proc.terminate()
         except OSError:

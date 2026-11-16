@@ -37,7 +37,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import render  # noqa: E402
 
-VERSION = "0.6.1"
+VERSION = "0.6.2"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -465,7 +465,9 @@ class Ingest:
     def rig_busy(self):
         st = self.rig_status()
         busy = st is None or st.get("state") != "idle" or any(
-            (n.get("status") or {}).get("mode") not in (None, "idle") for n in st.get("nodes", {}).values())
+            # "snapshot": a still for focus help or the calibration watcher (every 15 s while a hub
+            # page is open). It doesn't touch the files ingest pulls, so it mustn't pause ingest.
+            (n.get("status") or {}).get("mode") not in (None, "idle", "snapshot") for n in st.get("nodes", {}).values())
         if busy:
             self.last_busy = self.clock()
         return busy
