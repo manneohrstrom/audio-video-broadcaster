@@ -103,6 +103,7 @@ It runs right after a bounce is synced, so the cut is ready the first time the u
 
 **Mock-up feedback (user, 2026-11-16), changes the above:**
 - **Choosing a camera is press, drag, release** on a camera's strip: where you press is the start, you drag left or right, and where you release is the end. That camera is shown for exactly that stretch; before and after it, the cut stays as it was (the camera that was on before comes back at the end). This replaces "click = this camera from here until the next cut". The user found the click model hard to judge; the mock-up gets drag-select next, before more usability judgement.
+- **Slide a section of the cut** (user, 2026-11-16): on a camera's strip, press inside a stretch that's in the cut and drag to nudge it left or right, keeping its length; the shots either side give way (down to 0.2 s). Its edges resize it (the same as dragging the cut handles on the program strip). Built in mock-up v3.
 - **A splitter between the video (top) and the timeline (bottom)**, dragged up and down, in both steps; the video window is sizeable in both.
 - **Zoom is a horizontal slider**, not − / + buttons.
 - The rest of the layout: "really great".

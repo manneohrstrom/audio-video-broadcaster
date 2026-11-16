@@ -321,6 +321,7 @@ const S = {
   look: { filter: "normal", strength: {}, effects: {} },
   dissolve: 0.3, toast: null,
   sel: null,                    // a drag on a camera strip: {cam, t0, t1, x0, moved}
+  move: null,                   // sliding a section of the cut on its camera strip: {i, t0, a0, b0, moved}
   topH: null,                   // splitter: height of the video area (px)
 };
 try { const v = +localStorage.getItem("mc-top-h"); if (v > 100) S.topH = v; } catch (e) {}
@@ -369,6 +370,29 @@ function applyRange(cam, a, b) {
   if (a < cam.from || b > cam.to) toast(`${cam.name} only recorded ${fmt(cam.from)}–${fmt(cam.to)}: it's black outside that`);
   else if (roughIn(cam, a, b)) toast(`${cam.name} dropped frames in this stretch: it may stutter (striped)`);
   bump();
+}
+// On a camera strip, over a section that's in the cut: its edges resize it (they're the
+// cuts), the middle slides the whole section left or right, keeping its length.
+function shotAt(cam, t, x) {
+  const X = tt => (tt - S.view0) * S.pps;
+  for (let i = 0; i < S.cuts.length; i++) {
+    if (S.cuts[i].cam !== cam.id) continue;
+    const a = S.cuts[i].t, b = segEnd(i);
+    if (t < a - 7 / S.pps || t > b + 7 / S.pps) continue;
+    if (i > 0 && Math.abs(x - X(a)) < 7) return { kind: "edge", cut: i };
+    if (i + 1 < S.cuts.length && Math.abs(x - X(b)) < 7) return { kind: "edge", cut: i + 1 };
+    if (t >= a && t < b) return { kind: "body", i };
+  }
+  return null;
+}
+function slideLimits(i, a0, b0) {
+  const n = S.cuts.length, last = i + 1 >= n;
+  let lo = -Infinity, hi = Infinity;
+  if (i > 0) lo = Math.max(lo, S.cuts[i - 1].t + 0.2 - a0);           // the shot before keeps 0.2 s
+  if (!last) hi = Math.min(hi, (i + 2 < n ? S.cuts[i + 2].t : DUR) - 0.2 - b0);   // the shot after too
+  if (i === 0) lo = Math.max(lo, 0.2 - b0);                           // first shot: only its end moves
+  if (last) hi = Math.min(hi, DUR - 0.2 - a0);                        // last shot: only its start moves
+  return [lo, hi];
 }
 function deleteCut(i) { if (i <= 0 || i >= S.cuts.length) return; snapshot(); S.cuts.splice(i, 1); normalize(); S.selCut = -1; bump(); }
 
@@ -579,6 +603,10 @@ function drawTimeline(tl) {
       for (const [a, b] of [[0, cam.from], [cam.to, DUR]]) if (b > a) { const xa = X(a), xb = X(b); g.fillStyle = "#0e0d11"; g.fillRect(xa, L.y, xb - xa, L.h); hatch(g, xa, L.y, xb - xa, L.h, "rgba(255,255,255,0.07)"); }
       for (const [a, b] of cam.rough) { const xa = X(a), xb = X(b); g.fillStyle = "rgba(19,18,23,0.5)"; g.fillRect(xa, L.y, xb - xa, L.h); hatch(g, xa, L.y, xb - xa, L.h, "rgba(255,255,255,0.35)", 5); }
       for (const s of segs) if (s.cam === cam) { const xa = X(s.a), xb = X(s.b); g.strokeStyle = cam.hex; g.lineWidth = 2; g.strokeRect(xa + 1, L.y + 1, xb - xa - 2, L.h - 2); g.fillStyle = cam.hex; g.fillRect(xa, L.y + L.h - 4, xb - xa, 4); }
+      if (S.move && S.cuts[S.move.i] && S.cuts[S.move.i].cam === cam.id) {
+        const xa = X(S.cuts[S.move.i].t), xb = X(segEnd(S.move.i));
+        g.strokeStyle = "#f4efe6"; g.lineWidth = 3; g.strokeRect(xa + 1.5, L.y + 1.5, xb - xa - 3, L.h - 3);
+      }
       if (S.sel && S.sel.moved && S.sel.cam === cam) {
         const xa = X(Math.min(S.sel.t0, S.sel.t1)), xb = X(Math.max(S.sel.t0, S.sel.t1));
         g.fillStyle = cam.hex + "66"; g.fillRect(xa, L.y, xb - xa, L.h);
@@ -744,6 +772,14 @@ function Timeline({ kind }) {
         const nt = clamp(t, lo, hi); if (Math.abs(nt - S.cuts[i].t) > 1e-4) S.drag.moved = true;
         S.cuts[i] = { ...S.cuts[i], t: nt, by: "you" }; if (!S.playing) S.playhead = nt + 0.001; return;
       }
+      if (S.move) {
+        const m = S.move, [lo, hi] = slideLimits(m.i, m.a0, m.b0), d = clamp(t - m.t0, lo, hi);
+        if (Math.abs(x - m.x0) > 3) m.moved = true;
+        if (m.i > 0) S.cuts[m.i] = { ...S.cuts[m.i], t: m.a0 + d, by: "you" };
+        if (m.i + 1 < S.cuts.length) S.cuts[m.i + 1] = { ...S.cuts[m.i + 1], t: m.b0 + d, by: "you" };
+        if (!S.playing) S.playhead = S.cuts[m.i].t + 0.001;
+        S.hover = { tl, t, x, lane }; S.skim = null; return;
+      }
       if (S.sel) {
         S.sel.t1 = t; if (Math.abs(x - S.sel.x0) > 4) S.sel.moved = true;
         S.hover = { tl, t, x, lane }; S.skim = { cam: S.sel.cam, t }; return;
@@ -752,7 +788,8 @@ function Timeline({ kind }) {
       const hi = handleAt(x, lane);
       S.hover = { tl, t, x, lane, handle: hi };
       S.skim = lane && lane.type !== "ruler" ? { cam: lane.type === "cam" ? lane.cam : null, t } : (lane ? { cam: null, t } : null);
-      c.style.cursor = hi > 0 ? "ew-resize" : lane && lane.type === "cam" ? "crosshair" : "default";
+      const sec = lane && lane.type === "cam" ? shotAt(lane.cam, t, x) : null;
+      c.style.cursor = hi > 0 || (sec && sec.kind === "edge") ? "ew-resize" : sec ? "grab" : lane && lane.type === "cam" ? "crosshair" : "default";
     }
     function down(e) {
       if (e.button !== 0) return;
@@ -760,11 +797,26 @@ function Timeline({ kind }) {
       const { x, y } = local(e), t = tAt(x), lane = laneAt(y);
       const hi = handleAt(x, lane);
       if (hi > 0) { snapshot(); S.drag = { i: hi, moved: false }; S.selCut = hi; bump(); return; }
-      if (lane && lane.type === "cam") { S.sel = { cam: lane.cam, t0: t, t1: t, x0: x, moved: false }; S.selCut = -1; return; }
+      if (lane && lane.type === "cam") {
+        const sec = shotAt(lane.cam, t, x);
+        if (sec && sec.kind === "edge") { snapshot(); S.drag = { i: sec.cut, moved: false }; S.selCut = sec.cut; c.style.cursor = "ew-resize"; bump(); return; }
+        if (sec) { snapshot(); S.move = { i: sec.i, t0: t, x0: x, a0: S.cuts[sec.i].t, b0: segEnd(sec.i), moved: false }; S.selCut = -1; c.style.cursor = "grabbing"; return; }
+        S.sel = { cam: lane.cam, t0: t, t1: t, x0: x, moved: false }; S.selCut = -1; return;
+      }
       S.scrubbing = true; S.wasPlaying = S.playing; if (S.playing) pause();
       S.playhead = t; S.selCut = -1; bump();
     }
     function up(e) {
+      if (S.move) {
+        const m = S.move; S.move = null;
+        if (!m.moved) { S.undo.pop(); setPlayhead(m.t0); }
+        else {
+          normalize();
+          const sc = CMAP[(S.cuts[m.i] || {}).cam];
+          if (sc && (S.cuts[m.i].t < sc.from || segEnd(m.i) > sc.to)) toast(`${sc.name} only recorded ${fmt(sc.from)}–${fmt(sc.to)}: it's black outside that`);
+        }
+        bump(); return;
+      }
       if (S.sel) {
         const sel = S.sel; S.sel = null;
         if (sel.moved) { applyRange(sel.cam, Math.min(sel.t0, sel.t1), Math.max(sel.t0, sel.t1)); setPlayhead(Math.min(sel.t0, sel.t1)); }
@@ -774,7 +826,7 @@ function Timeline({ kind }) {
       if (S.drag) { if (!S.drag.moved) S.undo.pop(); else normalize(); S.drag = null; bump(); }
       if (S.scrubbing) { S.scrubbing = false; if (S.wasPlaying) play(); }
     }
-    function leave() { if (!S.drag && !S.scrubbing && !S.sel) { S.hover = null; S.skim = null; } }
+    function leave() { if (!S.drag && !S.scrubbing && !S.sel && !S.move) { S.hover = null; S.skim = null; } }
     function wheel(e) {
       e.preventDefault();
       if (e.ctrlKey || e.metaKey) { zoomAround(Math.exp(-e.deltaY * 0.01), tAt(local(e).x)); return; }
@@ -850,7 +902,7 @@ function Footer() {
     <span class="mock">Mock-up: made-up pictures and music</span>
     <label for="dissolve">Dissolve <input id="dissolve" type="range" min="0" max="0.8" step="0.05" value=${S.dissolve} onInput=${e => { S.dissolve = +e.target.value; bump(); }}/><output>${S.dissolve.toFixed(2)} s</output></label>
     ${S.step === "cut" && html`<button class="btn small" onClick=${resetAuto}>Back to the automatic cut</button>`}
-    <span class="keys"><kbd>space</kbd> play · drag on a camera to use it there · <kbd>1</kbd>–<kbd>5</kbd> camera from the playhead · <kbd>←</kbd><kbd>→</kbd> frame · <kbd>⌫</kbd> remove cut · <kbd>⌘Z</kbd> undo · pinch or <kbd>⌘</kbd>+scroll to zoom</span>
+    <span class="keys"><kbd>space</kbd> play · drag on a camera to use it there · drag a section to slide it · <kbd>1</kbd>–<kbd>5</kbd> camera from the playhead · <kbd>←</kbd><kbd>→</kbd> frame · <kbd>⌫</kbd> remove cut · <kbd>⌘Z</kbd> undo · pinch or <kbd>⌘</kbd>+scroll to zoom</span>
   </footer>`;
 }
 
