@@ -36,8 +36,9 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import render  # noqa: E402
+import thumbnails  # noqa: E402
 
-VERSION = "0.7.0"
+VERSION = "0.8.1"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -90,6 +91,8 @@ DEFAULT_CONFIG = {
     "quick_shot_s": 10.0,       # quick mix (render.py): a new camera this often
     # Automatic bounce sync (audiosync.py): settings passed through, e.g. {"mic_latency_s": 0.074}.
     "sync": {},
+    # Strip thumbnails for the editor's timeline (thumbnails.py), on the hub's SD card.
+    "thumbs_dir": "/var/lib/hubd/thumbs",
 }
 TAKE_RE = re.compile(r"^\d{8}-\d{6}$")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -573,6 +576,8 @@ class Ingest:
                 self.queue_render(doc)
             elif c == "sync":
                 self.queue_sync(doc)
+            elif c == "thumbs":              # the editor opened a take without thumbnails: don't wait 30 min
+                self.manual = True
             elif c == "start":
                 self.manual = True
             elif c == "eject":
@@ -858,6 +863,50 @@ class Ingest:
         self.state["audio"].setdefault(take_id, {})[rel] = {
             "size": size, "mtime_ns": mtime_ns, "sha256": sha, "path": dst}
         self.save()
+
+    # -- strip thumbnails for the editor (thumbnails.py)
+    @contextlib.contextmanager
+    def reading_drive(self):
+        """Keep the drive mounted (read-only unless a write is going on) while reading it."""
+        with self.drive_lock:
+            if not self.drive.present() or not self.drive.check():
+                raise RuntimeError("STUDIO drive not available")
+            self.rendering = True                 # the drive keeper leaves it mounted meanwhile
+            if not self.writing_n:
+                self.drive.mount(rw=False)
+        try:
+            yield
+        finally:
+            with self.drive_lock:
+                self.rendering = False
+
+    def thumbnails_pending(self):
+        """(take, camera) pairs of ingested takes that have no thumbnails yet."""
+        failed = self.state.get("thumbs_failed") or {}
+        out = []
+        for take_id, take in sorted((self.state.get("takes") or {}).items()):
+            if not take.get("complete"):
+                continue
+            for camera_id in sorted(k for k, v in take.items() if isinstance(v, dict) and "frames_cam" in v):
+                key = "%s/%s" % (take_id, camera_id)
+                out_dir = os.path.join(self.cfg["thumbs_dir"], take_id, camera_id)
+                if key not in failed and not thumbnails.have_thumbnails(out_dir):
+                    out.append((take_id, camera_id))
+        return out
+
+    def make_thumbnails(self, pending):
+        """Make thumbnails for each pending camera; pauses (raises) when the rig gets busy."""
+        with self.reading_drive():
+            for take_id, camera_id in pending:
+                if self.rig_busy():
+                    raise Paused()
+                mov = os.path.join(self.take_folder(take_id), camera_id + ".mov")
+                out_dir = os.path.join(self.cfg["thumbs_dir"], take_id, camera_id)
+                try:
+                    thumbnails.make_thumbnails(mov, out_dir)
+                except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as e:
+                    self.state.setdefault("thumbs_failed", {})["%s/%s" % (take_id, camera_id)] = str(e)[-300:]
+                self.save()
 
     # -- automatic bounce sync (Phase 4 Track A, audiosync.py)
     def queue_sync(self, doc):
@@ -1245,7 +1294,8 @@ class Ingest:
             self.register(todo)
             audio = self.audio_pending()
             renders = self.renders_ready()
-            if not todo and not audio and not renders:
+            thumbs = self.thumbnails_pending()
+            if not todo and not audio and not renders and not thumbs:
                 self.manual = False
                 self.settle_drive()
                 self.save(status="idle: nothing to ingest")
@@ -1261,6 +1311,11 @@ class Ingest:
             if renders or self.renders_ready():   # a take ingested just now may have one waiting
                 self.save(status="ingesting", step="render")
                 self.run_renders()
+                self.save(step=None)
+            thumbs = self.thumbnails_pending()     # takes ingested just now too
+            if thumbs:
+                self.save(status="ingesting", step="thumbnails")
+                self.make_thumbnails(thumbs)
                 self.save(step=None)
             return "ingested"
         except Paused:

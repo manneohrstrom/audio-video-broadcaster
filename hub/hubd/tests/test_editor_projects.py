@@ -151,3 +151,29 @@ class ProjectTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WaveformTest(unittest.TestCase):
+    def test_peaks_from_the_bounce_and_cached(self):
+        import math
+        import struct
+        import wave
+        tmp = tempfile.mkdtemp()
+        audio = FakeAudio(os.path.join(tmp, "audio"))
+        path = os.path.join(audio.take_dir(TAKE), "track-1", "v1", "mix.wav")
+        with wave.open(path, "wb") as w:                      # 1 s silence, then 1 s loud
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(8000)
+            tone = [int(20000 * math.sin(2 * math.pi * 200 * i / 8000)) for i in range(8000)]   # 200 Hz
+            w.writeframes(struct.pack("<8000h", *([0] * 8000)) + struct.pack("<8000h", *tone))
+        projects = ep.EditorProjects(audio, read_take_document=lambda t: take_document(),
+                                     find_quick_edit=lambda *a: None, edits_dir=os.path.join(tmp, "edits"),
+                                     waveforms_dir=os.path.join(tmp, "waves"))
+        wf = projects.waveform(TAKE, "track-1", 1)
+        self.assertEqual(wf["rate"], 100)
+        self.assertAlmostEqual(len(wf["peaks"]), 200, delta=2)
+        self.assertLess(max(wf["peaks"][:90]), 5)
+        self.assertGreater(min(wf["peaks"][110:190]), 100)
+        os.remove(path)                                       # cached: no need for the file now
+        self.assertEqual(projects.waveform(TAKE, "track-1", 1), wf)

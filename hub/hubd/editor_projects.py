@@ -17,9 +17,11 @@ Where edits live: the working copy is saved on the hub's SD card while the user 
 with the render. When there is no working copy yet, the editor starts from the quick mix's
 cut if one was rendered, otherwise from the sync server camera alone.
 """
+import array
 import json
 import os
 import re
+import subprocess
 import time
 
 NS_PER_SECOND = 1_000_000_000
@@ -133,14 +135,22 @@ class EditorProjects:
     read_take_document(take_id): the take's take.json from the STUDIO drive (dict).
     find_quick_edit(take_id, song_id, version): the newest quick-mix edit for it, or None.
     edits_dir: where working copies are saved on the hub.
+    thumbs_dir: strip thumbnails made by hub-ingest (hub/ingest/thumbnails.py).
+    request_thumbnails(take_id): ask hub-ingest to make missing thumbnails now.
+    waveforms_dir: cached waveforms of bounces.
     """
 
-    def __init__(self, audio, read_take_document, find_quick_edit, edits_dir, clock=time.time):
+    def __init__(self, audio, read_take_document, find_quick_edit, edits_dir, thumbs_dir=None,
+                 request_thumbnails=None, waveforms_dir=None, clock=time.time, ffmpeg="ffmpeg"):
         self.audio = audio
         self.read_take_document = read_take_document
         self.find_quick_edit = find_quick_edit
         self.edits_dir = edits_dir
+        self.thumbs_dir = thumbs_dir or os.path.join(edits_dir, "..", "thumbs")
+        self.request_thumbnails = request_thumbnails or (lambda take_id: None)
+        self.waveforms_dir = waveforms_dir or os.path.join(edits_dir, "..", "waveforms")
         self.clock = clock
+        self.ffmpeg = ffmpeg
 
     # -- paths
     def _check_ids(self, take_id, song_id, version):
@@ -178,8 +188,15 @@ class EditorProjects:
         bounce_start_ns = int(sync["bounce_start_ns"])
         range_ns = song_range_ns(bounce_start_ns, version_info["duration_s"], cameras)
         edit, source = self._load_edit(take_id, song_id, version, cameras, range_ns)
+        missing_thumbnails = False
         for camera in cameras:
             camera["file_url"] = "/media/%s/%s.mov" % (take_id, camera["id"])
+            camera["thumbnails_url"] = "/media-thumbs/%s/%s/" % (take_id, camera["id"])
+            camera["thumbnails_ready"] = os.path.exists(
+                os.path.join(self.thumbs_dir, take_id, camera["id"], "index.json"))
+            missing_thumbnails = missing_thumbnails or not camera["thumbnails_ready"]
+        if missing_thumbnails:
+            self.request_thumbnails(take_id)
         return {
             "take_id": take_id,
             "song": {"id": song_id, "name": song["name"]},
@@ -188,6 +205,7 @@ class EditorProjects:
             "cameras": cameras,
             "bounce": {
                 "url": "/media-audio/%s/%s/v%d" % (take_id, song_id, version),
+                "waveform_url": "/api/editor/%s/%s/v%d/waveform" % (take_id, song_id, version),
                 "start_ns": bounce_start_ns,
                 "duration_s": version_info["duration_s"],
                 "file_name": version_info["filename"],
@@ -227,6 +245,39 @@ class EditorProjects:
         return {"version": EDIT_FORMAT_VERSION, "take": take_id, "song": song_id, "song_version": version,
                 "range_ns": range_ns, "cuts": cuts, "look": None, "dissolve_s": 0.3,
                 "outputs": ["youtube"], "made_by": made_by, "notes": []}
+
+    # -- the bounce's waveform
+    WAVEFORM_RATE = 100           # peaks per second
+    DECODE_RATE = 4000            # enough to see the shape of the music
+
+    def waveform(self, take_id, song_id, version):
+        """{"rate": 100, "peaks": [0..255, ...]}: the bounce's loudest sample per 10 ms,
+        made once with ffmpeg and cached (a 1-hour bounce takes a few seconds)."""
+        self._check_ids(take_id, song_id, version)
+        cache = os.path.join(self.waveforms_dir, take_id, "%s-v%d.json" % (song_id, version))
+        try:
+            with open(cache) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            pass
+        _, version_info, _ = self._song_and_version(take_id, song_id, version)
+        source = os.path.join(self.audio.take_dir(take_id), song_id, "v%d" % version, version_info["filename"])
+        raw = subprocess.run([self.ffmpeg, "-nostdin", "-v", "error", "-i", source, "-ac", "1",
+                              "-ar", str(self.DECODE_RATE), "-f", "s16le", "-"], capture_output=True, check=True).stdout
+        samples = array.array("h")
+        samples.frombytes(raw[:len(raw) // 2 * 2])
+        per_peak = self.DECODE_RATE // self.WAVEFORM_RATE
+        peaks = []
+        for start in range(0, len(samples), per_peak):
+            chunk = samples[start:start + per_peak]
+            loudest = max(max(chunk), -min(chunk)) if chunk else 0
+            peaks.append(min(255, loudest * 255 // 32767))
+        result = {"rate": self.WAVEFORM_RATE, "peaks": peaks}
+        os.makedirs(os.path.dirname(cache), exist_ok=True)
+        with open(cache + ".tmp", "w") as f:
+            json.dump(result, f, separators=(",", ":"))
+        os.replace(cache + ".tmp", cache)
+        return result
 
     # -- saving
     def save_edit(self, take_id, song_id, version, edit):

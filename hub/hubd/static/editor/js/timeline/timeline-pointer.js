@@ -1,0 +1,146 @@
+// Mouse (pointer) gestures on the timeline canvas. The gesture in progress lives in
+// store.gesture so the drawing can show it:
+//
+//   on a camera strip, empty part:   press-drag-release  -> { kind: "select" }  that camera for the stretch
+//   on a camera strip, a shot's body: drag               -> { kind: "slide" }   the shot slides, same length
+//   on a shot's edge, or a cut handle on the program strip -> { kind: "moveCut" }
+//   anywhere else (ruler, program, waveform)             -> { kind: "scrub" }   moves the playhead
+//   a plain click on a camera strip just moves the playhead.
+//   wheel: scroll sideways; pinch or Ctrl/Cmd + wheel: zoom around the mouse.
+import * as EditModel from "../edit-model.js";
+import { laneAt, cutHandleAt, shotPartAt } from "./timeline-drawing.js";
+
+const DRAG_THRESHOLD_PIXELS = 4;
+
+export function attachTimelinePointer(canvas, store, getLanes, transport) {
+  const localPoint = event => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  };
+
+  function onMove(event) {
+    const { x, y } = localPoint(event);
+    const seconds = store.secondsAtX(x);
+    const lane = laneAt(getLanes(), y);
+    const gesture = store.gesture;
+    if (gesture) {
+      if (Math.abs(x - gesture.startX) > DRAG_THRESHOLD_PIXELS) gesture.moved = true;
+      if (gesture.kind === "select") {
+        gesture.currentSeconds = seconds;
+        store.hover = { seconds, x, lane: gesture.lane, skimCamera: gesture.camera };
+      } else if (gesture.kind === "slide") {
+        store.cuts = EditModel.slideShot(gesture.originalCuts, gesture.shotIndex, seconds - gesture.startSeconds, store.songSeconds);
+        if (!store.isPlaying) store.playheadSeconds = store.cuts[gesture.shotIndex].atSeconds + 0.001;
+      } else if (gesture.kind === "moveCut") {
+        store.cuts = EditModel.moveCut(gesture.originalCuts, gesture.cutIndex, seconds, store.songSeconds);
+        if (!store.isPlaying) store.playheadSeconds = store.cuts[gesture.cutIndex].atSeconds + 0.001;
+      } else if (gesture.kind === "scrub") {
+        store.playheadSeconds = seconds;
+      }
+      return;
+    }
+    const cutHandle = lane?.type === "program" ? cutHandleAt(store, x) : -1;
+    const shotPart = lane?.type === "camera" ? shotPartAt(store, lane.camera, x) : null;
+    store.hover = { seconds, x, lane, cutHandle, skimCamera: lane?.type === "camera" ? lane.camera : null };
+    canvas.style.cursor = cutHandle > 0 || shotPart?.kind === "edge" ? "ew-resize"
+      : shotPart ? "grab" : lane?.type === "camera" ? "crosshair" : "default";
+  }
+
+  function onDown(event) {
+    if (event.button !== 0) return;
+    canvas.setPointerCapture(event.pointerId);
+    const { x, y } = localPoint(event);
+    const seconds = store.secondsAtX(x);
+    const lane = laneAt(getLanes(), y);
+    const base = { startX: x, startSeconds: seconds, moved: false, lane };
+    store.selectedCutIndex = -1;
+
+    const cutHandle = lane?.type === "program" ? cutHandleAt(store, x) : -1;
+    if (cutHandle > 0) {
+      store.gesture = { ...base, kind: "moveCut", cutIndex: cutHandle, originalCuts: store.cuts };
+      store.selectedCutIndex = cutHandle;
+      store.notify();
+      return;
+    }
+    if (lane?.type === "camera") {
+      const part = shotPartAt(store, lane.camera, x);
+      if (part?.kind === "edge") {
+        store.gesture = { ...base, kind: "moveCut", cutIndex: part.cutIndex, originalCuts: store.cuts };
+        store.selectedCutIndex = part.cutIndex;
+      } else if (part) {
+        store.gesture = { ...base, kind: "slide", shotIndex: part.shotIndex, originalCuts: store.cuts };
+        canvas.style.cursor = "grabbing";
+      } else {
+        store.gesture = { ...base, kind: "select", camera: lane.camera, currentSeconds: seconds };
+      }
+      store.notify();
+      return;
+    }
+    store.gesture = { ...base, kind: "scrub", wasPlaying: store.isPlaying };
+    if (store.isPlaying) transport.pause();
+    store.playheadSeconds = seconds;
+    store.notify();
+  }
+
+  function onUp() {
+    const gesture = store.gesture;
+    if (!gesture) return;
+    store.gesture = null;
+    if (gesture.kind === "select") {
+      if (gesture.moved) {
+        const start = Math.min(gesture.startSeconds, gesture.currentSeconds);
+        const end = Math.max(gesture.startSeconds, gesture.currentSeconds);
+        store.chooseCameraForStretch(gesture.camera, start, end);
+        transport.seek(start);
+      } else {
+        transport.seek(gesture.startSeconds);            // a plain click: just move the playhead
+      }
+    } else if (gesture.kind === "slide" || gesture.kind === "moveCut") {
+      const changed = store.cuts;
+      store.cuts = gesture.originalCuts;
+      if (gesture.moved) {
+        store.beginChange();
+        const shot = gesture.kind === "slide" ? gesture.shotIndex : gesture.cutIndex;
+        const camera = store.camerasById.get(changed[shot].cameraId);
+        store.setCuts(EditModel.normalize(changed), {
+          warnAbout: { camera, start: changed[shot].atSeconds, end: EditModel.shotEnd(changed, shot, store.songSeconds) } });
+      } else if (gesture.kind === "slide") {
+        transport.seek(gesture.startSeconds);
+      }
+    } else if (gesture.kind === "scrub" && gesture.wasPlaying) {
+      transport.play();
+    }
+    store.notify();
+  }
+
+  function onLeave() {
+    if (!store.gesture) store.hover = null;
+  }
+
+  function onWheel(event) {
+    event.preventDefault();
+    const { x } = localPoint(event);
+    if (event.ctrlKey || event.metaKey) {
+      store.zoomTo(store.pixelsPerSecond * Math.exp(-event.deltaY * 0.01), store.secondsAtX(x));
+      return;
+    }
+    const sideways = event.deltaX !== 0 ? event.deltaX : event.deltaY;
+    store.scrollBy(sideways / store.pixelsPerSecond);
+    if (store.hover) store.hover.seconds = store.secondsAtX(store.hover.x);
+  }
+
+  canvas.addEventListener("pointermove", onMove);
+  canvas.addEventListener("pointerdown", onDown);
+  canvas.addEventListener("pointerup", onUp);
+  canvas.addEventListener("pointercancel", onUp);
+  canvas.addEventListener("pointerleave", onLeave);
+  canvas.addEventListener("wheel", onWheel, { passive: false });
+  return () => {
+    canvas.removeEventListener("pointermove", onMove);
+    canvas.removeEventListener("pointerdown", onDown);
+    canvas.removeEventListener("pointerup", onUp);
+    canvas.removeEventListener("pointercancel", onUp);
+    canvas.removeEventListener("pointerleave", onLeave);
+    canvas.removeEventListener("wheel", onWheel);
+  };
+}

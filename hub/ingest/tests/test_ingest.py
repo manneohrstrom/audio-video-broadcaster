@@ -952,3 +952,29 @@ class SyncJobTest(Base):
         self.queue()
         self.queue()
         self.assertEqual(len(self.ing.state["syncs"]), 1)
+
+
+class ThumbnailStepTest(Base):
+    def test_ingested_takes_get_thumbnails_and_failures_are_not_retried(self):
+        self.ing.cfg["thumbs_dir"] = os.path.join(self.tmp, "thumbs")
+        self.rig.add_take("cam1")
+        self.rig.add_take("cam2")
+        made = []
+
+        def fake_make(mov, out_dir):
+            made.append(os.path.basename(mov))
+            if "cam2" in mov:
+                raise RuntimeError("no keyframes")
+            os.makedirs(out_dir)
+            with open(os.path.join(out_dir, "index.json"), "w") as f:
+                f.write("{}")
+        orig = ingest.thumbnails.make_thumbnails
+        ingest.thumbnails.make_thumbnails = fake_make
+        try:
+            self.command("start")
+            self.assertEqual(self.ing.tick(), "ingested")
+            self.assertEqual(sorted(made), ["cam1.mov", "cam2.mov"])
+            self.assertEqual(self.ing.thumbnails_pending(), [])          # cam2 failed: not retried
+            self.assertIn("%s/cam2" % TAKE, self.ing.state["thumbs_failed"])
+        finally:
+            ingest.thumbnails.make_thumbnails = orig

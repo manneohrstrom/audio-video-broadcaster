@@ -33,6 +33,13 @@
     mode: "0644"
   notify: Restart hub-ingest
 
+- name: hub-ingest strip thumbnails for the editor
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/ingest/thumbnails.py"
+    dest: /opt/hub-ingest/thumbnails.py
+    mode: "0644"
+  notify: Restart hub-ingest
+
 - name: hub-ingest config
   ansible.builtin.copy:
     dest: /etc/hubd/ingest.json

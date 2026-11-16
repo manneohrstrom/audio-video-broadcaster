@@ -1,17 +1,17 @@
-// The editor page. For now (first step of M-E3): load the project, show the song and its
-// cameras, and play the bounce. The timeline, the video and the look follow.
-import { h } from "preact";
-import { useEffect, useState } from "preact/hooks";
-import htm from "htm";
+// The editor page, step 1 (the cut): header, video, transport, splitter, timeline, footer.
+// Loads the project from the hub, then hands one EditorStore to everything below.
+import { useEffect, useMemo, useState } from "preact/hooks";
+import { html } from "./html.js";
 import { loadProject } from "../api.js";
-import { formatSeconds, NS_PER_SECOND } from "../time-format.js";
-
-const html = htm.bind(h);
-
-/** Camera colours in camera order (styles/tokens.css). */
-export function cameraColour(index) {
-  return `var(--color-camera-${(index % 6) + 1})`;
-}
+import { EditorStore } from "../editor-store.js";
+import { Transport } from "../transport.js";
+import { CameraThumbnails } from "../media/thumbnails.js";
+import { attachKeyboard } from "../keyboard.js";
+import { VideoWindow } from "./VideoWindow.js";
+import { TransportBar } from "./TransportBar.js";
+import { Splitter, savedVideoHeight } from "./Splitter.js";
+import { Timeline } from "./Timeline.js";
+import { formatSeconds } from "../time-format.js";
 
 export function App({ takeId, songId, version }) {
   const [project, setProject] = useState(null);
@@ -23,30 +23,68 @@ export function App({ takeId, songId, version }) {
 
   if (problem) return html`<p class="message problem">Can't open this song: ${problem}</p>`;
   if (!project) return html`<p class="message">Opening the song…</p>`;
+  return html`<${Editor} project=${project} />`;
+}
 
-  const [rangeStart, rangeEnd] = project.range_ns;
-  const songSeconds = (rangeEnd - rangeStart) / NS_PER_SECOND;
+function Editor({ project }) {
+  const store = useMemo(() => new EditorStore(project), [project]);
+  const transport = useMemo(() => new Transport(store), [store]);
+  const [, rerender] = useState(0);
+  const [videoHeight, setVideoHeight] = useState(savedVideoHeight());
+  const [waveform, setWaveform] = useState(null);
+  const thumbnailsByCamera = useMemo(() => new Map(store.cameras.map(camera =>
+    [camera.id, new CameraThumbnails(camera.thumbnails_url, () => {})])), [store]);
+
+  useEffect(() => store.subscribe(() => rerender(n => n + 1)), [store]);
+  useEffect(() => attachKeyboard(store, transport), [store, transport]);
+  useEffect(() => {
+    fetch(project.bounce.waveform_url).then(r => (r.ok ? r.json() : null)).then(setWaveform).catch(() => {});
+    transport.player.load().catch(error => store.showToast(`The bounce didn't load: ${error.message}`));
+  }, [project]);
+  useEffect(() => {                                   // don't lose an edit when the tab closes
+    const flush = () => { if (store.saveState === "unsaved") store.saveNow(); };
+    window.addEventListener("beforeunload", flush);
+    return () => window.removeEventListener("beforeunload", flush);
+  }, [store]);
+
+  const saveLabel = { saved: "Saved", unsaved: "Not saved yet", saving: "Saving…", error: "Not saved" }[store.saveState];
   return html`
-    <div class="editor">
+    <div class="editor" style=${videoHeight ? { "--video-area-height": `${videoHeight}px` } : null}>
       <header class="editor-header">
         <div class="song-title">
           <strong>${project.song.name}</strong>
-          <span class="details">v${project.version} · take ${project.take_id} · ${formatSeconds(songSeconds)}</span>
+          <span class="details">v${project.version} · take ${project.take_id} · ${formatSeconds(store.songSeconds)}</span>
         </div>
-        <span></span>
-        <span></span>
+        <nav class="steps" aria-label="Steps">
+          <button aria-current="step"><span class="step-number">1</span>Cut</button>
+          <button disabled title="Step 2 comes after the cut is built"><span class="step-number">2</span>Look</button>
+        </nav>
+        <div class="header-actions">
+          <span class=${"save-state " + store.saveState} title=${store.saveProblem || ""}>${saveLabel}</span>
+          <button class="button" disabled=${!store.history.canUndo} onClick=${() => store.undo()} title="Undo (⌘Z)">Undo</button>
+          <button class="button" disabled=${!store.history.canRedo} onClick=${() => store.redo()} title="Redo (⇧⌘Z)">Redo</button>
+        </div>
       </header>
-      <main>
-        <p class="message">Edit: ${project.edit.cuts.length} shots (${project.edit_source}). Sync: ${project.bounce.sync.anchor || "by hand"}.</p>
-        <div class="camera-list">
-          ${project.cameras.map((camera, index) => html`
-            <div class="camera-row" key=${camera.id}>
-              <span class="camera-key" style=${{ background: cameraColour(index) }}>${index + 1}</span>
-              <strong>${camera.label}</strong>
-              <span class="details">${camera.kind === "phone" ? "phone" : "Pi camera"}${camera.is_sync_server ? " · sync server" : ""}</span>
-            </div>`)}
-        </div>
-        <audio controls src=${project.bounce.url}></audio>
-      </main>
+      <div class="video-area">
+        <${VideoWindow} store=${store} thumbnailsByCamera=${thumbnailsByCamera} />
+        <${TransportBar} store=${store} transport=${transport} />
+      </div>
+      <${Splitter} onResize=${setVideoHeight} />
+      <div class="below-splitter">
+        <${Timeline} store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />
+      </div>
+      <footer class="editor-footer">
+        <label for="dissolve">Dissolve
+          <input id="dissolve" type="range" min="0" max="0.8" step="0.05" value=${store.dissolveSeconds}
+                 onInput=${event => store.setDissolve(Number(event.target.value))} />
+          <output>${store.dissolveSeconds.toFixed(2)} s</output>
+        </label>
+        <span class="shortcuts">
+          drag on a camera to use it there · drag a shot to slide it · <kbd>space</kbd> play ·
+          <kbd>1</kbd>–<kbd>${store.cameras.length}</kbd> camera from the playhead · <kbd>←</kbd><kbd>→</kbd> frame ·
+          <kbd>⌫</kbd> remove cut · <kbd>⌘Z</kbd> undo
+        </span>
+      </footer>
+      ${store.toast && html`<div class="toast" role="status">${store.toast}</div>`}
     </div>`;
 }

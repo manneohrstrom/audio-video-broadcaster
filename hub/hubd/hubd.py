@@ -31,7 +31,7 @@ import phones  # noqa: E402
 import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 
-VERSION = "0.13.0"
+VERSION = "0.14.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -297,7 +297,10 @@ class Hub:
         # The editor (docs/editor-plan.md, M-E3): one song version at a time.
         self.editor = editor_projects.EditorProjects(
             self.audio, read_take_document=self.read_take_document, find_quick_edit=self.find_quick_edit,
-            edits_dir=os.path.join(cfg["state_dir"], "edits"))
+            edits_dir=os.path.join(cfg["state_dir"], "edits"),
+            thumbs_dir=os.path.join(cfg["state_dir"], "thumbs"),
+            waveforms_dir=os.path.join(cfg["state_dir"], "waveforms"),
+            request_thumbnails=lambda take_id: self.ingest_command("thumbs", take=take_id))
         self.scratch = scratch.Scratch(cfg.get("scratch"), adir, log)
 
     @property
@@ -1063,6 +1066,9 @@ class Handler(BaseHTTPRequestHandler):
     P_PHONE_MOUNT = re.compile(r"^/api/phone/([^/]+)/mount$")
     P_AUDIO = re.compile(r"^/api/audio/(\d{8}-\d{6})$")
     P_EDITOR = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})$")
+    P_EDITOR_WAVEFORM = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/waveform$")
+    # Strip thumbnails (hub-ingest's thumbnails.py): index.json and sheet-NNN.jpg per camera.
+    MEDIA_THUMBS = re.compile(r"^/media-thumbs/(\d{8}-\d{6})/([a-z0-9][a-z0-9-]{0,40})/(index\.json|sheet-\d{3}\.jpg)$")
     P_AUDIO_SONGS = re.compile(r"^/api/audio/(\d{8}-\d{6})/songs$")
     P_AUDIO_VERSIONS = re.compile(r"^/api/audio/(\d{8}-\d{6})/([a-z0-9-]+)/versions$")
     P_AUDIO_PIECE = re.compile(r"^/api/audio/(\d{8}-\d{6})/([a-z0-9-]+)/v(\d+)\?offset=(\d+)$")
@@ -1157,6 +1163,19 @@ class Handler(BaseHTTPRequestHandler):
             return self._media()
         if self.MEDIA_AUDIO.match(self.path.split("?")[0]):
             return self._media_audio()
+        m = self.MEDIA_THUMBS.match(self.path.split("?")[0])
+        if m:
+            path = os.path.join(h.cfg["state_dir"], "thumbs", *m.groups())
+            if not os.path.isfile(path):
+                return self._send(404, {"error": "no thumbnails yet"})
+            with open(path, "rb") as f:
+                return self._send(200, f.read(), "application/json" if path.endswith(".json") else "image/jpeg")
+        m = self.P_EDITOR_WAVEFORM.match(self.path.split("?")[0])
+        if m:
+            try:
+                return self._send(200, h.editor.waveform(m.group(1), m.group(2), int(m.group(3))))
+            except (ValueError, subprocess.CalledProcessError) as e:
+                return self._send(400, {"error": str(e)})
         m = self.P_EDITOR.match(self.path.split("?")[0])
         if m:
             try:

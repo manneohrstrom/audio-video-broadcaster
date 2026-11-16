@@ -1,0 +1,242 @@
+// The editor's state and the actions that change it, in one place.
+//
+// Components subscribe to be re-rendered when something they show changes (`notify`).
+// The timeline and the video window are canvases redrawn every animation frame; they read
+// the store directly, so fast-changing values (playhead, hover) don't re-render components.
+//
+// Time in the store is "song seconds": seconds from the start of the song's range, the part
+// of the take where the bounce and the cameras overlap (hub/hubd/editor_projects.py).
+import * as EditModel from "./edit-model.js";
+import { cutsFromFile, cutsToFile, NS_PER_SECOND } from "./time-format.js";
+import { saveEdit } from "./api.js";
+
+const SAVE_DELAY_MS = 800;
+export const MAX_PIXELS_PER_SECOND = 320;
+
+export class EditorStore {
+  constructor(project) {
+    this.project = project;
+    this.rangeStartNs = project.range_ns[0];
+    this.songSeconds = (project.range_ns[1] - project.range_ns[0]) / NS_PER_SECOND;
+    this.cameras = project.cameras.map((camera, index) => ({ ...camera, index, number: index + 1 }));
+    this.camerasById = new Map(this.cameras.map(camera => [camera.id, camera]));
+
+    this.cuts = cutsFromFile(project.edit.cuts);
+    this.dissolveSeconds = project.edit.dissolve_s ?? 0.3;
+    this.history = new EditModel.History();
+
+    this.playheadSeconds = 0;
+    this.isPlaying = false;
+    this.hover = null;            // { seconds, x, lane } while the mouse is over the timeline
+    this.gesture = null;          // the drag in progress, see timeline-pointer.js
+    this.selectedCutIndex = -1;
+
+    this.pixelsPerSecond = 1;     // set to "whole song" once the timeline knows its width
+    this.viewStartSeconds = 0;
+    this.fitWholeSong = true;
+    this.timelineWidth = 0;
+
+    this.saveState = "saved";     // "saved" | "unsaved" | "saving" | "error"
+    this.saveProblem = null;
+    this.saveTimer = null;
+    this.toast = null;
+    this.listeners = new Set();
+  }
+
+  // -- subscriptions
+  subscribe(listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  notify() {
+    for (const listener of this.listeners) listener();
+  }
+
+  showToast(text) {
+    this.toast = text;
+    this.notify();
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => { this.toast = null; this.notify(); }, 3000);
+  }
+
+  // -- time on the hub clock, and the cameras
+  hubNsAt(songSeconds) {
+    return this.rangeStartNs + songSeconds * NS_PER_SECOND;
+  }
+
+  /** Seconds into the camera's file at a song time. */
+  cameraFileSeconds(camera, songSeconds) {
+    return (this.hubNsAt(songSeconds) - camera.file_zero_ns) / NS_PER_SECOND;
+  }
+
+  /** Song seconds at which the camera starts and stops recording (may be outside the song). */
+  recordedSpan(camera) {
+    return [(camera.first_frame_ns - this.rangeStartNs) / NS_PER_SECOND,
+            (camera.last_frame_ns - this.rangeStartNs) / NS_PER_SECOND];
+  }
+
+  isRecording(camera, songSeconds) {
+    const [start, end] = this.recordedSpan(camera);
+    return songSeconds >= start && songSeconds <= end;
+  }
+
+  /** Rough sections (dropped frames) in song seconds: [[start, end], ...]. */
+  roughSections(camera) {
+    return camera.rough_sections_ns.map(([start, end]) => [
+      (start - this.rangeStartNs) / NS_PER_SECOND, (end - this.rangeStartNs) / NS_PER_SECOND]);
+  }
+
+  hasRoughSectionIn(camera, start, end) {
+    return this.roughSections(camera).some(([roughStart, roughEnd]) => roughStart < end && start < roughEnd);
+  }
+
+  cameraAt(songSeconds) {
+    return this.camerasById.get(EditModel.cameraAt(this.cuts, songSeconds));
+  }
+
+  shots() {
+    return EditModel.shots(this.cuts, this.songSeconds).map(shot => ({ ...shot, camera: this.camerasById.get(shot.cameraId) }));
+  }
+
+  // -- changing the cut (every change goes through here: history, warnings, saving)
+  beginChange() {
+    this.history.record(this.cuts);
+  }
+
+  setCuts(cuts, { warnAbout } = {}) {
+    this.cuts = cuts;
+    if (warnAbout) this.warnAboutShot(warnAbout.camera, warnAbout.start, warnAbout.end);
+    this.scheduleSave();
+    this.notify();
+  }
+
+  warnAboutShot(camera, start, end) {
+    const [recordStart, recordEnd] = this.recordedSpan(camera);
+    if (start < recordStart - 0.05 || end > recordEnd + 0.05) {
+      this.showToast(`${camera.label} didn't record all of this: the picture is black where it didn't`);
+    } else if (this.hasRoughSectionIn(camera, start, end)) {
+      this.showToast(`${camera.label} dropped frames in this stretch: it may stutter (striped)`);
+    }
+  }
+
+  chooseCameraForStretch(camera, start, end) {
+    this.beginChange();
+    this.setCuts(EditModel.chooseCameraForStretch(this.cuts, camera.id, start, end, this.songSeconds),
+                 { warnAbout: { camera, start, end } });
+  }
+
+  cutToCameraAtPlayhead(camera) {
+    const at = this.playheadSeconds;
+    if (!this.isRecording(camera, at)) {
+      this.showToast(`${camera.label} wasn't recording here`);
+      return;
+    }
+    this.beginChange();
+    this.setCuts(EditModel.cutToCameraAt(this.cuts, camera.id, at));
+  }
+
+  removeSelectedCut() {
+    const index = this.selectedCutIndex;
+    if (index <= 0) return;
+    this.beginChange();
+    this.selectedCutIndex = -1;
+    this.setCuts(EditModel.removeCut(this.cuts, index));
+  }
+
+  undo() {
+    this.cuts = this.history.undo(this.cuts);
+    this.selectedCutIndex = -1;
+    this.scheduleSave();
+    this.notify();
+  }
+
+  redo() {
+    this.cuts = this.history.redo(this.cuts);
+    this.selectedCutIndex = -1;
+    this.scheduleSave();
+    this.notify();
+  }
+
+  setDissolve(seconds) {
+    this.dissolveSeconds = seconds;
+    this.scheduleSave();
+    this.notify();
+  }
+
+  // -- saving: the working copy on the hub, shortly after each change
+  scheduleSave() {
+    this.saveState = "unsaved";
+    clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => this.saveNow(), SAVE_DELAY_MS);
+  }
+
+  async saveNow() {
+    clearTimeout(this.saveTimer);
+    this.saveState = "saving";
+    this.notify();
+    const { take_id: takeId, song, version } = this.project;
+    try {
+      await saveEdit(takeId, song.id, version, { cuts: cutsToFile(this.cuts), dissolve_s: this.dissolveSeconds });
+      this.saveState = this.saveState === "saving" ? "saved" : this.saveState;
+      this.saveProblem = null;
+    } catch (error) {
+      this.saveState = "error";
+      this.saveProblem = error.message;
+    }
+    this.notify();
+  }
+
+  // -- the view: zoom and scroll
+  setTimelineWidth(width) {
+    this.timelineWidth = width;
+    if (this.fitWholeSong) this.pixelsPerSecond = width / this.songSeconds;
+    this.clampView();
+  }
+
+  get minimumPixelsPerSecond() {
+    return this.timelineWidth / this.songSeconds;
+  }
+
+  clampView() {
+    this.pixelsPerSecond = Math.max(this.minimumPixelsPerSecond || this.pixelsPerSecond, Math.min(MAX_PIXELS_PER_SECOND, this.pixelsPerSecond));
+    const visibleSeconds = this.timelineWidth / this.pixelsPerSecond;
+    this.viewStartSeconds = Math.max(0, Math.min(this.songSeconds - visibleSeconds, this.viewStartSeconds));
+  }
+
+  /** Zoom to `pixelsPerSecond`, keeping the point at `anchorSeconds` where it is on screen. */
+  zoomTo(pixelsPerSecond, anchorSeconds = this.playheadSeconds) {
+    const anchorX = (anchorSeconds - this.viewStartSeconds) * this.pixelsPerSecond;
+    this.pixelsPerSecond = pixelsPerSecond;
+    this.clampView();
+    this.viewStartSeconds = anchorSeconds - anchorX / this.pixelsPerSecond;
+    this.clampView();
+    this.fitWholeSong = this.pixelsPerSecond <= this.minimumPixelsPerSecond * 1.0001;
+    this.notify();
+  }
+
+  /** The zoom slider's position, 0 (whole song) .. 1 (closest), on a log scale. */
+  get zoomPosition() {
+    const minimum = this.minimumPixelsPerSecond;
+    if (!minimum) return 0;
+    return Math.log(this.pixelsPerSecond / minimum) / Math.log(MAX_PIXELS_PER_SECOND / minimum);
+  }
+
+  setZoomPosition(position) {
+    const minimum = this.minimumPixelsPerSecond;
+    this.zoomTo(minimum * Math.exp(position * Math.log(MAX_PIXELS_PER_SECOND / minimum)));
+  }
+
+  scrollBy(seconds) {
+    this.viewStartSeconds += seconds;
+    this.clampView();
+  }
+
+  xOf(songSeconds) {
+    return (songSeconds - this.viewStartSeconds) * this.pixelsPerSecond;
+  }
+
+  secondsAtX(x) {
+    return Math.max(0, Math.min(this.songSeconds, this.viewStartSeconds + x / this.pixelsPerSecond));
+  }
+}
