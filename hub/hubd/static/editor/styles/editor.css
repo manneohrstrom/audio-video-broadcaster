@@ -34,6 +34,20 @@
 
 /* -- video area */
 .video-area { min-height: 0; display: flex; flex-direction: column; }
+.video-column { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+
+/* Step 2: the look controls beside the video (user, 2026-11-16), the slim timeline below. */
+/* No splitter here (user): the video takes all the room, the slim timeline sits at the bottom. */
+.editor.look-step { grid-template-rows: auto minmax(0, 1fr) auto auto; }
+.editor.look-step .below-splitter { border-top: 1px solid var(--color-line); }
+.editor.look-step .video-area {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 420px); grid-template-rows: minmax(0, 1fr);
+  gap: var(--space-4); overflow: hidden;
+}
+.editor.look-step .look-panel { min-height: 0; overflow-y: auto; padding: var(--space-3) var(--space-1) var(--space-3) 0; align-content: start; }
+.editor.look-step .look-row { flex-wrap: wrap; overflow: visible; }
+.editor.look-step .adjust-grid { grid-template-columns: 1fr; }
+.editor.look-step .adjust-row { min-height: 0; }
 .video-stage { flex: 1; min-height: 0; container-type: size; display: grid; place-items: center; padding-block: var(--space-3) var(--space-1); }
 .video-window {
   position: relative; width: min(100cqw, calc((100cqh - 24px) * 16 / 9)); aspect-ratio: 16 / 9; max-width: 100%;
@@ -95,6 +109,9 @@
 
 /* -- step 2, the look */
 .look-panel { display: grid; gap: var(--space-2); padding-block: var(--space-1) var(--space-2); }
+@media (max-width: 900px) {
+  .editor.look-step .video-area { grid-template-columns: 1fr; }     /* narrow screens: panel under the video */
+}
 .row-title { color: var(--color-text-muted); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding-top: var(--space-1); }
 .look-row { display: flex; gap: 10px; overflow-x: auto; padding: var(--space-1) 2px 6px; scrollbar-width: thin; }
 .look-tile { flex: none; background: none; border: 0; padding: 0; cursor: pointer; display: grid; gap: 5px; justify-items: center; color: var(--color-text-muted); font-size: var(--font-size-small); font-weight: 500; position: relative; }

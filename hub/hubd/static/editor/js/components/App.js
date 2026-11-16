@@ -55,7 +55,8 @@ function Editor({ project }) {
 
   const saveLabel = { saved: "Saved", unsaved: "Not saved yet", saving: "Saving…", error: "Not saved" }[store.saveState];
   return html`
-    <div class="editor" style=${videoHeight ? { "--video-area-height": `${videoHeight}px` } : null}>
+    <div class=${"editor" + (store.step === "look" ? " look-step" : "")}
+         style=${videoHeight ? { "--video-area-height": `${videoHeight}px` } : null}>
       <header class="editor-header">
         <div class="song-title">
           <strong>${project.song.name}</strong>
@@ -72,14 +73,17 @@ function Editor({ project }) {
         </div>
       </header>
       <div class="video-area">
-        <${VideoWindow} store=${store} thumbnailsByCamera=${thumbnailsByCamera} player=${player} />
-        <${TransportBar} store=${store} transport=${transport} />
+        <div class="video-column">
+          <${VideoWindow} store=${store} thumbnailsByCamera=${thumbnailsByCamera} player=${player} />
+          <${TransportBar} store=${store} transport=${transport} />
+        </div>
+        ${store.step === "look" && html`<${LookPanel} store=${store} />`}
       </div>
-      <${Splitter} onResize=${setVideoHeight} />
+      ${store.step === "cut" && html`<${Splitter} onResize=${setVideoHeight} />`}
       <div class="below-splitter">
         ${store.step === "cut"
           ? html`<${Timeline} key="cut" store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`
-          : html`<${LookPanel} store=${store} /><${Timeline} key="look" compact store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`}
+          : html`<${Timeline} key="look" compact store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`}
       </div>
       <footer class="editor-footer">
         <label for="dissolve">Dissolve
