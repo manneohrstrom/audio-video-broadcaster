@@ -28,6 +28,18 @@ Three things the rig can't do yet:
 - **Where files go:** `STUDIO/takes/<take>/audio/scratch.wav`, and per song `audio/<song>/v<N>/` with the uploaded file as sent plus `synced.wav` with timecode (BWF) and a small `sync.json` (offset, drift, anchor, confidence). Written via `.part` and renamed, like the video. The hub never deletes from the drive.
 - **Upload:** "Add audio" on each take in the hub page: pick or create the song, then the file. Resumable chunked upload, streamed straight to the drive (1 GB of RAM), mounted read-write only while writing (decision 5). It pauses during takes and live sessions, like ingest.
 
+### A4. Quick mix: one button, finished video (user request, accepted 2026-11-16)
+
+**What it does.** A "Make video" button on each synced song version. The hub cuts between the cameras with a fixed simple rule and renders one YouTube-ready file with the bounce as the soundtrack. No editor, no timeline, nothing to set.
+
+- **Rule:** switch camera every 10 s, going round the Pi cameras in order (cam1, cam2, cam3, cam4, cam1, …). The first and last shots use the sync server camera (cam1). Skip a camera that didn't record that stretch or has a rough section (dropped frames, from the take's `gaps`) in it, and go on to the next. Same inputs give the same video.
+- **Cameras:** Pi cameras only by default. Phones join once they have their own sync anchor (A3 "add media"); until then a phone's offset is only as good as its capture-delay estimate.
+- **Output:** 1920×1080, exactly 30 fps, H.264, AAC 320 kbps from the synced bounce, `.mp4` with faststart, to `STUDIO/takes/<take>/edits/<song>/v<N>-quick.mp4` via `.part` and rename. Each output frame takes the active camera's frame nearest in real time (the editor plan's render, section 6). Hard cuts, no colour work beyond calibration.
+- **Runs like ingest:** only when no take or live session is active, pauses on REC/LIVE, progress and ETA on the hub page. About real time on the Pi 5 (spike E3): a 4-minute song in about 5 minutes.
+- **Checked after rendering:** length matches the song, frame count is exactly 30 × length, one spot-check frame per shot.
+- **Not throwaway:** the cut is written in the editor's edit format (`docs/editor-plan.md` section 2) and the render is the editor's render. The editor's automatic cut (beats, movement, wide shots) later replaces the 10 s rule, and the timeline UI opens the same file.
+- **Needs:** a synced bounce. The clap-only path (A3, then upload, songs and versions) is enough, so it doesn't wait for the USB mic.
+
 ### Spikes (before building)
 
 | | Spike | Done when |
@@ -103,7 +115,7 @@ Three things the rig can't do yet:
 
 ## Not in Phase 4 (future ideas, unless the user moves them in)
 
-- Automatic edit on the hub (needs Track A), per `docs/design.md`.
+- Automatic edit on the hub beyond A4's fixed rotation (beats, movement, wide shots): the editor plan, `docs/editor-plan.md`.
 - Pixel phones as offline camera units: moved ahead of Phase 4 as its own plan (`docs/phone-plan.md`, accepted 2026-11-15).
 - Network share and Mac auto-pull (`docs/phase3-plan.md`, decision 6).
 - "Discard take" button (parked 2026-11-15).
@@ -120,6 +132,7 @@ Three things the rig can't do yet:
 | **M-B** | Snapshot page and focus help; calibration card; automatic calibration by showing the card (Pis and phones); tripod/handheld phones; card readings saved for the editor; auto-then-lock fallback; manual trims. Spikes B-S5–B-S7 first. |
 | A1–A3 | Audio spikes. A1 needs one real session from the user; it can run any time, in parallel with M-B. |
 | **M-A** | Scratch recording during takes; bounce upload; matching and anchors; synced BWF on the drive; UI per take ("synced, confidence high, anchor: hub mic"). Tests. |
+| **M-A4** | Quick mix: "Make video" per song version; 10 s rotation; render with progress; checks. Right after clap sync and upload work, before the hub-mic anchor. |
 | **M-C** | Recording light (when the bulb is set up); small items; runbook. |
 | **M-X** | Exit checks per track; `docs/phase4-results.md`. |
 
@@ -132,3 +145,4 @@ Order: **B (picture) first** (user priority), then A, then C. C1 whenever the bu
 3. **Order: answered.** Visuals first (user, 2026-11-15): B, then A, then C.
 4. **C3: answered (2026-11-15).** None selected, so all four (tally LEDs, GPIO REC button, OBS export, LTC) move to future ideas.
 5. **Bounce upload: answered (2026-11-15).** Yes: uploads are written to the drive like ingest. Plus songs and versions per take (see Track A).
+6. **Quick mix (A4): answered (2026-11-16).** Yes, as described: fixed 10 s rotation, Pi cameras only (phones once they have their own anchor). Cuts on beats stay with the editor.
