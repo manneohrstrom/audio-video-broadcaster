@@ -139,6 +139,7 @@ A second step (a tab, after the cut is done): **what's the vibe of this video?**
 - **The edit (cut, dissolve, look) belongs to the song, not to a bounce version.** Today the working copy is stored per bounce version (`edits/<take>/<song>/v<N>.json`); move it to one per song. Its times are on the hub clock, so a newly uploaded and synced bounce (e.g. a new mix) fits it as is (the range is rebased if the new bounce starts or ends elsewhere).
 - Re-rendering with a new bounce is one step: upload bounce v3, it syncs, "Make video" makes the next video version with the same cut and look and the new audio. The editor shows which bounce it uses (newest synced by default, can be chosen).
 - Every video version is kept (the hub never replaces a file on the drive).
+- **No "Make video" / "Make again" on the hub page** (user, 2026-11-16: confusing; you always look at it in the editor first). The quick mix's automatic cut becomes only the editor's starting point; the take card shows "✎ Edit" and the song's video versions with "▶ Watch". Videos are made from the editor only.
 
 ## 7. Vertical story version (a maybe, not decided)
 
