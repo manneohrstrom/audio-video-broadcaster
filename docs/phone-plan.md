@@ -53,7 +53,7 @@ Runbook: phone setup (Chrome flag, local-network permission, 5 GHz, plugged in, 
 - Unit tests (hubd and ingest, as now): clock fit, chunk assembly, delay correction, phone in REC/STOP, take list with phones, rough sections.
 - On the rig, with one Pixel 3: (1) a take with cam1–cam4 and the phone from the hub page, through ingest to `STUDIO`: the phone's `.mov` plays in the hub page, on the same timecode as cam1 (done 2026-11-15, take 20261115-231111); (2) Wi-Fi off on the phone for 1 min mid-take, then back: no chunks lost; (3) page reload after STOP: the leftovers upload.
 
-## Open question: ingest time (decide before P3 is finished)
+## Ingest time (answered 2026-11-16: `-c copy` at real timing for all cameras once spike E1 passes; the render conforms the final cut; `docs/editor-plan.md` section 1)
 
 Ingest re-encodes every camera-hour onto the exact 30 fps grid at about real time on the Pi 5, one camera at a time (Phase 3 S2). Two 1-hour sessions with 4 Pi cameras and 5 phones are 18 camera-hours, so **~18 h of ingest**: more than a night. It pauses during takes and resumes when the rig is idle, so nothing is lost, but the footage isn't on `STUDIO` the next morning. Options to weigh, with numbers, during P3:
 - Copy phone footage at its native timing (`-c copy`, a gap becomes one long frame), skipping the re-encode for phones. Now likely: our own editor can read real frame times, so the exact-30-fps re-encode may not be needed at all (for any camera). To decide with the editor's design.
