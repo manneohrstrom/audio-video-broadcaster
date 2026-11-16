@@ -35,6 +35,7 @@ export class CameraDecoder {
     this.discardBeforeUs = 0;
     this.groups = new Map();       // keyframe index -> Promise<{ start, bytes }>
     this.targetUs = null;          // what the last seek aimed for
+    this.seekPending = false;      // a seek is decoding towards targetUs, no frame from it yet
     this.problem = null;
     this.opening = null;
   }
@@ -151,6 +152,7 @@ export class CameraDecoder {
   // -- decoding
   receive(frame) {
     if (frame.timestamp < this.discardBeforeUs) { frame.close(); return; }
+    this.seekPending = false;
     let i = this.frames.length;
     while (i > 0 && this.frames[i - 1].timestamp > frame.timestamp) i--;
     this.frames.splice(i, 0, frame);
@@ -168,6 +170,8 @@ export class CameraDecoder {
     this.nextToFeed = this.keyframeBefore(index);
     this.discardBeforeUs = this.samples[index].timeUs - 1;
     this.targetUs = this.samples[index].timeUs;
+    this.seekPending = true;
+    if (this.current) { this.current.close(); this.current = null; }   // never show a frame from before the jump
     this.feed(this.generation);
   }
 
@@ -223,6 +227,11 @@ export class CameraDecoder {
   isNear(fileSeconds, playing) {
     if (this.targetUs === null) return false;
     const timeUs = fileSeconds * 1e6;
+    if (playing && this.seekPending) {
+      // On its way: fine as long as the jump's target is still ahead of (or at) the playhead,
+      // or only a little behind it (the decoder then catches up by skipping frames).
+      return timeUs - this.targetUs > -1_000_000 && timeUs - this.targetUs < 700_000;
+    }
     if (!playing) {
       const wanted = this.frameIndexAt(Math.round(timeUs));
       return wanted >= 0 && this.samples[wanted].timeUs === this.targetUs ||

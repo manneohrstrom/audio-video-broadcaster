@@ -4,8 +4,10 @@
 // keeps one CameraDecoder per camera (opened the first time it's needed) and:
 //   - while paused (scrubbing, skimming), seeks the decoder to the asked-for frame, at
 //     most one seek in flight per camera, the latest request winning;
-//   - while playing, lets the decoders run forward, and starts the camera of the next cut
-//     a moment early (PREROLL_SECONDS), so a cut or dissolve doesn't wait for a seek.
+//   - while playing, keeps EVERY camera decoding along with the playhead (keepAllRunning),
+//     so switching camera mid-play is instant: a seek through the hub takes up to a second
+//     (2026-11-16: switching during playback froze the picture). Spike E2: the Mac decodes
+//     4-5 cameras at once; ~35 Mbit/s from the hub for four.
 // Until a camera has a decoded frame, pictureFor() returns null and the window falls back
 // to the strip thumbnail.
 import { CameraDecoder } from "./camera-decoder.js";
@@ -13,6 +15,10 @@ import { cutIndexAt } from "../edit-model.js";
 
 const PREROLL_SECONDS = 1.5;
 const SEEK_SETTLE_MS = 60;        // while scrubbing, wait this long between seeks of one camera
+const PLAYING_SEEK_SETTLE_MS = 300;
+// A seek takes a moment (fetch a group of pictures, decode up to the frame). While playing,
+// aim this far ahead so the frame is ready when the playhead gets there.
+const PLAYING_SEEK_LEAD_SECONDS = 0.3;
 
 /**
  * Browsers only offer WebCodecs on secure pages (HTTPS or localhost). The hub is plain
@@ -53,11 +59,20 @@ export class VideoPlayer {
   }
 
   keepNear(camera, decoder, fileSeconds, now) {
-    if (decoder.isNear(fileSeconds, this.store.isPlaying)) return;
+    const playing = this.store.isPlaying;
+    if (decoder.isNear(fileSeconds, playing)) return;
     const last = this.lastSeek.get(camera.id) || 0;
-    if (!this.store.isPlaying && now - last < SEEK_SETTLE_MS) return;
+    if (now - last < (playing ? PLAYING_SEEK_SETTLE_MS : SEEK_SETTLE_MS)) return;
     this.lastSeek.set(camera.id, now);
-    decoder.seek(fileSeconds);
+    decoder.seek(playing ? fileSeconds + PLAYING_SEEK_LEAD_SECONDS : fileSeconds);
+  }
+
+  /** While playing: every recording camera follows the playhead (its frames are consumed too). */
+  keepAllRunning(seconds, now) {
+    if (!fullVideoAvailable || !this.store.isPlaying) return;
+    for (const camera of this.store.cameras) {
+      if (this.store.isRecording(camera, seconds)) this.pictureFor(camera, seconds, now);
+    }
   }
 
   /** While playing: start the next shot's camera early so it's decoded when the cut comes. */
