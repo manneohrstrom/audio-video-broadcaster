@@ -24,6 +24,8 @@
   .dim { color:var(--dim); font-size:13px; }
   pre { white-space:pre-wrap; word-break:break-all; font-size:11px; background:#000; padding:6px; max-height:30vh; overflow:auto; }
   details summary { cursor:pointer; color:var(--dim); }
+  #calflash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 0.12s; z-index: 50; }
+  #calflash.on { opacity: 0.95; }
 </style>
 </head>
 <body>
@@ -521,7 +523,35 @@ setInterval(() => {
 const TARGET = 119, linv = v => Math.pow(Math.max(v, 0.5) / 255, 2.2);
 S.cal = {inView: false, running: false};
 function calShow(t) { $("calstate").textContent = t || ""; }
+// The phone may be in another room from the hub page, so it signals a finished calibration
+// itself (user, 2026-11-16): the hub page's chime, and two white flashes of the screen,
+// which also work when the browser won't play sound (it needs a tap on the page first).
+let calAudio = null;
+document.addEventListener("pointerdown", () => {
+  try { calAudio = calAudio || new AudioContext(); calAudio.resume(); } catch (e) {}
+}, {once: true});
+function signalCalibrated() {
+  try {
+    if (calAudio && calAudio.state === "running") {
+      [880, 1320].forEach((frequency, i) => {
+        const tone = calAudio.createOscillator(), gain = calAudio.createGain(), at = calAudio.currentTime + i * 0.15;
+        tone.frequency.value = frequency;
+        gain.gain.setValueAtTime(0.25, at);
+        gain.gain.exponentialRampToValueAtTime(0.001, at + 0.4);
+        tone.connect(gain).connect(calAudio.destination);
+        tone.start(at);
+        tone.stop(at + 0.4);
+      });
+    }
+  } catch (e) {}
+  const flash = document.getElementById("calflash") || document.body.appendChild(Object.assign(document.createElement("div"), {id: "calflash"}));
+  [0, 400].forEach(delay => {
+    setTimeout(() => flash.classList.add("on"), delay);
+    setTimeout(() => flash.classList.remove("on"), delay + 220);
+  });
+}
 async function calReport(status, message, record) {
+  if (status === "calibrated") signalCalibrated();
   calShow(status === "calibrated" ? "✓ calibrated" + (message ? " · " + message : "") : (message || (status === "waiting" ? "waiting for the card" : status)));
   try { await fetch("/api/calib/phone/" + S.id, {method: "POST", body: JSON.stringify({status, message, record})}); } catch (e) {}
 }

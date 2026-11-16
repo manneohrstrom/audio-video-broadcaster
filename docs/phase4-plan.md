@@ -37,7 +37,7 @@ Small sparkline charts on the hub page showing each metric over time (e.g. the l
 
 hubd keeps a short history (it already polls everything every 2 s); the page draws the lines. Would have shown the 2026-11-16 memory leak at a glance.
 
-### Minor: phones signal their own calibration (user, 2026-11-16)
+### Minor: phones signal their own calibration (user, 2026-11-16) — done 2026-11-17
 
 When a phone finishes calibrating, the phone itself plays the chime too (the phone may be in another room from the page showing the hub, so its chime may not be heard). If the phone can't play sound (the browser blocks audio before a tap, or it's muted), it flashes its screen white briefly instead. Small change to the phone page; no hub change.
 
