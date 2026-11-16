@@ -111,8 +111,11 @@ def effect_filter_graph(effects, work_dir, first_extra_input):
         return "[e%d]" % step[0]
 
     def image_input(path):
-        inputs.extend(["-loop", "1", "-framerate", "30", "-i", path])
-        return "[%d:v]" % (first_extra_input + len(inputs) // 6 - 1)
+        # One frame, no -loop: blend repeats a finished input's last frame (eof_action
+        # repeat). A looping image input made ffmpeg decode copies ahead: +250 MB per
+        # mask on the 1 GB hub (2026-11-16).
+        inputs.extend(["-i", path])
+        return "[%d:v]" % (first_extra_input + len(inputs) // 2 - 1)
 
     out = label()
     chains.append("%sformat=gbrp%s" % (current, out))
@@ -141,13 +144,13 @@ def effect_filter_graph(effects, work_dir, first_extra_input):
         mask_in = image_input(write_ppm(os.path.join(work_dir, "vignette.ppm"), vignette_mask(effects["vignette"])))
         mask, out = label(), label()
         chains.append("%sformat=gbrp%s" % (mask_in, mask))
-        chains.append("%s%sblend=all_mode=multiply:shortest=1%s" % (current, mask, out))
+        chains.append("%s%sblend=all_mode=multiply%s" % (current, mask, out))
         current = out
     if effects.get("vhs"):
         mask_in = image_input(write_ppm(os.path.join(work_dir, "scanlines.ppm"), scanline_mask(effects["vhs"])))
         mask, out = label(), label()
         chains.append("%sformat=gbrp%s" % (mask_in, mask))
-        chains.append("%s%sblend=all_mode=multiply:shortest=1%s" % (current, mask, out))
+        chains.append("%s%sblend=all_mode=multiply%s" % (current, mask, out))
         current = out
     # Back to Rec. 709 YUV, then grain on the brightness only (the shader adds one value to r, g and b).
     noise = effects.get("grain", 0) * 0.16 + effects.get("vhs", 0) * 0.05

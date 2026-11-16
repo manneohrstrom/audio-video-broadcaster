@@ -29,6 +29,14 @@ Three things the rig can't do yet:
 - **Upload:** "Add audio" on each take in the hub page: pick or create the song, then the file. Resumable chunked upload (8 MB pieces). It pauses during takes and live sessions, like ingest. *Built 2026-11-16 (hubd 0.9.0, ingest 0.5.0) with one change: uploads are staged on the hub's SD card and hub-ingest copies them to the drive like video (`.part`, fsync, checksum, rename), instead of streaming straight to the drive. So uploading works without the drive plugged in, and hub-ingest stays the only thing that mounts it.*
 - **Scratch recording (built 2026-11-16, before the mic arrived):** `arecord` from the first USB mic for every take, from REC (before the cameras arm) to after STOP; each 100 ms block stamped with the hub's clock (`scratch.times.tsv`), so the mic's drift (A2) can be fitted out whatever it is. No mic or a failing mic never affects REC.
 
+### Polish backlog: sparklines of health metrics (user, 2026-11-16)
+
+Small sparkline charts on the hub page showing each metric over time (e.g. the last hour), next to the current value:
+- **Hub:** memory used and available, swap used, temperature, CPU frequency, throttling, CPU load; possibly disk space (SD card and drive), network throughput, ingest/render progress.
+- **Cameras:** temperature, Wi-Fi signal and link rate, free space, CPU load, dropped frames during a take.
+
+hubd keeps a short history (it already polls everything every 2 s); the page draws the lines. Would have shown the 2026-11-16 memory leak at a glance.
+
 ### Minor: phones signal their own calibration (user, 2026-11-16)
 
 When a phone finishes calibrating, the phone itself plays the chime too (the phone may be in another room from the page showing the hub, so its chime may not be heard). If the phone can't play sound (the browser blocks audio before a tap, or it's muted), it flashes its screen white briefly instead. Small change to the phone page; no hub change.

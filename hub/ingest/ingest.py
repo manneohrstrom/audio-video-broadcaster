@@ -40,7 +40,7 @@ import thumbnails  # noqa: E402
 import proxies  # noqa: E402
 import edit_render  # noqa: E402
 
-VERSION = "0.11.1"
+VERSION = "0.11.2"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)

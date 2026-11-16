@@ -14,6 +14,12 @@ Restart=on-failure
 RestartSec=5
 # An encode can take ~1 h; give the current step time to stop cleanly.
 TimeoutStopSec=30
+# A hard memory limit for ingest and everything it starts (renders, proxies, thumbnails).
+# 2026-11-16 a render ran the 1 GB hub so short of memory that it froze until power-cycled.
+# With the limit the kernel stops the render (render processes have oom_score_adj 1000)
+# inside this group, and hubd, the cameras' control and the page keep running.
+MemoryMax=700M
+MemorySwapMax=64M
 
 [Install]
 WantedBy=multi-user.target
