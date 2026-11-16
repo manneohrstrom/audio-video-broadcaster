@@ -32,7 +32,7 @@ button { font: inherit; color: inherit; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .app {
-  height: 100%; display: grid; grid-template-rows: auto minmax(150px, 1fr); grid-auto-rows: auto;
+  height: 100%; display: grid; grid-template-rows: auto var(--top-h, 48vh) 12px minmax(0, 1fr) auto;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
 
@@ -54,7 +54,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .btn.small { padding: 3px 9px; font-size: 12px; }
 
 /* ---- video */
-.stage { min-height: 0; container-type: size; display: grid; place-items: center; padding-block: 12px; }
+.top-area { min-height: 0; display: flex; flex-direction: column; }
+.stage { flex: 1; min-height: 0; container-type: size; display: grid; place-items: center; padding-block: 12px 4px; }
+.splitter { cursor: row-resize; display: grid; place-items: center; touch-action: none; border-top: 1px solid var(--line); }
+.splitter::before { content: ""; width: 56px; height: 4px; border-radius: 2px; background: var(--line); transition: background 0.1s; }
+.splitter:hover::before, .splitter.on::before { background: var(--mute); }
+.bottom { min-height: 0; overflow: auto; }
 .viewer { position: relative; width: min(100cqw, calc((100cqh - 24px) * 16 / 9)); aspect-ratio: 16 / 9; max-width: 100%;
   background: #000; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 2px var(--vc, transparent), 0 12px 40px rgba(0,0,0,0.5); transition: box-shadow 0.12s; touch-action: none; }
 .viewer canvas { display: block; width: 100%; height: 100%; }
@@ -74,7 +79,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .onair { display: flex; align-items: center; gap: 6px; color: var(--mute); margin-left: 6px; }
 .onair i { width: 9px; height: 9px; border-radius: 50%; }
 .spacer { flex: 1; }
-.zoom { display: flex; gap: 4px; align-items: center; color: var(--mute); }
+.zoom { display: flex; gap: 8px; align-items: center; color: var(--mute); }
+.zoom input[type=range] { width: min(220px, 30vw); accent-color: var(--accent); }
 
 /* ---- timeline */
 .tl { display: grid; grid-template-columns: var(--label-w) minmax(0, 1fr); gap: 10px; padding-block: 6px 8px; }
@@ -92,9 +98,7 @@ button.lab:hover { border-color: var(--cc); }
 
 /* ---- look */
 .look { padding-block: 4px 2px; display: grid; gap: 8px; }
-.look-tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); }
-.look-tabs button { background: none; border: 0; padding: 6px 0; cursor: pointer; color: var(--mute); font-weight: 600; letter-spacing: 0.01em; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.look-tabs button[aria-selected="true"] { color: var(--fg); border-color: var(--accent); }
+.row-title { color: var(--mute); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding-top: 4px; }
 .tiles { display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 6px; scrollbar-width: thin; }
 .tile { flex: none; background: none; border: 0; padding: 0; cursor: pointer; display: grid; gap: 5px; justify-items: center; color: var(--mute); font-size: 12px; font-weight: 500; position: relative; }
 .tile canvas { width: 112px; height: 63px; border-radius: 6px; display: block; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.1s; }
@@ -124,8 +128,10 @@ button.lab:hover { border-color: var(--cc); }
 
 @media (max-width: 760px) {
   body { overflow: auto; }
-  .app { height: auto; grid-template-rows: auto auto; }
-  .stage { container-type: inline-size; }
+  .app { height: auto; grid-template-rows: auto auto 0 auto auto; }
+  .splitter { display: none; }
+  .bottom { overflow: visible; }
+  .stage { container-type: inline-size; flex: none; }
   .viewer { width: 100%; }
   .top { grid-template-columns: 1fr; justify-items: start; }
   .actions { justify-content: flex-start; }
@@ -311,10 +317,13 @@ const S = {
   cuts: [], undo: [], redo: [], playhead: 24, playing: false,
   skim: null, hover: null, scrubbing: false, wasPlaying: false, drag: null, selCut: -1,
   pps: 1, view0: 0, fit: true,
-  step: "cut", lookTab: "filters", adjust: null, compare: false,
+  step: "cut", adjust: null, compare: false,
   look: { filter: "normal", strength: {}, effects: {} },
   dissolve: 0.3, toast: null,
+  sel: null,                    // a drag on a camera strip: {cam, t0, t1, x0, moved}
+  topH: null,                   // splitter: height of the video area (px)
 };
+try { const v = +localStorage.getItem("mc-top-h"); if (v > 100) S.topH = v; } catch (e) {}
 let rerender = () => {};
 const bump = () => rerender();
 let toastTimer = 0;
@@ -343,6 +352,22 @@ function cutAt(t, cam) {
   const j = idxAt(t), end = segEnd(j);
   if (end > cam.to) toast(`${cam.name} stops recording at ${fmt(cam.to)}: cut away before then`);
   else if (roughIn(cam, S.cuts[j].t, end)) toast(`${cam.name} dropped frames in this shot: it may stutter (striped)`);
+  bump();
+}
+// Press, drag, release on a camera strip: that camera for exactly [a, b]; before a and
+// after b the cut stays as it was (whatever was on at b comes back there).
+function applyRange(cam, a, b) {
+  a = clamp(a, 0, DUR); b = clamp(b, 0, DUR);
+  if (b - a < 0.1) return;
+  const back = camAt(b).id;
+  snapshot();
+  const kept = S.cuts.filter(c => c.t < a - 1e-6 || c.t > b + 1e-6);
+  kept.push({ t: a, cam: cam.id, by: "you" });
+  if (b < DUR - 0.05) kept.push({ t: b, cam: back, by: "you" });
+  S.cuts = kept.sort((x, y) => x.t - y.t);
+  normalize();
+  if (a < cam.from || b > cam.to) toast(`${cam.name} only recorded ${fmt(cam.from)}–${fmt(cam.to)}: it's black outside that`);
+  else if (roughIn(cam, a, b)) toast(`${cam.name} dropped frames in this stretch: it may stutter (striped)`);
   bump();
 }
 function deleteCut(i) { if (i <= 0 || i >= S.cuts.length) return; snapshot(); S.cuts.splice(i, 1); normalize(); S.selCut = -1; bump(); }
@@ -386,8 +411,10 @@ const curW = () => { for (const tl of timelines) if (tl.w) return tl.w; return 9
 function clampView() { const w = curW(); S.pps = Math.max(S.pps, w / DUR); S.view0 = clamp(S.view0, 0, Math.max(0, DUR - w / S.pps)); }
 function zoomAround(f, t) {
   const w = curW(), minP = w / DUR, ax = (t - S.view0) * S.pps;
-  S.pps = clamp(S.pps * f, minP, 320); S.view0 = t - ax / S.pps; S.fit = S.pps <= minP * 1.0001; clampView(); bump();
+  S.pps = clamp(S.pps * f, minP, MAX_PPS); S.view0 = t - ax / S.pps; S.fit = S.pps <= minP * 1.0001; clampView(); bump();
 }
+const MAX_PPS = 320;
+function zoomValue() { const minP = curW() / DUR; return Math.round(1000 * Math.log(S.pps / minP) / Math.log(MAX_PPS / minP)) || 0; }
 function fitAll() { S.fit = true; S.pps = curW() / DUR; S.view0 = 0; bump(); }
 
 // =================================================================== looks: Filters and Effects
@@ -527,6 +554,14 @@ function drawTimeline(tl) {
           if (xb - xa > tw + 16) { g.fillStyle = "rgba(10,10,12,0.7)"; g.fillRect(xa + 5, L.y + 10, tw + 10, 17); g.fillStyle = s.cam.hex; g.fillText(lbl, xa + 10, L.y + 22); } }
         g.restore();
       }
+      if (S.sel && S.sel.moved) {
+        const xa = X(Math.min(S.sel.t0, S.sel.t1)), xb = X(Math.max(S.sel.t0, S.sel.t1));
+        g.fillStyle = S.sel.cam.hex + "88"; g.fillRect(xa, L.y, xb - xa, L.h);
+        g.fillStyle = S.sel.cam.hex; g.fillRect(xa, L.y, xb - xa, 5);
+        const lbl = `${S.sel.cam.key} ${S.sel.cam.name} · ${fmt(Math.abs(S.sel.t1 - S.sel.t0))}`;
+        g.font = "600 11px Inter, sans-serif"; const tw = g.measureText(lbl).width;
+        g.fillStyle = "rgba(10,10,12,0.8)"; g.fillRect(xa + 4, L.y + 10, tw + 10, 17); g.fillStyle = "#f4efe6"; g.fillText(lbl, xa + 9, L.y + 22);
+      }
       S.cuts.forEach((c, i) => {
         if (i === 0) return; const x = Math.round(X(c.t)); if (x < -8 || x > w + 8) return;
         const sel = i === S.selCut || (S.drag && S.drag.i === i), hot = S.hover && S.hover.handle === i;
@@ -544,6 +579,11 @@ function drawTimeline(tl) {
       for (const [a, b] of [[0, cam.from], [cam.to, DUR]]) if (b > a) { const xa = X(a), xb = X(b); g.fillStyle = "#0e0d11"; g.fillRect(xa, L.y, xb - xa, L.h); hatch(g, xa, L.y, xb - xa, L.h, "rgba(255,255,255,0.07)"); }
       for (const [a, b] of cam.rough) { const xa = X(a), xb = X(b); g.fillStyle = "rgba(19,18,23,0.5)"; g.fillRect(xa, L.y, xb - xa, L.h); hatch(g, xa, L.y, xb - xa, L.h, "rgba(255,255,255,0.35)", 5); }
       for (const s of segs) if (s.cam === cam) { const xa = X(s.a), xb = X(s.b); g.strokeStyle = cam.hex; g.lineWidth = 2; g.strokeRect(xa + 1, L.y + 1, xb - xa - 2, L.h - 2); g.fillStyle = cam.hex; g.fillRect(xa, L.y + L.h - 4, xb - xa, 4); }
+      if (S.sel && S.sel.moved && S.sel.cam === cam) {
+        const xa = X(Math.min(S.sel.t0, S.sel.t1)), xb = X(Math.max(S.sel.t0, S.sel.t1));
+        g.fillStyle = cam.hex + "66"; g.fillRect(xa, L.y, xb - xa, L.h);
+        g.strokeStyle = "#f4efe6"; g.lineWidth = 2; g.strokeRect(xa + 1, L.y + 1, xb - xa - 2, L.h - 2);
+      }
       g.restore();
     } else if (L.type === "wave") {
       for (const s of segs) { const xa = X(s.a), xb = X(s.b); if (xb > 0 && xa < w) { g.fillStyle = s.cam.hex + "1c"; g.fillRect(xa, L.y, xb - xa, L.h); } }
@@ -621,11 +661,11 @@ function loop(now) {
   if (ui.onair) { const c = camAt(S.playhead); ui.onair.innerHTML = `<i style="background:${c.hex}"></i>On: ${c.key} ${c.name}`; }
   if (S.step === "look" && now - lastTiles > 350) {
     lastTiles = now;
-    for (const [id, cv] of tileCanvases) {
+    for (const [key, cv] of tileCanvases) {
       if (!cv.isConnected) continue;
-      const g = cv.getContext("2d");
+      const g = cv.getContext("2d"), [kind, id] = key.split(":");
       let look;
-      if (S.lookTab === "filters") look = { filter: id, strength: { [id]: S.look.strength[id] ?? 1 }, effects: {} };
+      if (kind === "f") look = { filter: id, strength: { [id]: S.look.strength[id] ?? 1 }, effects: {} };
       else look = { filter: S.look.filter, strength: S.look.strength, effects: { [id]: S.look.effects[id] ?? EMAP[id].def } };
       applyLook(g, B, cv.width, cv.height, look, t);
     }
@@ -673,11 +713,10 @@ function Transport() {
     <span class="tc" ref=${el => ui.tc = el}>${fmt(S.playhead)}</span><span class="dur">/ ${fmt(DUR)}</span>
     <span class="onair" ref=${el => ui.onair = el}></span>
     <span class="spacer"></span>
-    <div class="zoom"><span>Zoom</span>
-      <button class="btn small" onClick=${() => zoomAround(1 / 1.7, S.playhead)} aria-label="Zoom out">−</button>
-      <button class="btn small" onClick=${fitAll}>Whole song</button>
-      <button class="btn small" onClick=${() => zoomAround(1.7, S.playhead)} aria-label="Zoom in">+</button>
-    </div>
+    <label class="zoom" for="zoom">Zoom
+      <input id="zoom" type="range" min="0" max="1000" value=${zoomValue()} aria-label="Zoom"
+        onInput=${e => { const minP = curW() / DUR, p = minP * Math.exp(e.target.value / 1000 * Math.log(MAX_PPS / minP)); zoomAround(p / S.pps, S.playhead); }}/>
+    </label>
   </div>`;
 }
 
@@ -705,11 +744,15 @@ function Timeline({ kind }) {
         const nt = clamp(t, lo, hi); if (Math.abs(nt - S.cuts[i].t) > 1e-4) S.drag.moved = true;
         S.cuts[i] = { ...S.cuts[i], t: nt, by: "you" }; if (!S.playing) S.playhead = nt + 0.001; return;
       }
+      if (S.sel) {
+        S.sel.t1 = t; if (Math.abs(x - S.sel.x0) > 4) S.sel.moved = true;
+        S.hover = { tl, t, x, lane }; S.skim = { cam: S.sel.cam, t }; return;
+      }
       if (S.scrubbing) { S.playhead = t; S.hover = { tl, t, x, lane }; return; }
       const hi = handleAt(x, lane);
       S.hover = { tl, t, x, lane, handle: hi };
       S.skim = lane && lane.type !== "ruler" ? { cam: lane.type === "cam" ? lane.cam : null, t } : (lane ? { cam: null, t } : null);
-      c.style.cursor = hi > 0 ? "ew-resize" : lane && lane.type === "cam" ? "pointer" : "default";
+      c.style.cursor = hi > 0 ? "ew-resize" : lane && lane.type === "cam" ? "crosshair" : "default";
     }
     function down(e) {
       if (e.button !== 0) return;
@@ -717,15 +760,21 @@ function Timeline({ kind }) {
       const { x, y } = local(e), t = tAt(x), lane = laneAt(y);
       const hi = handleAt(x, lane);
       if (hi > 0) { snapshot(); S.drag = { i: hi, moved: false }; S.selCut = hi; bump(); return; }
-      if (lane && lane.type === "cam") { cutAt(t, lane.cam); setPlayhead(t); S.selCut = -1; return; }
+      if (lane && lane.type === "cam") { S.sel = { cam: lane.cam, t0: t, t1: t, x0: x, moved: false }; S.selCut = -1; return; }
       S.scrubbing = true; S.wasPlaying = S.playing; if (S.playing) pause();
       S.playhead = t; S.selCut = -1; bump();
     }
     function up(e) {
+      if (S.sel) {
+        const sel = S.sel; S.sel = null;
+        if (sel.moved) { applyRange(sel.cam, Math.min(sel.t0, sel.t1), Math.max(sel.t0, sel.t1)); setPlayhead(Math.min(sel.t0, sel.t1)); }
+        else setPlayhead(sel.t0);              // a plain click just moves the playhead
+        bump(); return;
+      }
       if (S.drag) { if (!S.drag.moved) S.undo.pop(); else normalize(); S.drag = null; bump(); }
       if (S.scrubbing) { S.scrubbing = false; if (S.wasPlaying) play(); }
     }
-    function leave() { if (!S.drag && !S.scrubbing) { S.hover = null; S.skim = null; } }
+    function leave() { if (!S.drag && !S.scrubbing && !S.sel) { S.hover = null; S.skim = null; } }
     function wheel(e) {
       e.preventDefault();
       if (e.ctrlKey || e.metaKey) { zoomAround(Math.exp(-e.deltaY * 0.01), tAt(local(e).x)); return; }
@@ -746,48 +795,54 @@ function Timeline({ kind }) {
         : L.type === "wave" ? html`<div class="lab" style=${{ top: L.y + "px", height: L.h + "px" }}><div><b>Bounce</b><small>Track 2 · v3</small></div></div>` : null)}
     </div>
     <div class="cwrap" ref=${wrap}>
-      <canvas class="tlc" ref=${cv} aria-label="Cameras and cut over the song. Hover to look, click a camera to show it from there."></canvas>
+      <canvas class="tlc" ref=${cv} aria-label="Cameras and cut over the song. Hover to look; press, drag and release on a camera to use it for that stretch."></canvas>
       ${kind === "cut" && html`<canvas class="peek" ref=${peek} width="448" height="252" hidden></canvas>`}
     </div>
   </section>`;
 }
 
 function LookPanel() {
-  const tab = S.lookTab, list = tab === "filters" ? FILTERS : EFFECTS;
   const nfx = Object.keys(S.look.effects).length;
   const tapFilter = id => { if (S.look.filter === id) S.adjust = id !== "normal" && S.adjust !== "filter" ? "filter" : null; else { S.look.filter = id; S.adjust = null; } bump(); };
   const tapEffect = id => { if (S.look.effects[id] == null) { S.look.effects[id] = EMAP[id].def; S.adjust = id; } else S.adjust = S.adjust === id ? null : id; bump(); };
-  const setTab = t => { S.lookTab = t; S.adjust = null; tileCanvases.clear(); lastTiles = 0; bump(); };
   let adjust;
-  if (tab === "filters") {
+  if (S.adjust === "filter") {
     const f = FMAP[S.look.filter], v = Math.round((S.look.strength[f.id] ?? 1) * 100);
-    adjust = S.adjust === "filter" ? html`<b>${f.name}</b><input id="filter-strength" type="range" min="0" max="100" value=${v} aria-label=${f.name + " strength"}
+    adjust = html`<b>${f.name}</b><input id="filter-strength" type="range" min="0" max="100" value=${v} aria-label=${f.name + " strength"}
         onInput=${e => { S.look.strength[f.id] = e.target.value / 100; lastTiles = 0; bump(); }}/><output>${v}</output>
-        <button class="btn small" onClick=${() => { S.adjust = null; bump(); }}>Done</button>`
-      : html`<span>Tap a filter to try it. Tap it again to set its strength.</span>`;
-  } else {
-    const e = S.adjust && EMAP[S.adjust], v = e ? Math.round(S.look.effects[e.id] * 100) : 0;
-    adjust = e ? html`<b>${e.name}</b><input id="effect-strength" type="range" min="1" max="100" value=${v} aria-label=${e.name + " strength"}
+        <button class="btn small" onClick=${() => { S.adjust = null; bump(); }}>Done</button>`;
+  } else if (S.adjust && EMAP[S.adjust]) {
+    const e = EMAP[S.adjust], v = Math.round(S.look.effects[e.id] * 100);
+    adjust = html`<b>${e.name}</b><input id="effect-strength" type="range" min="1" max="100" value=${v} aria-label=${e.name + " strength"}
         onInput=${ev => { S.look.effects[e.id] = ev.target.value / 100; lastTiles = 0; bump(); }}/><output>${v}</output>
         <button class="btn small" onClick=${() => { delete S.look.effects[e.id]; S.adjust = null; bump(); }}>Remove</button>
-        <button class="btn small" onClick=${() => { S.adjust = null; bump(); }}>Done</button>`
-      : html`<span>Tap an effect to add it, tap again for its strength. Effects stack.</span>
-        <span class="chips">${Object.entries(S.look.effects).map(([id, val]) => html`<button class="chip" onClick=${() => { S.adjust = id; bump(); }}>${EMAP[id].name} ${Math.round(val * 100)}</button>`)}</span>`;
+        <button class="btn small" onClick=${() => { S.adjust = null; bump(); }}>Done</button>`;
+  } else {
+    adjust = html`<span>Tap a filter to try it, an effect to add it. Tap again for its strength. Effects stack.</span>
+      <span class="chips">${Object.entries(S.look.effects).map(([id, val]) => html`<button class="chip" onClick=${() => { S.adjust = id; bump(); }}>${EMAP[id].name} ${Math.round(val * 100)}</button>`)}</span>`;
   }
+  const tile = (kind, x, sel, on, tap) => html`<button class=${"tile" + (sel ? " sel" : "")} key=${kind + x.id} onClick=${() => tap(x.id)} aria-pressed=${String(sel || on)}>
+      <canvas width="224" height="126" ref=${el => { if (el) tileCanvases.set(kind + ":" + x.id, el); }}></canvas>${x.name}${on && html`<i class="dot"></i>`}</button>`;
   return html`<section class="look" aria-label="Look">
-    <div class="look-tabs" role="tablist">
-      <button role="tab" aria-selected=${String(tab === "filters")} onClick=${() => setTab("filters")}>Filters</button>
-      <button role="tab" aria-selected=${String(tab === "effects")} onClick=${() => setTab("effects")}>Effects${nfx ? ` · ${nfx}` : ""}</button>
-    </div>
-    <div class="tiles">
-      ${list.map(x => {
-        const sel = tab === "filters" ? S.look.filter === x.id : S.adjust === x.id, on = tab === "effects" && S.look.effects[x.id] != null;
-        return html`<button class=${"tile" + (sel ? " sel" : "")} key=${tab + x.id} onClick=${() => tab === "filters" ? tapFilter(x.id) : tapEffect(x.id)} aria-pressed=${String(sel || on)}>
-          <canvas width="224" height="126" ref=${el => { if (el) tileCanvases.set(x.id, el); }}></canvas>${x.name}${on && html`<i class="dot"></i>`}</button>`;
-      })}
-    </div>
+    <div class="row-title">Filters</div>
+    <div class="tiles">${FILTERS.map(x => tile("f", x, S.look.filter === x.id, false, tapFilter))}</div>
+    <div class="row-title">Effects${nfx ? ` · ${nfx} on` : ""}</div>
+    <div class="tiles">${EFFECTS.map(x => tile("e", x, S.adjust === x.id, S.look.effects[x.id] != null, tapEffect))}</div>
     <div class="adjust">${adjust}</div>
   </section>`;
+}
+
+function Splitter() {
+  const down = e => {
+    const el = e.currentTarget; el.setPointerCapture(e.pointerId); el.classList.add("on");
+    const top = el.previousElementSibling.getBoundingClientRect().top;
+    const move = ev => { S.topH = Math.round(clamp(ev.clientY - top, 140, window.innerHeight - 200)); bump(); };
+    const up = () => { el.classList.remove("on"); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up);
+      try { localStorage.setItem("mc-top-h", String(S.topH)); } catch (err) {} };
+    el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
+  };
+  return html`<div class="splitter" role="separator" aria-orientation="horizontal" aria-label="Drag to resize the video" onPointerDown=${down}
+    onDblClick=${() => { S.topH = null; try { localStorage.removeItem("mc-top-h"); } catch (e) {} bump(); }} title="Drag to make the video bigger or smaller (double-click to reset)"></div>`;
 }
 
 function Footer() {
@@ -795,18 +850,20 @@ function Footer() {
     <span class="mock">Mock-up: made-up pictures and music</span>
     <label for="dissolve">Dissolve <input id="dissolve" type="range" min="0" max="0.8" step="0.05" value=${S.dissolve} onInput=${e => { S.dissolve = +e.target.value; bump(); }}/><output>${S.dissolve.toFixed(2)} s</output></label>
     ${S.step === "cut" && html`<button class="btn small" onClick=${resetAuto}>Back to the automatic cut</button>`}
-    <span class="keys"><kbd>space</kbd> play · <kbd>1</kbd>–<kbd>5</kbd> camera at playhead · <kbd>←</kbd><kbd>→</kbd> frame · <kbd>⌫</kbd> remove cut · <kbd>⌘Z</kbd> undo · pinch or <kbd>⌘</kbd>+scroll to zoom</span>
+    <span class="keys"><kbd>space</kbd> play · drag on a camera to use it there · <kbd>1</kbd>–<kbd>5</kbd> camera from the playhead · <kbd>←</kbd><kbd>→</kbd> frame · <kbd>⌫</kbd> remove cut · <kbd>⌘Z</kbd> undo · pinch or <kbd>⌘</kbd>+scroll to zoom</span>
   </footer>`;
 }
 
 function App() {
   const [, set] = useState(0);
   rerender = () => set(x => x + 1);
-  return html`<div class="app">
+  return html`<div class="app" style=${S.topH ? { "--top-h": S.topH + "px" } : null}>
     <${Header}/>
-    <${Viewer}/>
-    <${Transport}/>
-    ${S.step === "cut" ? html`<${Timeline} kind="cut" key="cut"/>` : html`<${LookPanel} key="lp"/><${Timeline} kind="look" key="look"/>`}
+    <div class="top-area"><${Viewer}/><${Transport}/></div>
+    <${Splitter}/>
+    <div class="bottom">
+      ${S.step === "cut" ? html`<${Timeline} kind="cut" key="cut"/>` : html`<${LookPanel} key="lp"/><${Timeline} kind="look" key="look"/>`}
+    </div>
     <${Footer}/>
     ${S.toast && html`<div class="toast" role="status">${S.toast}</div>`}
   </div>`;
