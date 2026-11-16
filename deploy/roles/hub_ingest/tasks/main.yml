@@ -40,6 +40,13 @@
     mode: "0644"
   notify: Restart hub-ingest
 
+- name: hub-ingest editing proxies for the editor
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/ingest/proxies.py"
+    dest: /opt/hub-ingest/proxies.py
+    mode: "0644"
+  notify: Restart hub-ingest
+
 - name: hub-ingest config
   ansible.builtin.copy:
     dest: /etc/hubd/ingest.json

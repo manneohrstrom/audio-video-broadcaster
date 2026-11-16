@@ -31,7 +31,7 @@ import phones  # noqa: E402
 import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 
-VERSION = "0.14.0"
+VERSION = "0.15.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -300,6 +300,7 @@ class Hub:
             edits_dir=os.path.join(cfg["state_dir"], "edits"),
             thumbs_dir=os.path.join(cfg["state_dir"], "thumbs"),
             waveforms_dir=os.path.join(cfg["state_dir"], "waveforms"),
+            proxies_dir=os.path.join(cfg["state_dir"], "proxies"),
             request_thumbnails=lambda take_id: self.ingest_command("thumbs", take=take_id))
         self.scratch = scratch.Scratch(cfg.get("scratch"), adir, log)
 
@@ -1068,6 +1069,7 @@ class Handler(BaseHTTPRequestHandler):
     P_EDITOR = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})$")
     P_EDITOR_WAVEFORM = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/waveform$")
     # Strip thumbnails (hub-ingest's thumbnails.py): index.json and sheet-NNN.jpg per camera.
+    MEDIA_PROXY = re.compile(r"^/media-proxy/(\d{8}-\d{6})/([a-z0-9][a-z0-9-]{0,40})\.mp4$")
     MEDIA_THUMBS = re.compile(r"^/media-thumbs/(\d{8}-\d{6})/([a-z0-9][a-z0-9-]{0,40})/(index\.json|sheet-\d{3}\.jpg)$")
     P_AUDIO_SONGS = re.compile(r"^/api/audio/(\d{8}-\d{6})/songs$")
     P_AUDIO_VERSIONS = re.compile(r"^/api/audio/(\d{8}-\d{6})/([a-z0-9-]+)/versions$")
@@ -1082,6 +1084,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._media(head=True)
         if self.MEDIA_AUDIO.match(self.path.split("?")[0]):
             return self._media_audio(head=True)
+        if self.MEDIA_PROXY.match(self.path.split("?")[0]):
+            return self._media_proxy(head=True)
         self.send_response(405)
         self.end_headers()
 
@@ -1089,6 +1093,14 @@ class Handler(BaseHTTPRequestHandler):
     MEDIA_AUDIO = re.compile(r"^/media-audio/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})$")
     AUDIO_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac", ".m4a": "audio/mp4",
                    ".aif": "audio/aiff", ".aiff": "audio/aiff", ".ogg": "audio/ogg"}
+
+    def _media_proxy(self, head=False):
+        """An editing proxy (hub-ingest's proxies.py), from the hub's SD card."""
+        take_id, camera_id = self.MEDIA_PROXY.match(self.path.split("?")[0]).groups()
+        path = os.path.join(self.hub.cfg["state_dir"], "proxies", take_id, camera_id + ".mp4")
+        if not os.path.isfile(path):
+            return self._send(404, {"error": "no editing proxy yet"})
+        return self._serve_file(path, "video/mp4", head)
 
     def _media_audio(self, head=False):
         take_id, song_id, version = self.MEDIA_AUDIO.match(self.path.split("?")[0]).groups()
@@ -1163,6 +1175,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._media()
         if self.MEDIA_AUDIO.match(self.path.split("?")[0]):
             return self._media_audio()
+        if self.MEDIA_PROXY.match(self.path.split("?")[0]):
+            return self._media_proxy()
         m = self.MEDIA_THUMBS.match(self.path.split("?")[0])
         if m:
             path = os.path.join(h.cfg["state_dir"], "thumbs", *m.groups())

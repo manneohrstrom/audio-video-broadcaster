@@ -978,3 +978,34 @@ class ThumbnailStepTest(Base):
             self.assertIn("%s/cam2" % TAKE, self.ing.state["thumbs_failed"])
         finally:
             ingest.thumbnails.make_thumbnails = orig
+
+
+class ProxyStepTest(Base):
+    def test_no_proxies_for_takes_without_a_synced_song(self):
+        self.ing.cfg["audio_dir"] = os.path.join(self.tmp, "no-audio")
+        self.ing.state["takes"] = {TAKE: {"complete": True, "cam1": {"frames_cam": 10}}}
+        self.assertEqual(self.ing.proxies_pending(), [])
+
+    def test_ingested_takes_get_proxies(self):
+        self.ing.cfg["thumbs_dir"] = os.path.join(self.tmp, "thumbs")
+        self.ing.cfg["proxies_dir"] = os.path.join(self.tmp, "proxies")
+        self.ing.cfg["audio_dir"] = os.path.join(self.tmp, "audio")
+        os.makedirs(os.path.join(self.tmp, "audio", TAKE, "song", "v1"))
+        open(os.path.join(self.tmp, "audio", TAKE, "song", "v1", "sync.json"), "w").close()   # editable
+        self.rig.add_take("cam1")
+        made = []
+
+        def fake_make(source, destination, **kw):
+            made.append(os.path.basename(destination))
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            open(destination, "w").close()
+        orig_proxy, orig_thumbs = ingest.proxies.make_proxy, ingest.thumbnails.make_thumbnails
+        ingest.proxies.make_proxy = fake_make
+        ingest.thumbnails.make_thumbnails = lambda mov, out: (os.makedirs(out), open(os.path.join(out, "index.json"), "w").close())
+        try:
+            self.command("start")
+            self.assertEqual(self.ing.tick(), "ingested")
+            self.assertEqual(made, ["cam1.mp4"])
+            self.assertEqual(self.ing.proxies_pending(), [])
+        finally:
+            ingest.proxies.make_proxy, ingest.thumbnails.make_thumbnails = orig_proxy, orig_thumbs

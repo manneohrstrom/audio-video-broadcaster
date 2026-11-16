@@ -136,12 +136,13 @@ class EditorProjects:
     find_quick_edit(take_id, song_id, version): the newest quick-mix edit for it, or None.
     edits_dir: where working copies are saved on the hub.
     thumbs_dir: strip thumbnails made by hub-ingest (hub/ingest/thumbnails.py).
+    proxies_dir: editing proxies made by hub-ingest (hub/ingest/proxies.py).
     request_thumbnails(take_id): ask hub-ingest to make missing thumbnails now.
     waveforms_dir: cached waveforms of bounces.
     """
 
     def __init__(self, audio, read_take_document, find_quick_edit, edits_dir, thumbs_dir=None,
-                 request_thumbnails=None, waveforms_dir=None, clock=time.time, ffmpeg="ffmpeg"):
+                 request_thumbnails=None, waveforms_dir=None, proxies_dir=None, clock=time.time, ffmpeg="ffmpeg"):
         self.audio = audio
         self.read_take_document = read_take_document
         self.find_quick_edit = find_quick_edit
@@ -149,6 +150,7 @@ class EditorProjects:
         self.thumbs_dir = thumbs_dir or os.path.join(edits_dir, "..", "thumbs")
         self.request_thumbnails = request_thumbnails or (lambda take_id: None)
         self.waveforms_dir = waveforms_dir or os.path.join(edits_dir, "..", "waveforms")
+        self.proxies_dir = proxies_dir or os.path.join(edits_dir, "..", "proxies")
         self.clock = clock
         self.ffmpeg = ffmpeg
 
@@ -194,7 +196,10 @@ class EditorProjects:
             camera["thumbnails_url"] = "/media-thumbs/%s/%s/" % (take_id, camera["id"])
             camera["thumbnails_ready"] = os.path.exists(
                 os.path.join(self.thumbs_dir, take_id, camera["id"], "index.json"))
-            missing_thumbnails = missing_thumbnails or not camera["thumbnails_ready"]
+            # The editor's video window uses the small editing proxy when there is one.
+            has_proxy = os.path.exists(os.path.join(self.proxies_dir, take_id, camera["id"] + ".mp4"))
+            camera["proxy_url"] = "/media-proxy/%s/%s.mp4" % (take_id, camera["id"]) if has_proxy else None
+            missing_thumbnails = missing_thumbnails or not camera["thumbnails_ready"] or not has_proxy
         if missing_thumbnails:
             self.request_thumbnails(take_id)
         return {

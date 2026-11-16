@@ -30,6 +30,8 @@ export const fullVideoAvailable = typeof VideoDecoder === "function";
 export class VideoPlayer {
   constructor(store) {
     this.store = store;
+    // All cameras can decode at once only with proxies (full-quality files need ~60 Mbit/s for four).
+    this.allProxies = store.cameras.every(camera => camera.proxy_url);
     this.decoders = new Map();    // camera id -> CameraDecoder
     this.lastSeek = new Map();    // camera id -> time of the last seek (ms)
   }
@@ -37,7 +39,7 @@ export class VideoPlayer {
   decoder(camera) {
     let decoder = this.decoders.get(camera.id);
     if (!decoder) {
-      decoder = new CameraDecoder(camera.file_url);
+      decoder = new CameraDecoder(camera.proxy_url || camera.file_url);   // the small editing proxy when there is one
       this.decoders.set(camera.id, decoder);
       decoder.open().catch(() => {});      // the problem is kept on the decoder
     }
@@ -69,7 +71,7 @@ export class VideoPlayer {
 
   /** While playing: every recording camera follows the playhead (its frames are consumed too). */
   keepAllRunning(seconds, now) {
-    if (!fullVideoAvailable || !this.store.isPlaying) return;
+    if (!fullVideoAvailable || !this.store.isPlaying || !this.allProxies) return;
     for (const camera of this.store.cameras) {
       if (this.store.isRecording(camera, seconds)) this.pictureFor(camera, seconds, now);
     }

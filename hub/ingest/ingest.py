@@ -37,8 +37,9 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import render  # noqa: E402
 import thumbnails  # noqa: E402
+import proxies  # noqa: E402
 
-VERSION = "0.8.1"
+VERSION = "0.9.1"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -93,9 +94,21 @@ DEFAULT_CONFIG = {
     "sync": {},
     # Strip thumbnails for the editor's timeline (thumbnails.py), on the hub's SD card.
     "thumbs_dir": "/var/lib/hubd/thumbs",
+    # Editing proxies for the editor's video window (proxies.py), on the hub's SD card.
+    "proxies_dir": "/var/lib/hubd/proxies",
 }
 TAKE_RE = re.compile(r"^\d{8}-\d{6}$")
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def failure(error):
+    """A failed thumbnail or proxy: tried again after the next hub-ingest update, not before."""
+    return {"error": str(error)[-300:], "version": VERSION}
+
+
+def failed_in_this_version(failed, key):
+    entry = failed.get(key)
+    return isinstance(entry, dict) and entry.get("version") == VERSION
 
 
 def load_config(path):
@@ -890,7 +903,7 @@ class Ingest:
             for camera_id in sorted(k for k, v in take.items() if isinstance(v, dict) and "frames_cam" in v):
                 key = "%s/%s" % (take_id, camera_id)
                 out_dir = os.path.join(self.cfg["thumbs_dir"], take_id, camera_id)
-                if key not in failed and not thumbnails.have_thumbnails(out_dir):
+                if not failed_in_this_version(failed, key) and not thumbnails.have_thumbnails(out_dir):
                     out.append((take_id, camera_id))
         return out
 
@@ -905,7 +918,56 @@ class Ingest:
                 try:
                     thumbnails.make_thumbnails(mov, out_dir)
                 except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as e:
-                    self.state.setdefault("thumbs_failed", {})["%s/%s" % (take_id, camera_id)] = str(e)[-300:]
+                    self.state.setdefault("thumbs_failed", {})["%s/%s" % (take_id, camera_id)] = failure(e)
+                self.save()
+
+    # -- editing proxies for the editor (proxies.py)
+    def proxies_pending(self):
+        """(take, camera) pairs of ingested takes without an editing proxy yet."""
+        failed = self.state.get("proxies_failed") or {}
+        out = []
+        # Only takes the editor can open (a synced song), newest first (user, 2026-11-16:
+        # only the latest take gets edited; no proxies for old takes).
+        for take_id, take in sorted((self.state.get("takes") or {}).items(), reverse=True):
+            if not take.get("complete") or not self.has_synced_song(take_id):
+                continue
+            for camera_id in sorted(k for k, v in take.items() if isinstance(v, dict) and "frames_cam" in v):
+                path = os.path.join(self.cfg["proxies_dir"], take_id, camera_id + ".mp4")
+                if not failed_in_this_version(failed, "%s/%s" % (take_id, camera_id)) and not os.path.exists(path):
+                    out.append((take_id, camera_id))
+        return out
+
+    def has_synced_song(self, take_id):
+        take_audio = os.path.join(self.cfg["audio_dir"], take_id)
+        try:
+            songs = [d for d in os.listdir(take_audio) if os.path.isdir(os.path.join(take_audio, d))]
+        except OSError:
+            return False
+        for song in songs:
+            song_dir = os.path.join(take_audio, song)
+            for version in os.listdir(song_dir):
+                if os.path.exists(os.path.join(song_dir, version, "sync.json")):
+                    return True
+        return False
+
+    def make_proxies(self, pending):
+        """Encode each pending proxy. The encoder is suspended while the rig is busy (a take
+        or live session gets the CPU) and stopped by an Eject (it's made again later)."""
+        def rig_is_busy():
+            busy = self.rig_busy()
+            self.save(status="paused: rig busy" if busy else "ingesting")
+            return busy
+        with self.reading_drive():
+            for take_id, camera_id in pending:
+                source = os.path.join(self.take_folder(take_id), camera_id + ".mov")
+                destination = os.path.join(self.cfg["proxies_dir"], take_id, camera_id + ".mp4")
+                self.save(step="proxy %s %s" % (take_id, camera_id))
+                try:
+                    proxies.make_proxy(source, destination, should_pause=rig_is_busy, should_stop=self.eject_requested)
+                except InterruptedError:
+                    return
+                except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as e:
+                    self.state.setdefault("proxies_failed", {})["%s/%s" % (take_id, camera_id)] = failure(e)
                 self.save()
 
     # -- automatic bounce sync (Phase 4 Track A, audiosync.py)
@@ -1295,7 +1357,8 @@ class Ingest:
             audio = self.audio_pending()
             renders = self.renders_ready()
             thumbs = self.thumbnails_pending()
-            if not todo and not audio and not renders and not thumbs:
+            proxy_work = self.proxies_pending()
+            if not todo and not audio and not renders and not thumbs and not proxy_work:
                 self.manual = False
                 self.settle_drive()
                 self.save(status="idle: nothing to ingest")
@@ -1316,6 +1379,11 @@ class Ingest:
             if thumbs:
                 self.save(status="ingesting", step="thumbnails")
                 self.make_thumbnails(thumbs)
+                self.save(step=None)
+            proxy_work = self.proxies_pending()
+            if proxy_work:
+                self.save(status="ingesting", step="proxies")
+                self.make_proxies(proxy_work)
                 self.save(step=None)
             return "ingested"
         except Paused:

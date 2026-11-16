@@ -22,8 +22,7 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
     const canvas = canvasRef.current;
     const pictures = { player, thumbnailsByCamera, now, waiting: false };
     player.prerollNextShot(now);
-    // player.keepAllRunning(...) makes mid-play switches instant, but needs ~60 Mbit/s from
-    // the hub for four full-quality cameras; it waits for editing proxies.
+    player.keepAllRunning(store.playheadSeconds, now);    // only with editing proxies: instant switches
     const context = canvas.getContext("2d");
     const { camera: skimCamera, seconds } = whatToShow(store);
     context.fillStyle = "#000";
