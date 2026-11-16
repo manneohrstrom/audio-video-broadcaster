@@ -34,7 +34,7 @@ import threading
 import time
 import urllib.request
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -326,6 +326,19 @@ class Ingest:
         self.state["current"] = None
         self.last_busy = self.state.get("last_busy", 0)
         self.manual = False
+        self.last_free = self.state.get("drive_free_gb")
+
+    def drive_free(self):
+        """The drive's free space. It is mounted only while writing or playing back, so
+        keep the last reading while the same drive stays plugged in; forget it on
+        eject or unplug."""
+        if not self.drive.present() or self.state.get("drive") == "ejected":
+            self.last_free = None
+        else:
+            f = self.drive.free_gb()
+            if f is not None:
+                self.last_free = f
+        return self.last_free
 
     # -- persistent state (also what the UI shows)
     def _load(self):
@@ -805,7 +818,7 @@ class Ingest:
             os.remove(part)
             raise RuntimeError("copy to drive did not verify")
         os.replace(part, dst)
-        self.state["drive_free_gb"] = self.drive.free_gb()
+        self.state["drive_free_gb"] = self.drive_free()
         self.mark(take_id, cam, "written", path=dst, mov_bytes=size)
 
     def saved_manifest(self, take_id, cam):
@@ -947,10 +960,11 @@ class Ingest:
         self.handle_commands()
         if self.state.get("drive") == "ejected" and self.drive.present():
             self.state["drive"] = None           # plugged back in
+        self.state["drive_free_gb"] = self.drive_free()
         ok, why = self.should_run()
         if not ok:
             self.settle_drive()
-            self.save(status=why, drive_free_gb=self.drive.free_gb())
+            self.save(status=why)
             return why
         try:
             todo = self.pending()

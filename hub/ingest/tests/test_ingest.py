@@ -476,6 +476,18 @@ class EjectTest(Base):
         self.ing.tick()
         self.assertIsNone(self.ing.state["drive"])
 
+    def test_free_space_kept_while_drive_unmounted(self):
+        """Like the real drive: free space is only readable while mounted."""
+        self.drive.free_gb = lambda: 42.0 if self.drive.is_mounted else None
+        self.drive.is_mounted = True
+        self.assertEqual(self.ing.drive_free(), 42.0)
+        self.drive.is_mounted = False
+        self.ing.tick()                                  # idle tick: drive unmounted
+        self.assertEqual(self.ing.state["drive_free_gb"], 42.0)
+        self.drive.is_present = False                    # unplugged: forget it
+        self.ing.tick()
+        self.assertIsNone(self.ing.state["drive_free_gb"])
+
 
 class RunnerTest(unittest.TestCase):
     def test_sigstop_reports_pause_and_resume(self):
