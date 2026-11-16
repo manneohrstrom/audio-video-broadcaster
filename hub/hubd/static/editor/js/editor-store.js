@@ -23,6 +23,14 @@ export class EditorStore {
 
     this.cuts = cutsFromFile(project.edit.cuts);
     this.dissolveSeconds = project.edit.dissolve_s ?? 0.3;
+
+    // Step 2, the look (docs/editor-plan.md section 5): one filter with a strength and any
+    // number of effects with a strength each, for the whole song. Definitions: looks.json.
+    this.step = "cut";                       // "cut" | "look"
+    this.looks = null;                       // looks.json, loaded by the page
+    this.look = { filter: "normal", filter_strength: 1, effects: {}, ...(project.edit.look || {}) };
+    this.adjusting = null;                   // "filter" or an effect id: its strength slider is open
+    this.comparing = false;                  // held down on the video: show without the look
     this.history = new EditModel.History();
 
     this.playheadSeconds = 0;
@@ -158,6 +166,55 @@ export class EditorStore {
     this.notify();
   }
 
+  // -- the look
+  setStep(step) {
+    this.step = step;
+    this.hover = null;
+    this.gesture = null;
+    this.adjusting = null;
+    this.notify();
+  }
+
+  filterSettings(id = this.look.filter) {
+    return this.looks?.filters.find(filter => filter.id === id)?.grade || {};
+  }
+
+  /** Tap a filter: choose it; tap the chosen one again: open or close its strength. */
+  tapFilter(id) {
+    if (this.look.filter === id) this.adjusting = id !== "normal" && this.adjusting !== "filter" ? "filter" : null;
+    else { this.look = { ...this.look, filter: id, filter_strength: 1 }; this.adjusting = null; this.scheduleSave(); }
+    this.notify();
+  }
+
+  /** Tap an effect: add it (at its default strength); tap it again: open or close its strength. */
+  tapEffect(id) {
+    if (this.look.effects[id] == null) {
+      const effect = this.looks.effects.find(e => e.id === id);
+      this.look = { ...this.look, effects: { ...this.look.effects, [id]: effect.default_strength } };
+      this.adjusting = id;
+      this.scheduleSave();
+    } else {
+      this.adjusting = this.adjusting === id ? null : id;
+    }
+    this.notify();
+  }
+
+  setStrength(target, strength) {
+    if (target === "filter") this.look = { ...this.look, filter_strength: strength };
+    else this.look = { ...this.look, effects: { ...this.look.effects, [target]: strength } };
+    this.scheduleSave();
+    this.notify();
+  }
+
+  removeEffect(id) {
+    const effects = { ...this.look.effects };
+    delete effects[id];
+    this.look = { ...this.look, effects };
+    this.adjusting = null;
+    this.scheduleSave();
+    this.notify();
+  }
+
   setDissolve(seconds) {
     this.dissolveSeconds = seconds;
     this.scheduleSave();
@@ -177,7 +234,7 @@ export class EditorStore {
     this.notify();
     const { take_id: takeId, song, version } = this.project;
     try {
-      await saveEdit(takeId, song.id, version, { cuts: cutsToFile(this.cuts), dissolve_s: this.dissolveSeconds });
+      await saveEdit(takeId, song.id, version, { cuts: cutsToFile(this.cuts), dissolve_s: this.dissolveSeconds, look: this.look });
       this.saveState = this.saveState === "saving" ? "saved" : this.saveState;
       this.saveProblem = null;
     } catch (error) {

@@ -10,12 +10,20 @@ export const WAVEFORM_HEIGHT = 50;
 const GROUP_GAP = 12;
 const HANDLE_GRAB_PIXELS = 7;
 
-/** Lanes top to bottom: [{ type, top, height, camera? }], plus the total height. */
-export function layoutLanes(cameras) {
+/**
+ * Lanes top to bottom: [{ type, top, height, camera? }], plus the total height.
+ * compact (step 2, the look): only the ruler, the program strip and the waveform.
+ */
+export function layoutLanes(cameras, { compact = false } = {}) {
   const lanes = [];
   let top = 0;
   const add = (lane, height, gapAfter) => { lanes.push({ ...lane, top, height }); top += height + gapAfter; };
   add({ type: "ruler" }, RULER_HEIGHT, 4);
+  if (compact) {
+    add({ type: "program" }, 46, 8);
+    add({ type: "waveform" }, 40, 0);
+    return { lanes, height: top };
+  }
   add({ type: "program" }, PROGRAM_HEIGHT, GROUP_GAP);
   cameras.forEach((camera, i) => add({ type: "camera", camera }, CAMERA_HEIGHT, i < cameras.length - 1 ? CAMERA_GAP : GROUP_GAP));
   add({ type: "waveform" }, WAVEFORM_HEIGHT, 0);

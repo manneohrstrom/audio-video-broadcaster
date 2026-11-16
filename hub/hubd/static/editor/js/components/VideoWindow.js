@@ -8,6 +8,12 @@ import { everyFrame } from "../frame-loop.js";
 import { cutIndexAt } from "../edit-model.js";
 import { formatSeconds } from "../time-format.js";
 import { fullVideoAvailable } from "../media/video-player.js";
+import { LookRenderer } from "../look/look-renderer.js";
+
+// Pictures are put together (camera, dissolve) on this hidden canvas, then shown through
+// the look (filter and effects) on the visible WebGL canvas.
+const PICTURE_WIDTH = 1280;
+const PICTURE_HEIGHT = 720;
 
 const NO_FULL_VIDEO_NOTE = "thumbnails only: full video needs a secure page (see the hub runbook, Editor)";
 
@@ -18,8 +24,15 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
 
   const noteRef = useRef(null);
 
-  useEffect(() => everyFrame(now => {
-    const canvas = canvasRef.current;
+  useEffect(() => {
+    const picture = document.createElement("canvas");
+    picture.width = PICTURE_WIDTH;
+    picture.height = PICTURE_HEIGHT;
+    store.pictureCanvas = picture;                       // the Look panel's tiles use it too
+    let renderer = null;
+    try { renderer = new LookRenderer(canvasRef.current); } catch (error) { store.showToast(`No look preview: ${error.message}`); }
+    return everyFrame(now => {
+    const canvas = picture;
     const pictures = { player, thumbnailsByCamera, now, waiting: false };
     player.prerollNextShot(now);
     player.keepAllRunning(store.playheadSeconds, now);    // only with editing proxies: instant switches
@@ -35,16 +48,26 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
     const note = !fullVideoAvailable ? NO_FULL_VIDEO_NOTE : pictures.waiting ? "loading video…" : "";
     if (noteRef.current.textContent !== note) noteRef.current.textContent = note;
     noteRef.current.hidden = !note;
+    if (renderer) {
+      const withLook = !store.comparing;
+      renderer.setFilter(withLook ? store.filterSettings() : {}, withLook ? store.look.filter_strength : 0);
+      renderer.render(picture, withLook ? store.look.effects : {}, seconds);
+    }
     const shown = skimCamera || store.cameraAt(seconds);
     wrapperRef.current.style.setProperty("--frame-colour", skimCamera ? `var(--color-camera-${(shown.index % 6) + 1})` : "transparent");
     const text = `${shown.number} ${shown.label}` + (skimCamera ? ` · ${formatSeconds(seconds)}` : "");
     if (badgeRef.current.textContent !== text) badgeRef.current.textContent = text;
-  }), []);
+    });
+  }, []);
+
+  const hold = on => () => { if (store.step === "look") { store.comparing = on; store.notify(); } };
 
   return html`
     <div class="video-stage">
-      <div class="video-window" ref=${wrapperRef}>
+      <div class="video-window" ref=${wrapperRef}
+           onPointerDown=${hold(true)} onPointerUp=${hold(false)} onPointerLeave=${hold(false)}>
         <canvas ref=${canvasRef} width="1920" height="1080" aria-label="Video preview"></canvas>
+        ${store.step === "look" && html`<div class="video-hold">${store.comparing ? "Without the look" : "Press and hold to compare"}</div>`}
         <div class="video-badge" ref=${badgeRef}></div>
         <div class="video-note" ref=${noteRef} hidden></div>
       </div>

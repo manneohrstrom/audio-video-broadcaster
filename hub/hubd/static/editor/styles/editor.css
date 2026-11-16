@@ -92,3 +92,19 @@
 }
 .message { padding: var(--space-4); color: var(--color-text-muted); }
 .message.problem { color: var(--color-problem); }
+
+/* -- step 2, the look */
+.look-panel { display: grid; gap: var(--space-2); padding-block: var(--space-1) var(--space-2); }
+.row-title { color: var(--color-text-muted); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding-top: var(--space-1); }
+.look-row { display: flex; gap: 10px; overflow-x: auto; padding: var(--space-1) 2px 6px; scrollbar-width: thin; }
+.look-tile { flex: none; background: none; border: 0; padding: 0; cursor: pointer; display: grid; gap: 5px; justify-items: center; color: var(--color-text-muted); font-size: var(--font-size-small); font-weight: 500; position: relative; }
+.look-tile canvas { width: 112px; height: 63px; border-radius: 6px; display: block; background: #000; box-shadow: 0 0 0 2px transparent; }
+.look-tile:hover canvas { box-shadow: 0 0 0 2px var(--color-line); }
+.look-tile.selected { color: var(--color-text); }
+.look-tile.selected canvas { box-shadow: 0 0 0 2px var(--color-accent); }
+.on-dot { position: absolute; right: 6px; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-accent); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5); }
+.adjust-row { display: flex; align-items: center; gap: var(--space-3); min-height: 30px; color: var(--color-text-muted); flex-wrap: wrap; }
+.adjust-row strong { color: var(--color-text); min-width: 80px; }
+.adjust-row input[type=range] { width: min(360px, 50vw); accent-color: var(--color-accent); }
+.adjust-row output { font: 500 13px var(--font-numbers); color: var(--color-text); min-width: 34px; }
+.video-hold { position: absolute; right: 10px; top: 10px; padding: 4px 9px; border-radius: 6px; background: rgba(10, 10, 12, 0.72); font-size: var(--font-size-small); color: var(--color-text-muted); pointer-events: none; }

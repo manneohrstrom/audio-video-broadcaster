@@ -6,10 +6,10 @@ import { layoutLanes, TimelineDrawing, readColours } from "../timeline/timeline-
 import { attachTimelinePointer } from "../timeline/timeline-pointer.js";
 import { everyFrame } from "../frame-loop.js";
 
-export function Timeline({ store, transport, thumbnailsByCamera, waveform }) {
+export function Timeline({ store, transport, thumbnailsByCamera, waveform, compact = false }) {
   const canvasRef = useRef(null);
   const wrapperRef = useRef(null);
-  const { lanes, height } = layoutLanes(store.cameras);
+  const { lanes, height } = layoutLanes(store.cameras, { compact });
 
   useEffect(() => {
     const canvas = canvasRef.current;

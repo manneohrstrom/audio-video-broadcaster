@@ -12,6 +12,7 @@ import { VideoWindow } from "./VideoWindow.js";
 import { TransportBar } from "./TransportBar.js";
 import { Splitter, savedVideoHeight } from "./Splitter.js";
 import { Timeline } from "./Timeline.js";
+import { LookPanel } from "./LookPanel.js";
 import { formatSeconds } from "../time-format.js";
 
 export function App({ takeId, songId, version }) {
@@ -42,6 +43,7 @@ function Editor({ project }) {
   useEffect(() => store.subscribe(() => rerender(n => n + 1)), [store]);
   useEffect(() => attachKeyboard(store, transport), [store, transport]);
   useEffect(() => {
+    fetch("/editor/looks.json").then(r => r.json()).then(looks => { store.looks = looks; store.notify(); }).catch(() => {});
     fetch(project.bounce.waveform_url).then(r => (r.ok ? r.json() : null)).then(setWaveform).catch(() => {});
     transport.player.load().catch(error => store.showToast(`The bounce didn't load: ${error.message}`));
   }, [project]);
@@ -60,8 +62,8 @@ function Editor({ project }) {
           <span class="details">v${project.version} · take ${project.take_id} · ${formatSeconds(store.songSeconds)}</span>
         </div>
         <nav class="steps" aria-label="Steps">
-          <button aria-current="step"><span class="step-number">1</span>Cut</button>
-          <button disabled title="Step 2 comes after the cut is built"><span class="step-number">2</span>Look</button>
+          <button aria-current=${store.step === "cut" ? "step" : null} onClick=${() => store.setStep("cut")}><span class="step-number">1</span>Cut</button>
+          <button aria-current=${store.step === "look" ? "step" : null} onClick=${() => store.setStep("look")}><span class="step-number">2</span>Look</button>
         </nav>
         <div class="header-actions">
           <span class=${"save-state " + store.saveState} title=${store.saveProblem || ""}>${saveLabel}</span>
@@ -75,7 +77,9 @@ function Editor({ project }) {
       </div>
       <${Splitter} onResize=${setVideoHeight} />
       <div class="below-splitter">
-        <${Timeline} store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />
+        ${store.step === "cut"
+          ? html`<${Timeline} key="cut" store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`
+          : html`<${LookPanel} store=${store} /><${Timeline} key="look" compact store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`}
       </div>
       <footer class="editor-footer">
         <label for="dissolve">Dissolve
