@@ -27,7 +27,7 @@ import calib  # noqa: E402
 import calibrate  # noqa: E402
 import phones  # noqa: E402
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -263,6 +263,7 @@ class Hub:
         except (OSError, ValueError):
             self.cam_settings = {}
         self.calibrator = calibrate.Calibrator(self, clock=clock)
+        self.phones.calib_watch = self.calibrator.watching
         # Background work started from the poll loop (tests run it inline).
         self.spawn = lambda fn, *a: threading.Thread(target=fn, args=a, daemon=True).start()
 
@@ -670,7 +671,10 @@ class Hub:
             active = [n for n in names if (self.status[n] or {}).get("mode") in ("armed", "recording")]
         manifests, errors = self._parallel(active, lambda n: self.nodes.post(n, "/take/stop", timeout=40))
         summary = take_summary(take.get("take_id"), manifests, errors, self.cfg["max_sync_difference_us"])
-        summary.update(calibration=take.get("calibration"))
+        cal = dict(take.get("calibration") or {})
+        for ph in self.phones.phones_in(take.get("take_id")):
+            cal["phone:" + ph] = self.calibrator.records.get("phone:" + ph)
+        summary.update(calibration=cal)
         summary.update(phones=self.phones.phones_in(take.get("take_id")),
                        server=take.get("server"), missing=take.get("missing", []),
                        started_at=take.get("started_at"),
@@ -813,6 +817,8 @@ class Handler(BaseHTTPRequestHandler):
     P_PHONE_SNAP = re.compile(r"^/api/snap/phone/([^/]+)\.jpg$")
     P_PHONE_SNAP_PUT = re.compile(r"^/api/phone/snap/([^/]+)$")
     P_CAM_SETTINGS = re.compile(r"^/api/camera/(cam\d+)/settings$")
+    P_PHONE_CALIB = re.compile(r"^/api/calib/phone/([^/]+)$")
+    P_PHONE_MOUNT = re.compile(r"^/api/phone/([^/]+)/mount$")
     QUIET = ("/api/status", "/api/time", "/api/phone/poll", "/api/phone/chunk", "/api/phone/log", "/api/calib/measure",
              "/api/snap/", "/api/phone/snap/")
 
@@ -964,6 +970,12 @@ class Handler(BaseHTTPRequestHandler):
             m = self.P_CAM_SETTINGS.match(self.path)
             if m:
                 return self._send(200, h.set_camera_settings(m.group(1), b))
+            m = self.P_PHONE_CALIB.match(self.path)
+            if m:
+                return self._send(200, h.calibrator.phone_report(m.group(1), b))
+            m = self.P_PHONE_MOUNT.match(self.path)
+            if m:
+                return self._send(200, h.phones.set_mount(m.group(1), b.get("mount")))
             if self.path == "/api/rec":
                 return self._send(200, h.rec(b.get("nodes")))
             if self.path == "/api/stop":

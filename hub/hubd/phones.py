@@ -207,6 +207,13 @@ class Phones:
         self.uploaded = {}      # take_id -> video bytes received (record-time estimate)
         self.snaps = {}         # name -> (jpeg, time): latest still for the snapshot page
         self.snap_wanted = 0.0  # phones send a still on their next poll until then
+        self.calib_watch = lambda: False    # set by hubd: is the hub watching for the card?
+        self.mounts_path = os.path.join(self.dir, "mounts.json")
+        try:
+            with open(self.mounts_path) as f:
+                self.mounts = json.load(f)  # name -> "tripod" | "handheld"
+        except (OSError, ValueError):
+            self.mounts = {}
         os.makedirs(self.dir, exist_ok=True)
 
     # -- registry
@@ -241,7 +248,24 @@ class Phones:
                 p["cmd"] = None     # stale: the phone can't act on it any more
             want_snap = (now < self.snap_wanted and rig.get("state") == "idle"
                          and self.snaps.get(name, (None, 0))[1] < self.snap_wanted - SNAP_WINDOW_S)
-            return {"id": name, "cmd": p["cmd"], "rig": rig, "hub_ns": time.time_ns(), "snap": want_snap}
+            return {"id": name, "cmd": p["cmd"], "rig": rig, "hub_ns": time.time_ns(), "snap": want_snap,
+                    "mount": self.mounts.get(name, "tripod"),
+                    "calib_watch": rig.get("state") == "idle" and self.calib_watch()}
+
+    def names(self):
+        """Phones seen in the last two minutes (the hub page lists them)."""
+        now = self.clock()
+        with self.lock:
+            return sorted(n for n, p in self.phones.items() if now - p["seen"] < 120)
+
+    def set_mount(self, name, mount):
+        """Tripod (focus measured once, then locked) or handheld (continuous autofocus)."""
+        if not PART.match(name or "") or mount not in ("tripod", "handheld"):
+            raise PhoneError("mount must be tripod or handheld")
+        with self.lock:
+            self.mounts[name] = mount
+            write_json(self.mounts_path, self.mounts)
+            return dict(self.mounts)
 
     # -- snapshot page (Track B)
     def want_snaps(self):
@@ -303,6 +327,7 @@ class Phones:
                 online = self._online(p, now)
                 st = p["status"] or {}
                 out[n] = {"label": p.get("label", n), "online": online, "age_s": round(now - p["seen"], 1), "status": st,
+                          "mount": self.mounts.get(n, "tripod"),
                           "problems": self.problems(n, st, free_gb, n_on) if online else []}
             return out
 

@@ -125,7 +125,43 @@ class Calibrator:
                 out[cam] = {"status": st, "message": cur.get("message"),
                             "at": rec and rec["at"], "gain": rec and rec["gain"], "awb_gains": rec and rec["awb_gains"],
                             "light_ok": rec and rec["light_ok"]}
-            return {"watching": self.watching(), "seq": self.seq, "devices": out}
+            phones = {}
+            for name in self.hub.phones.names():
+                rec = self.records.get("phone:" + name)
+                cur = self.live.get("phone:" + name) or {}
+                phones[name] = {"status": cur.get("status") or ("calibrated" if rec else "waiting"),
+                                "message": cur.get("message"), "at": rec and rec["at"],
+                                "iso": rec and rec.get("iso"), "k": rec and rec.get("k"),
+                                "light_ok": rec and rec.get("light_ok")}
+            return {"watching": self.watching(), "seq": self.seq, "devices": out, "phones": phones}
+
+    # -- phones calibrate themselves on their page (it has the camera controls) and report here
+    PHONE_STATUS = ("waiting", "calibrating", "calibrated")
+
+    def phone_report(self, name, body):
+        st = body.get("status")
+        if st not in self.PHONE_STATUS:
+            raise ValueError("status must be one of %s" % ", ".join(self.PHONE_STATUS))
+        msg = body.get("message")
+        msg = str(msg)[:200] if msg else None
+        key = "phone:" + name
+        with self.lock:
+            if st == "calibrated":
+                rec = body.get("record")
+                if not isinstance(rec, dict):
+                    raise ValueError("a calibrated report needs its record")
+                rec = dict(rec, at=self.clock())
+                self.records[key] = rec
+                self._write()
+                self.seq += 1
+            self.live[key] = {"status": st, "message": msg}
+        return {"ok": True}
+
+    def _write(self):
+        tmp = self.path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(self.records, f, indent=1)
+        os.replace(tmp, self.path)
 
     def _set(self, cam, status=None, message=None):
         with self.lock:
@@ -200,10 +236,7 @@ class Calibrator:
                "rounds": rounds, "grey": m["grey"], "patches": m["patches"], "marker_px": m.get("marker_px")}
         with self.lock:
             self.records[cam] = rec
-            tmp = self.path + ".tmp"
-            with open(tmp, "w") as f:
-                json.dump(self.records, f, indent=1)
-            os.replace(tmp, self.path)
+            self._write()
             self.seq += 1
             msg = None if light_ok else "not enough light: at maximum gain"
             if not converged and light_ok:

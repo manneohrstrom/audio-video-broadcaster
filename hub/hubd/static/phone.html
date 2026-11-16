@@ -43,6 +43,11 @@
     <button id="autolock" class="main">Auto, then lock</button>
     <button id="auto">All auto</button>
   </div>
+  <div class="row" id="mountrow">
+    <label><input type="radio" name="mount" value="tripod"> on a tripod</label>
+    <label><input type="radio" name="mount" value="handheld"> handheld</label>
+  </div>
+  <div id="calstate" class="dim"></div>
   <details><summary>manual values</summary>
     <div class="dim">exposure in 100 µs units: 200 = 1/50 s (the rig's shutter)</div>
     <div class="row">
@@ -198,6 +203,42 @@ function sharpness() {
   }
   return s2 / n - (s / n) ** 2;
 }
+// Focus: contrast sweep over the lens range, then refine around the best. Returns a warning or "".
+async function focusSweep(caps, log) {
+  let focusWarn = "";
+  if (!caps.focusDistance) return focusWarn;
+    const r = caps.focusDistance, best = {d: null, s: -1};
+    // The lens takes a while to get there, and Chrome reports the requested distance, not
+    // the lens's. A fixed 350 ms wasn't enough on the Pixel 9a (2026-11-16): the first
+    // reading after a long jump still saw the old, sharp picture and won the sweep. So
+    // read until two readings in a row agree (or 2.5 s), and start the sweep from the
+    // near end with a longer wait.
+    const settled = async () => {
+      let prev = sharpness();
+      for (let t = 0; t < 2500; t += 150) {
+        await wait(150);
+        const s = sharpness();
+        if (Math.abs(s - prev) <= 0.1 * Math.max(s, prev, 1)) return (s + prev) / 2;
+        prev = s;
+      }
+      return prev;
+    };
+    const tryD = async d => { d = +clamp(d, r).toFixed(2); await setC({focusMode: "manual", focusDistance: d}); await wait(250);
+      const s = await settled(); log.steps.push({focus: d, s: Math.round(s)}); if (s > best.s) { best.s = s; best.d = d; } };
+    await setC({focusMode: "manual", focusDistance: r.min}); await wait(1000);
+    for (let i = 0; i <= 12; i++) { const d = r.min * Math.pow(r.max / r.min, i / 12); msg(`focusing … ${d.toFixed(2)} m`); await tryD(d); }
+    const f = Math.pow(r.max / r.min, 1 / 12);
+    // Refine: jump near the best first (a long jump back from the far end), then step out.
+    await setC({focusMode: "manual", focusDistance: +clamp(best.d / f, r).toFixed(2)}); await wait(1000);
+    for (const m of [1 / f, 1 / Math.sqrt(f), Math.sqrt(f), f]) await tryD(best.d * m);
+    await setC({focusMode: "manual", focusDistance: best.d}); await wait(400);
+    const check = await settled();
+    log.steps.push({focus_final: best.d, s: Math.round(check), best_s: Math.round(best.s)});
+    if (check < 0.5 * best.s) focusWarn = " · focus may be off: check the picture, or set focus m by hand";
+    $("focusDistance").value = best.d;
+  
+  return focusWarn;
+}
 async function autoThenLock() {
   if (S.state === "recording") { msg("Not during a take: settings stay fixed while recording."); return; }
   const caps = S.track.getCapabilities();
@@ -237,38 +278,8 @@ async function autoThenLock() {
       await setC({whiteBalanceMode: "manual", colorTemperature: bestK}); await wait(500);
       $("colorTemperature").value = bestK;
     }
-    // 3. focus: contrast sweep over the lens range, then refine around the best
-    if (caps.focusDistance) {
-      const r = caps.focusDistance, best = {d: null, s: -1};
-      // The lens takes a while to get there, and Chrome reports the requested distance, not
-      // the lens's. A fixed 350 ms wasn't enough on the Pixel 9a (2026-11-16): the first
-      // reading after a long jump still saw the old, sharp picture and won the sweep. So
-      // read until two readings in a row agree (or 2.5 s), and start the sweep from the
-      // near end with a longer wait.
-      const settled = async () => {
-        let prev = sharpness();
-        for (let t = 0; t < 2500; t += 150) {
-          await wait(150);
-          const s = sharpness();
-          if (Math.abs(s - prev) <= 0.1 * Math.max(s, prev, 1)) return (s + prev) / 2;
-          prev = s;
-        }
-        return prev;
-      };
-      const tryD = async d => { d = +clamp(d, r).toFixed(2); await setC({focusMode: "manual", focusDistance: d}); await wait(250);
-        const s = await settled(); log.steps.push({focus: d, s: Math.round(s)}); if (s > best.s) { best.s = s; best.d = d; } };
-      await setC({focusMode: "manual", focusDistance: r.min}); await wait(1000);
-      for (let i = 0; i <= 12; i++) { const d = r.min * Math.pow(r.max / r.min, i / 12); msg(`focusing … ${d.toFixed(2)} m`); await tryD(d); }
-      const f = Math.pow(r.max / r.min, 1 / 12);
-      // Refine: jump near the best first (a long jump back from the far end), then step out.
-      await setC({focusMode: "manual", focusDistance: +clamp(best.d / f, r).toFixed(2)}); await wait(1000);
-      for (const m of [1 / f, 1 / Math.sqrt(f), Math.sqrt(f), f]) await tryD(best.d * m);
-      await setC({focusMode: "manual", focusDistance: best.d}); await wait(400);
-      const check = await settled();
-      log.steps.push({focus_final: best.d, s: Math.round(check), best_s: Math.round(best.s)});
-      if (check < 0.5 * best.s) focusWarn = " · focus may be off: check the picture, or set focus m by hand";
-      $("focusDistance").value = best.d;
-    }
+    // 3. focus
+    focusWarn = await focusSweep(caps, log);
     S.locked = true;
     const warn = iso >= caps.iso.max * 0.9 ? " · the room is too dark for 1/50 s: add light" : "";
     msg(`Locked: 1/${Math.round(10000 / exp)} s, ISO ${iso}, ${$("colorTemperature").value} K, focus ${$("focusDistance").value} m${warn}${focusWarn}`);
@@ -468,6 +479,8 @@ async function pollHub() {
       return;
     }
     S.hubOk = true; S.rig = j.rig; S.id = j.id;
+    applyMount(j.mount);
+    S.calWatch = !!j.calib_watch;
     if (j.snap && S.state === "ready") sendSnap().catch(e => hublog({ev: "snap_err", err: String(e)}));
     if (j.cmd && j.cmd.id !== S.doneCmd) {
       S.doneCmd = j.cmd.id;
@@ -498,6 +511,101 @@ setInterval(() => {
   if (S.lastErr) rows.push(["error", S.lastErr]);
   $("stats").innerHTML = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join("");
 }, 500);
+
+// ---------- calibration by showing the card (Track B). While the hub watches (a hub page is
+// open) and this phone is idle, it reads a frame every ~1.5 s through the hub's card reader.
+// When the card appears it calibrates itself: the white-balance preset nearest neutral
+// (Chrome only offers presets: spike B-S6), then ISO at 1/50 s so the grey is mid-grey,
+// then focus (tripod: one sweep, locked; handheld: continuous autofocus). The readings go
+// to the hub for the editor, which removes the colour cast the presets leave.
+const TARGET = 119, linv = v => Math.pow(Math.max(v, 0.5) / 255, 2.2);
+S.cal = {inView: false, running: false};
+function calShow(t) { $("calstate").textContent = t || ""; }
+async function calReport(status, message, record) {
+  calShow(status === "calibrated" ? "✓ calibrated" + (message ? " · " + message : "") : (message || (status === "waiting" ? "waiting for the card" : status)));
+  try { await fetch("/api/calib/phone/" + S.id, {method: "POST", body: JSON.stringify({status, message, record})}); } catch (e) {}
+}
+function applyMount(m) {
+  if (!m || m === S.mount) return;
+  S.mount = m;
+  document.querySelectorAll('input[name=mount]').forEach(r => r.checked = r.value === m);
+  if (S.track && S.state === "ready" && !S.cal.running) {
+    const caps = S.track.getCapabilities();
+    if (m === "handheld" && caps.focusMode && caps.focusMode.includes("continuous")) setC({focusMode: "continuous"});
+    else if (m === "tripod" && num("focusDistance") !== undefined) setC({focusMode: "manual", focusDistance: num("focusDistance")});
+  }
+}
+document.querySelectorAll('input[name=mount]').forEach(r => r.onchange = () => {
+  if (S.id) fetch(`/api/phone/${S.id}/mount`, {method: "POST", body: JSON.stringify({mount: r.value})});
+});
+function stillReady() { if (S.state !== "ready") throw new Error("stopped: the rig started a take"); }
+async function calWatchTick() {
+  if (!S.calWatch || S.state !== "ready" || S.cal.running || !S.id || !$("preview").videoWidth) return;
+  let m;
+  try { m = await cardShot(); } catch (e) { return; }
+  if (!m.grey) { S.cal.inView = false; if (!S.locked || !S.cal.done) calShow("waiting for the card"); return; }
+  if (S.cal.inView) return;                  // still in view since the last calibration
+  if (m.marker_px < 30) return calReport("waiting", "bring the card closer");
+  if (m.grey_spread > 14) return calReport("waiting", "tilt the card: a light is reflecting on it");
+  phoneCalibrate().catch(() => {});
+}
+async function phoneCalibrate() {
+  S.cal.running = true;
+  const caps = S.track.getCapabilities(), log = {steps: []};
+  try {
+    await calReport("calibrating", "hold the card still");
+    // 1. white balance: try each preset once (Chrome snaps the Kelvin value), keep the most neutral
+    let best = null; const seen = new Set();
+    await setC({exposureMode: "continuous"});
+    if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes("manual") && caps.colorTemperature) {
+      const r = caps.colorTemperature;
+      for (const k of [2850, 3000, 3500, 4000, 4250, 4600, 5000, 5500, 6000, 6500, 7000].filter(k => k >= r.min && k <= r.max)) {
+        stillReady();
+        await setC({whiteBalanceMode: "manual", colorTemperature: k}); await wait(400);
+        const snapped = S.track.getSettings().colorTemperature;
+        if (seen.has(snapped)) continue;
+        seen.add(snapped); await wait(500);
+        const m = await cardRead(6), rb = linv(m.grey[0]) / linv(m.grey[2]);
+        log.steps.push({k: snapped, grey: m.grey});
+        if (!best || Math.abs(Math.log(rb)) < Math.abs(Math.log(best.rb))) best = {k: snapped, rb};
+      }
+      await setC({whiteBalanceMode: "manual", colorTemperature: best.k});
+      $("colorTemperature").value = best.k;
+    }
+    // 2. exposure: 1/50 s, ISO scaled until the grey is mid-grey (gain is linear)
+    let iso = clamp(Math.round(num("iso") || 400), caps.iso), m = null, lightOk = true;
+    for (let i = 0; i < 4; i++) {
+      stillReady();
+      await setC({exposureMode: "manual", exposureTime: 200, iso}); await wait(900);
+      m = await cardRead(6);
+      const g = m.grey[1], err = linv(g) / linv(TARGET);
+      log.steps.push({iso, grey: m.grey});
+      if (Math.abs(err - 1) <= 0.08) break;
+      let next = Math.max(...m.grey) >= 250 ? iso / 2 : iso / err;
+      lightOk = next <= caps.iso.max;
+      next = Math.round(clamp(next, caps.iso));
+      if (next === iso) break;
+      iso = next;
+    }
+    $("iso").value = iso; $("exposureTime").value = 200;
+    // 3. focus
+    let focusWarn = "";
+    if (S.mount === "handheld") { if (caps.focusMode && caps.focusMode.includes("continuous")) await setC({focusMode: "continuous"}); }
+    else if (num("focusDistance") === undefined) { await calReport("calibrating", "focusing: hold still"); focusWarn = await focusSweep(caps, log); }
+    stillReady();
+    m = await cardRead(6);
+    S.locked = true; S.cal.inView = true; S.cal.done = true;
+    const record = {iso, k: best ? best.k : null, exposure_us: 20000, grey: m.grey, patches: m.patches,
+                    marker_px: m.marker_px, light_ok: lightOk, mount: S.mount || "tripod", model: S.model,
+                    focus_m: S.mount === "handheld" ? null : num("focusDistance")};
+    await calReport("calibrated", (lightOk ? "" : "not enough light: ISO at maximum") + focusWarn, record);
+    hublog({ev: "calibrate", log, record});
+    showCaps(false);
+  } catch (e) {
+    await calReport("waiting", e.message === "card not found" ? "the card moved out of view: show it again" : e.message);
+  } finally { S.cal.running = false; }
+}
+setInterval(() => calWatchTick().catch(() => {}), 1500);
 
 // Snapshot page (Track B): a still of what this phone sees, when the hub asks.
 async function sendSnap() {

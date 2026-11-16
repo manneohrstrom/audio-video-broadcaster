@@ -35,7 +35,9 @@
   .kv { display:grid; grid-template-columns:auto 1fr; gap:1px 10px; font-size:13px; }
   .kv span:nth-child(odd) { color:var(--dim); }
   .problems { color:var(--warn); font-size:13px; margin-top:6px; }
-  .cal { font-size:13px; margin-top:6px; color:var(--dim); } .cal.good { color:var(--ok); } .cal.warn { color:var(--warn); }
+  .cal { font-size:13px; margin-top:6px; color:var(--dim); }
+  .mount { display:flex; gap:6px; margin-top:6px; } .mount button { min-width:0; font-size:13px; padding:5px 10px; background:#333; border-radius:6px; }
+  .mount button.on { background:var(--live); } .cal.good { color:var(--ok); } .cal.warn { color:var(--warn); }
   .url { margin-top:8px; display:flex; gap:6px; }
   .url input { flex:1; min-width:0; background:#000; color:var(--dim); border:1px solid #333; border-radius:6px; font:12px ui-monospace, monospace; padding:4px 6px; }
   .url button { font-size:12px; padding:4px 8px; min-width:0; background:#333; }
@@ -219,9 +221,26 @@ function phoneCard(id, p) {
       <span>clock</span><span>${st.rtt_ms != null ? "round trip " + st.rtt_ms + " ms" : "–"}</span>
       <span>model</span><span>${esc(st.model || "–")}</span>
     </div>
+    ${phoneCal(id)}
+    ${rec ? "" : `<div class="mount">${["tripod", "handheld"].map(m => `<button data-mount="${m}" data-phone="${esc(id)}"
+       class="${(p.mount || "tripod") === m ? "on" : ""}">${m === "tripod" ? "on a tripod" : "handheld"}</button>`).join("")}</div>`}
     ${p.problems.length && !rec ? `<div class="problems">${p.problems.map(esc).join("<br>")}</div>` : ""}
   </div>`;
 }
+function phoneCal(id) {
+  const c = (((snap.calibration || {}).phones) || {})[id]; if (!c) return "";
+  const when = c.at ? new Date(c.at * 1000).toLocaleString([], {day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"}) : "";
+  const watch = (snap.calibration || {}).watching;
+  let txt, cls = "";
+  if (c.status === "calibrating") { txt = "⏳ calibrating…"; cls = "warn"; }
+  else if (c.at) { txt = `✓ calibrated ${when} · ISO ${c.iso} · ${c.k} K` + (c.status === "waiting" && watch ? " · show the card to recalibrate" : ""); cls = "good"; }
+  else txt = watch ? "Waiting for card: show it to this phone" : "Not calibrated";
+  return `<div class="cal ${cls}">${esc(txt)}${c.message ? ` <span class="problems">${esc(c.message)}</span>` : ""}</div>`;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("button[data-mount]"); if (!b) return;
+  fetch(`/api/phone/${encodeURIComponent(b.dataset.phone)}/mount`, {method: "POST", body: JSON.stringify({mount: b.dataset.mount})}).then(poll);
+});
 
 function hm(s) { s = Math.max(0, Math.round(s / 60)); return s >= 60 ? `${s / 60 | 0} h ${s % 60} min` : `${s} min`; }
 const LIMIT_NAMES = { hub: "hub SD card" };

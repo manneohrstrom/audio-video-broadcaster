@@ -144,3 +144,42 @@ class CalibratorTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PhoneCalibrationTest(unittest.TestCase):
+    def setUp(self):
+        self.now = [1000.0]
+        self.cfg = hubd.load_config(None)
+        self.cfg.update(state_dir=tempfile.mkdtemp(), client_head_start_s=0, sync_timeout_s=1)
+        self.rig = FakeRig(self.cfg["nodes"])
+        self.hub = hubd.Hub(self.cfg, nodes=self.rig, clock=lambda: self.now[0], sleep=lambda s: None)
+        self.body = {"phone": "Paul's Pixel", "page": "abcdefgh1", "state": "ready"}
+
+    def test_poll_tells_the_phone_when_to_watch_and_its_mount(self):
+        r = self.hub.phone_poll(self.body)
+        self.assertEqual((r["calib_watch"], r["mount"]), (False, "tripod"))
+        self.hub.calibrator.page_open()
+        self.assertTrue(self.hub.phone_poll(self.body)["calib_watch"])
+        self.hub.phones.set_mount("pauls-pixel", "handheld")
+        self.assertEqual(self.hub.phone_poll(self.body)["mount"], "handheld")
+        with self.assertRaises(ValueError):
+            self.hub.phones.set_mount("pauls-pixel", "gimbal")
+        again = hubd.Hub(self.cfg, nodes=self.rig, sleep=lambda s: None)
+        self.assertEqual(again.phones.mounts, {"pauls-pixel": "handheld"})
+
+    def test_phone_reports_and_take_keeps_its_record(self):
+        cal = self.hub.calibrator
+        self.hub.phone_poll(self.body)
+        self.assertEqual(cal.status()["phones"]["pauls-pixel"]["status"], "waiting")
+        cal.phone_report("pauls-pixel", {"status": "calibrating", "message": "hold the card still"})
+        self.assertEqual(cal.status()["phones"]["pauls-pixel"]["status"], "calibrating")
+        with self.assertRaises(ValueError):
+            cal.phone_report("pauls-pixel", {"status": "calibrated"})          # no record
+        cal.phone_report("pauls-pixel", {"status": "calibrated", "record": {"iso": 170, "k": 2850, "light_ok": True}})
+        st = cal.status()
+        self.assertEqual((st["seq"], st["phones"]["pauls-pixel"]["iso"]), (1, 170))
+        self.hub.poll_once()
+        self.hub.rec()
+        self.hub.phone_poll(self.body)          # the phone is told to record
+        s = self.hub.stop()
+        self.assertEqual(s["calibration"]["phone:pauls-pixel"]["k"], 2850)
