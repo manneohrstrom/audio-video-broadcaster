@@ -26,7 +26,8 @@ Three things the rig can't do yet:
   - Each version is synced on its own. Versions of the same song should land in the same place in the take: if a new version lands elsewhere, it was probably edited in time, and the hub flags it rather than trusting it.
   - The later auto-edit uses the chosen version of each song.
 - **Where files go:** `STUDIO/takes/<take>/audio/scratch.wav`, and per song `audio/<song>/v<N>/` with the uploaded file as sent plus `synced.wav` with timecode (BWF) and a small `sync.json` (offset, drift, anchor, confidence). Written via `.part` and renamed, like the video. The hub never deletes from the drive.
-- **Upload:** "Add audio" on each take in the hub page: pick or create the song, then the file. Resumable chunked upload, streamed straight to the drive (1 GB of RAM), mounted read-write only while writing (decision 5). It pauses during takes and live sessions, like ingest.
+- **Upload:** "Add audio" on each take in the hub page: pick or create the song, then the file. Resumable chunked upload (8 MB pieces). It pauses during takes and live sessions, like ingest. *Built 2026-11-16 (hubd 0.9.0, ingest 0.5.0) with one change: uploads are staged on the hub's SD card and hub-ingest copies them to the drive like video (`.part`, fsync, checksum, rename), instead of streaming straight to the drive. So uploading works without the drive plugged in, and hub-ingest stays the only thing that mounts it.*
+- **Scratch recording (built 2026-11-16, before the mic arrived):** `arecord` from the first USB mic for every take, from REC (before the cameras arm) to after STOP; each 100 ms block stamped with the hub's clock (`scratch.times.tsv`), so the mic's drift (A2) can be fitted out whatever it is. No mic or a failing mic never affects REC.
 
 ### A4. Quick mix: one button, finished video (user request, accepted 2026-11-16)
 

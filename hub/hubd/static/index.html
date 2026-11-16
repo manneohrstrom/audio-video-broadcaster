@@ -18,7 +18,7 @@
   #rec { background:var(--rec); } #stop { background:#555; } #live { background:var(--live); }
   #rigbox { margin-left:auto; align-self:center; text-align:right; }
   #rig { font-size:22px; font-weight:700; }
-  #budget, #drivefit { font-size:14px; color:var(--dim); } #budget.warn { color:var(--warn); font-weight:700; }
+  #budget, #drivefit, #mic { font-size:14px; color:var(--dim); } #budget.warn { color:var(--warn); font-weight:700; }
   #drivefit.short { color:var(--warn); }
   #rig.recording { color:var(--rec); } #rig.starting, #rig.stopping { color:var(--warn); }
   #msg { min-height:1.4em; margin-bottom:12px; color:var(--warn); white-space:pre-line; }
@@ -69,7 +69,17 @@
   button.play { font-size:12px; font-weight:600; padding:3px 9px; min-width:0; border-radius:6px; background:#2b3a55; }
   .plays { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
   #player { position:fixed; inset:0; background:rgba(0,0,0,.85); display:flex; align-items:center; justify-content:center; padding:16px; z-index:10; }
-  #player[hidden], #qr[hidden] { display:none; }
+  #player[hidden], #qr[hidden], #audiodlg[hidden] { display:none; }
+  #audiodlg { position:fixed; inset:0; background:rgba(0,0,0,.8); display:flex; align-items:center; justify-content:center; padding:16px; z-index:12; }
+  .abox { width:100%; max-width:560px; background:var(--card); border-radius:10px; padding:14px 16px; }
+  .abox h3 { margin:0 0 10px; display:flex; justify-content:space-between; gap:8px; }
+  .abox label { display:block; font-size:13px; color:var(--dim); margin:10px 0 4px; }
+  .abox select, .abox input[type=text] { width:100%; box-sizing:border-box; font-size:14px; padding:6px; background:#222; color:inherit; border:1px solid #444; border-radius:6px; }
+  .abox .songs { font-size:13px; margin:4px 0 8px; } .abox .songs div { margin:3px 0; }
+  .abox .songs button { font-size:11px; padding:1px 7px; min-width:0; margin-left:4px; }
+  .abar { height:8px; background:#333; border-radius:4px; overflow:hidden; margin:10px 0 4px; } .abar i { display:block; height:100%; background:#7ab8ff; width:0; }
+  .audio { font-size:13px; color:var(--dim); margin-top:6px; }
+  button.addaudio { font-size:12px; padding:3px 9px; min-width:0; border-radius:6px; background:#33402b; }
   #qr { position:fixed; inset:0; background:rgba(0,0,0,.8); display:flex; align-items:center; justify-content:center; padding:16px; z-index:11; }
   .qrbox { background:#fff; color:#111; border-radius:12px; padding:20px 24px; text-align:center; max-width:340px; width:100%; }
   .qrbox svg { width:100%; height:auto; display:block; }
@@ -90,7 +100,7 @@
   <button id="rec">● REC</button>
   <button id="stop">■ STOP</button>
   <button id="live">LIVE</button>
-  <div id="rigbox"><div id="rig">…</div><div id="budget"></div><div id="drivefit"></div></div>
+  <div id="rigbox"><div id="rig">…</div><div id="budget"></div><div id="drivefit"></div><div id="mic"></div></div>
 </div>
 <div id="msg"></div>
 <div class="grid" id="cards"></div>
@@ -106,6 +116,19 @@
   <p><code>http://studio-hub.local/phone</code></p>
   <p><a href="/phone" id="qrhere">Already on the phone? Open it here</a></p>
   <p class="dim">Android + Chrome only. First time on a phone: see the setup at the bottom of the phone page. Click outside to close.</p>
+</div></div>
+<div id="audiodlg" hidden><div class="abox">
+  <h3><span>Add audio · <span id="atake"></span></span><button id="aclose">✕</button></h3>
+  <div id="asongs" class="songs"></div>
+  <label for="asong">Song</label>
+  <select id="asong"></select>
+  <input type="text" id="aname" placeholder="Name of the new song (default: Track N)" maxlength="60">
+  <label for="afile">Bounce (WAV, AIFF, FLAC, MP3, M4A)</label>
+  <input type="file" id="afile" accept=".wav,.aif,.aiff,.flac,.mp3,.m4a,.ogg,audio/*">
+  <div class="abar"><i id="abar"></i></div>
+  <div id="amsg" class="step"></div>
+  <div class="controls small"><button id="aup">Upload</button></div>
+  <p class="step">Each upload to an existing song becomes its next version; every version is kept. Uploads wait while a take or LIVE runs and go on by themselves. If the page is closed mid-upload, pick the same file for the same song again to carry on.</p>
 </div></div>
 <div id="player" hidden>
   <div class="pbox">
@@ -276,6 +299,10 @@ function render() {
   df.textContent = driveTxt(snap.budget, snap.state);
   df.className = d && snap.budget.total_s != null && d.total_s < snap.budget.total_s ? "short" : "";
   df.title = "Information only: if the drive fills up, ingest waits for a drive with space; nothing is lost.";
+  const sc = snap.scratch || {};
+  $("#mic").innerHTML = { recording: `Hub mic: <span class="bad">● recording</span> ${hms(sc.seconds || 0)}`,
+    ready: "Hub mic: ready", "no mic": "Hub mic: none plugged in (takes record without it)",
+    error: `Hub mic: <span class="bad">${esc(sc.error || "error")}</span>`, off: "" }[sc.state] || "";
   $("#rec").disabled = busy || snap.state !== "idle";
   $("#stop").disabled = busy || snap.state !== "recording";
   $("#live").disabled = busy || snap.state !== "idle";
@@ -406,7 +433,7 @@ function ingestView(st) {
         <span style="color:var(--warn)">${label}</span></h4>
         <div class="camdone">${rc.map(([c, v]) => `${esc(v.label || c)}${v.uploading ? ": uploading…" : v.frames != null ? ": " + v.frames + " frames" : ""}` +
           (v.dropped ? ` <span class="bad">(${v.dropped} dropped)</span>` : "") + roughTxt(cams[c])).join(" · ")}` +
-        (drops ? "" : ` · <span class="good">no dropped frames</span>`) + `</div>${probs(rec)}</div>`;
+        (drops ? "" : ` · <span class="good">no dropped frames</span>`) + `</div>${probs(rec)}${audioTxt(id, cams)}</div>`;
     }
     const allDone = cs.length && cs.every(([, v]) => (v.done || []).includes("marked"));
     const active = cs.some(([, v]) => v.step);
@@ -430,9 +457,105 @@ function ingestView(st) {
         (v.error ? `<div class="camerr">${esc(v.error)}</div>` : "")).join("");
     }
     const cls = allDone ? "done" : err ? "error" : active ? "active" : "";
-    return `<div class="take ${cls}"><h4><span>${head}</span>${right}</h4>${body}${probs(rec)}${playBtns(id, cs)}</div>`;
+    return `<div class="take ${cls}"><h4><span>${head}</span>${right}</h4>${body}${probs(rec)}${playBtns(id, cs)}${audioTxt(id, cams)}</div>`;
   }).join("");
 }
+// ---- audio: bounces (songs and versions) and the hub mic, per take (Phase 4 Track A)
+function audioTxt(id, t) {
+  const a = t.audio || {};
+  const parts = (a.songs || []).map(sg => {
+    const done = sg.versions.filter(v => v.complete);
+    const up = sg.versions.filter(v => !v.complete);
+    const cur = done.find(v => v.version === sg.current);
+    let x = `♪ ${esc(sg.name)}` + (cur ? ` v${cur.version}` + (done.length > 1 ? ` (of ${done.length})` : "") +
+      (cur.on_drive ? ' <span class="good">on drive</span>' : " · waiting for ingest") : "");
+    if (up.length) x += ` · <span style="color:var(--warn)">v${up.map(v => v.version).join(", v")} not finished</span>`;
+    return x;
+  });
+  if (a.scratch) parts.push(`hub mic ${fmtDur(a.scratch.seconds)}` + (a.scratch.problems.length ? ` <span class="bad">⚠ ${esc(a.scratch.problems[0])}</span>` : ""));
+  const btn = t.recorded ? `<button class="addaudio" data-audio="${esc(id)}">♪ Add audio</button>` : "";
+  return parts.length || btn ? `<div class="audio">${parts.join(" · ")} ${btn}</div>` : "";
+}
+const AUP = { take: null, running: false };
+async function jpost(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+async function openAudio(take) {
+  AUP.take = take;
+  $("#atake").textContent = take;
+  $("#audiodlg").hidden = false;
+  if (!AUP.running) { $("#amsg").textContent = ""; $("#abar").style.width = "0"; }
+  await refreshSongs();
+}
+async function refreshSongs() {
+  const doc = await (await fetch(`/api/audio/${AUP.take}`)).json();
+  const songs = doc.songs || [];
+  $("#asongs").innerHTML = songs.length ? songs.map(sg => `<div><b>${esc(sg.name)}</b>: ` + sg.versions.map(v =>
+    `v${v.version} ${esc(v.filename)}` + (v.complete ? (v.duration_s ? ` (${fmtDur(v.duration_s)})` : "") +
+      (v.version === sg.current ? ' <span class="good">✓ used</span>' : ` <button data-choose="${esc(sg.id)}" data-v="${v.version}">use this</button>`)
+      : ` <span style="color:var(--warn)">${fmtBytes(v.received)} of ${fmtBytes(v.bytes)}</span>`)).join(" · ") + "</div>").join("")
+    : '<div class="step">No audio for this take yet.</div>';
+  const keep = $("#asong").value;
+  $("#asong").innerHTML = songs.map(sg => `<option value="${esc(sg.id)}">${esc(sg.name)} (new version)</option>`).join("") +
+    '<option value="">New song…</option>';
+  $("#asong").value = songs.some(sg => sg.id === keep) ? keep : (songs.length ? songs[songs.length - 1].id : "");
+  $("#aname").hidden = $("#asong").value !== "";
+}
+$("#asong").onchange = () => { $("#aname").hidden = $("#asong").value !== ""; };
+$("#aclose").onclick = () => { $("#audiodlg").hidden = true; };
+$("#audiodlg").onclick = e => { if (e.target.id === "audiodlg") $("#audiodlg").hidden = true; };
+document.addEventListener("click", async e => {
+  const b = e.target.closest && e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.audio) openAudio(b.dataset.audio);
+  else if (b.dataset.choose) {
+    try { await jpost(`/api/audio/${AUP.take}/${b.dataset.choose}/choose`, { version: +b.dataset.v }); } catch (err) { $("#amsg").textContent = err.message; }
+    refreshSongs(); pollIngest();
+  }
+});
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+$("#aup").onclick = async () => {
+  const file = $("#afile").files[0];
+  if (!file || AUP.running) { if (!file) $("#amsg").textContent = "Pick a file first."; return; }
+  const take = AUP.take, say = t => { $("#amsg").textContent = t; };
+  AUP.running = true; $("#aup").disabled = true;
+  try {
+    let song = $("#asong").value;
+    if (!song) song = (await jpost(`/api/audio/${take}/songs`, { name: $("#aname").value })).id;
+    const v = (await jpost(`/api/audio/${take}/${song}/versions`, { filename: file.name, bytes: file.size })).version;
+    await refreshSongs(); $("#asong").value = song; $("#aname").hidden = true;
+    const doc = await (await fetch(`/api/audio/${take}`)).json();
+    let off = ((doc.songs.find(x => x.id === song) || {}).versions || []).find(x => x.version === v).received || 0;
+    const PIECE = 8 << 20, t0 = Date.now(), off0 = off;
+    while (off < file.size) {
+      $("#abar").style.width = (100 * off / file.size).toFixed(1) + "%";
+      let r;
+      try {
+        r = await fetch(`/api/audio/${take}/${song}/v${v}?offset=${off}`, { method: "PUT", body: file.slice(off, off + PIECE) });
+      } catch (err) { say("Network problem, trying again…"); await sleep(3000); continue; }
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 409) { say("Waiting: a take or LIVE is running. The upload goes on afterwards."); await sleep(5000); continue; }
+      if (!r.ok) {
+        const m = /has (\d+) bytes/.exec(j.error || "");
+        if (m) { off = +m[1]; continue; }                   // the hub has a different amount: carry on from there
+        say("Upload problem: " + (j.error || r.status) + ". Trying again…"); await sleep(3000); continue;
+      }
+      off = j.received;
+      const rate = (off - off0) / Math.max(1, (Date.now() - t0) / 1000);
+      say(`${fmtBytes(off)} of ${fmtBytes(file.size)}` + (rate > 0 ? ` · ${fmtEta((file.size - off) / rate)} left` : ""));
+    }
+    $("#abar").style.width = "100%";
+    say("Checking the file on the hub…");
+    const done = await jpost(`/api/audio/${take}/${song}/v${v}/finish`, {});
+    say(`✓ ${done.filename}: v${done.version}, ${fmtDur(done.duration_s)}, ${done.sample_rate / 1000} kHz. It goes to the drive with the next ingest.`);
+    $("#afile").value = "";
+  } catch (err) { say("Upload failed: " + err.message); }
+  AUP.running = false; $("#aup").disabled = false;
+  if (AUP.take) refreshSongs(); pollIngest();
+};
 // ---- playback straight from the STUDIO drive (hub-ingest mounts it read-only on request)
 const pv = $("#pvideo");
 function openPlayer(take, cam, cams) {

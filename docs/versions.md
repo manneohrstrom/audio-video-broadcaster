@@ -30,6 +30,7 @@ These are the versions verified working in Phase 1 (2026-11-14). Provisioning (A
 | mkvtoolnix | 92.0-1+deb13u1 (`mkvmerge --timestamps` for ingest) |
 | exfatprogs | 1.2.9-1+deb13u1 (`fsck.exfat` for the STUDIO drive) |
 | rsync | 3.5.0+ds1-0+deb13u1 |
+| alsa-utils | 1.2.14-1+rpt1 (`arecord` for the hub mic scratch recording) |
 | chrony | 4.6.1-3+deb13u2 |
 | iperf3 | 3.18-2+deb13u2 |
 | python3 | 3.13.5-1 |

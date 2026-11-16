@@ -34,7 +34,7 @@ import threading
 import time
 import urllib.request
 
-VERSION = "0.4.1"
+VERSION = "0.5.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -81,6 +81,9 @@ DEFAULT_CONFIG = {
     # Phone cameras (docs/phone-plan.md): hubd stages their takes here, already in the
     # camera layout, so a phone's "pull" is a hard link and its "mark" deletes the staging copy.
     "phones_dir": "/var/lib/hubd/phones",
+    # Bounce uploads and hub mic recordings staged by hubd (hub/hubd/audio.py, scratch.py),
+    # per take, in the layout they get under STUDIO/takes/<take folder>/audio/.
+    "audio_dir": "/var/lib/hubd/audio",
 }
 TAKE_RE = re.compile(r"^\d{8}-\d{6}$")
 
@@ -784,6 +787,65 @@ class Ingest:
         self.mark(take_id, cam, "verified", frames_out=len(got), frames_in=len(pts), repeated=0,
                   max_time_err_ms=round(err, 4), dropped=man.get("dropped_frames"), sha256=sha256_file(out))
 
+    # -- audio (Phase 4 Track A): bounce uploads and the hub mic, staged by hubd
+    def audio_pending(self):
+        """{take_id: [(relpath, size, mtime_ns)]}: finished files under audio_dir not on the
+        drive yet, or changed since (songs.json when a version is added or chosen).
+        Only takes ingest knows (an aborted take has no folder to go into)."""
+        root, out = self.cfg.get("audio_dir"), {}
+        if not root or not os.path.isdir(root):
+            return out
+        done = self.state.setdefault("audio", {})
+        for take_id in sorted(os.listdir(root)):
+            if take_id not in self.state["takes"]:
+                continue
+            base = os.path.join(root, take_id)
+            for d, _, files in os.walk(base):
+                for fn in sorted(files):
+                    if fn.endswith((".part", ".tmp")):
+                        continue
+                    p = os.path.join(d, fn)
+                    st = os.stat(p)
+                    rel = os.path.relpath(p, base)
+                    have = done.get(take_id, {}).get(rel)
+                    if not have or (have["size"], have["mtime_ns"]) != (st.st_size, st.st_mtime_ns):
+                        out.setdefault(take_id, []).append((rel, st.st_size, st.st_mtime_ns))
+        return out
+
+    def copy_audio(self, todo):
+        need = sum(size for items in todo.values() for _, size, _ in items) / 1e9 + 0.1
+        with self.writing():
+            free = self.drive.free_gb()
+            if free is not None and free < need:
+                raise RuntimeError("drive full: %.1f GB free, need %.1f for audio" % (free, need))
+            for take_id, items in todo.items():
+                for rel, size, mtime_ns in items:
+                    self._copy_audio_file(take_id, rel, size, mtime_ns)
+        self.state["drive_free_gb"] = self.drive_free()
+
+    def _copy_audio_file(self, take_id, rel, size, mtime_ns):
+        src = os.path.join(self.cfg["audio_dir"], take_id, rel)
+        dst = os.path.join(self.take_folder(take_id), "audio", rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        part, h, checked = dst + ".part", hashlib.sha256(), time.monotonic()
+        with open(src, "rb") as fi, open(part, "wb") as fo:
+            for b in iter(lambda: fi.read(1 << 22), b""):
+                if time.monotonic() - checked > 2:
+                    checked = time.monotonic()
+                    if self.rig_busy():
+                        raise Paused()
+                h.update(b)
+                fo.write(b)
+            fo.flush()
+            os.fsync(fo.fileno())
+        if sha256_file(part) != h.hexdigest():
+            os.remove(part)
+            raise RuntimeError("audio copy of %s did not verify" % rel)
+        os.replace(part, dst)
+        self.state["audio"].setdefault(take_id, {})[rel] = {
+            "size": size, "mtime_ns": mtime_ns, "sha256": h.hexdigest(), "path": dst}
+        self.save()
+
     def take_folder(self, take_id):
         day = "%s-%s-%s" % (take_id[0:4], take_id[4:6], take_id[6:8])
         return os.path.join(self.drive.mp, "takes", "%s_%s" % (day, take_id))
@@ -969,7 +1031,8 @@ class Ingest:
         try:
             todo = self.pending()
             self.register(todo)
-            if not todo:
+            audio = self.audio_pending()
+            if not todo and not audio:
                 self.manual = False
                 self.settle_drive()
                 self.save(status="idle: nothing to ingest")
@@ -977,6 +1040,11 @@ class Ingest:
             for take_id, cams in todo.items():
                 self.save(status="ingesting")
                 self.ingest_take(take_id, cams)
+            audio = self.audio_pending()        # a take registered just now may have audio
+            if audio:
+                self.save(status="ingesting", step="audio")
+                self.copy_audio(audio)
+                self.save(step=None)
             return "ingested"
         except Paused:
             self.save(status="paused: rig busy")

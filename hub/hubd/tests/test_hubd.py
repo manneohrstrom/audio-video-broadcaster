@@ -121,6 +121,46 @@ class HubTest(unittest.TestCase):
         self.assertEqual(look, "error")                          # recording light flashes
         self.assertIn("no cameras online", why)
 
+    def test_rec_and_stop_drive_the_scratch_mic(self):
+        calls = []
+
+        class Fake:
+            def start(f, take_id):
+                calls.append(("start", take_id, self.hub.state))
+            def stop(f):
+                calls.append(("stop", self.hub.state))
+                return {"device": "hw:1", "rate": 48000, "channels": 1, "samples": 4800, "problems": [], "command": []}
+            def status(f):
+                return {"state": "ready"}
+        self.hub.scratch = Fake()
+        t = self.hub.rec()
+        self.assertEqual(calls[0], ("start", t["take_id"], "starting"))     # before the cameras arm
+        self.hub.stop()
+        self.assertEqual(calls[1], ("stop", "stopping"))                    # after the cameras stopped
+        self.assertEqual(self.hub.read_log()[-1]["scratch"]["samples"], 4800)
+        self.assertNotIn("command", self.hub.read_log()[-1]["scratch"])
+
+    def test_no_mic_take_still_records(self):
+        self.hub.scratch.find_device = lambda: None
+        self.hub.rec()
+        self.hub.stop()
+        self.assertIsNone(self.hub.read_log()[-1]["scratch"])
+        self.assertEqual(self.hub.snapshot()["scratch"]["state"], "no mic")
+
+    def test_audio_upload_only_for_real_takes_and_waits_during_a_take(self):
+        import io
+        with self.assertRaises(ValueError):
+            self.hub.audio.new_song("20990101-000000")
+        t = self.hub.rec()
+        self.hub.stop()
+        s = self.hub.audio.new_song(t["take_id"], "Song")
+        v = self.hub.audio.new_version(t["take_id"], s["id"], "mix.wav", 10)
+        self.hub.rec()
+        with self.assertRaises(hubd.audio.Busy):
+            self.hub.audio.put(t["take_id"], s["id"], v["version"], 0, io.BytesIO(b"x" * 10).read, 10)
+        self.hub.stop()
+        self.assertEqual(self.hub.ingest_state()["takes"][t["take_id"]]["audio"]["songs"][0]["name"], "Song")
+
     def test_lamp_follows_rig_state(self):
         decide = lambda: self.hub.lamp.light.decide(*self.hub.lamp_inputs())[0]  # noqa: E731
         self.hub.poll_once()

@@ -3,6 +3,7 @@ pinned_packages_group:
   mkvtoolnix: "92.0-1+deb13u1"
   exfatprogs: "1.2.9-1+deb13u1"
   python3-opencv: "4.10.0+dfsg-5"
+  alsa-utils: "1.2.14-1+rpt1"
 hubd_port: 80
 hubd_sync_server: cam1
 # Recording light (Phase 4 C1, hub/hubd/lamp.py). type: tasmota | esphome | log | null.

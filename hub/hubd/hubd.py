@@ -22,13 +22,15 @@ from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import audio  # noqa: E402
 import budget  # noqa: E402
 import calib  # noqa: E402
 import calibrate  # noqa: E402
 import lamp  # noqa: E402
 import phones  # noqa: E402
+import scratch  # noqa: E402
 
-VERSION = "0.8.1"
+VERSION = "0.9.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -62,6 +64,10 @@ DEFAULT_CONFIG = {
                "warn_s": 300, "min_rec_s": 120, "auto_stop": True, "drive_reserve_gb": 0.5},
     # Recording light (lamp.py, Phase 4 C1). type null = no bulb. See lamp.DEFAULT_LAMP.
     "lamp": {"type": None},
+    # Bounce uploads and the hub mic recording (audio.py, scratch.py; Phase 4 Track A),
+    # staged here per take and copied to the drive by hub-ingest. Default <state_dir>/audio.
+    "audio_dir": None,
+    "scratch": {},          # see scratch.DEFAULT_SCRATCH; device null = first USB mic
 }
 
 # vcgencmd get_throttled: bits 0-3 are "now" (under-voltage, freq capped,
@@ -272,6 +278,9 @@ class Hub:
         # Background work started from the poll loop (tests run it inline).
         self.spawn = lambda fn, *a: threading.Thread(target=fn, args=a, daemon=True).start()
         self.lamp = lamp.Lamp(cfg.get("lamp"), self.lamp_inputs, log)
+        adir = cfg.get("audio_dir") or os.path.join(cfg["state_dir"], "audio")
+        self.audio = audio.Audio(adir, takes=self.take_ids, busy=self.rig_busy)
+        self.scratch = scratch.Scratch(cfg.get("scratch"), adir, log)
 
     @property
     def state(self):
@@ -343,6 +352,16 @@ class Hub:
                          "sync_warnings": [], "adopted": True}
             self.state = "recording"
             self.message = "Hub restarted during take %s; it is still recording." % take_id
+            self.scratch.start(take_id)         # late: from now on only
+
+    def take_ids(self):
+        return {e.get("take_id") for e in self.read_log() if e.get("take_id") and not e.get("aborted")}
+
+    def rig_busy(self):
+        """A take or live session is running (uploads wait, like ingest)."""
+        with self.lock:
+            return self.state != "idle" or any((st or {}).get("mode") in ("live", "live-starting")
+                                               for st in self.status.values())
 
     def lamp_inputs(self):
         """What the recording light needs: (rig, hub-ingest state). Cheap; called often."""
@@ -372,6 +391,7 @@ class Hub:
                     "phones": self.phones.snapshot(self.health.get("free_gb")),
                     "budget": self.budget, "camera_settings": self.cam_settings,
                     "calibration": self.calibrator.status(), "lamp": self.lamp.status(),
+                    "scratch": self.scratch.status(),
                     "last_take": self.last_take()}
 
     # -- phones
@@ -697,6 +717,7 @@ class Hub:
                          "limit_s": bud["total_s"],
                          "calibration": {n: self.calibrator.records.get(n) for n in names}}
             self.message = None
+        self.scratch.start(take_id)             # before arming, so it covers the first frames
         try:
             if live:
                 _, err = self._parallel(live, lambda n: self.nodes.post(n, "/live/stop", timeout=25))
@@ -767,6 +788,9 @@ class Hub:
                        server=take.get("server"), missing=take.get("missing", []),
                        started_at=take.get("started_at"),
                        stopped_at=self.clock(), aborted=aborted)
+        sc = self.scratch.stop()
+        summary["scratch"] = ({k: sc.get(k) for k in ("device", "rate", "channels", "samples", "problems")}
+                              if sc else None)
         self.append_log(summary)
         with self.lock:
             self.state, self.take = "idle", None
@@ -811,6 +835,11 @@ class Hub:
                 if done:
                     takes[tid]["recorded"]["length_s"] = max(takes[tid]["recorded"]["length_s"], m.get("duration_s") or 0)
         st["takes"] = dict(sorted(takes.items())[-limit:])
+        copied = st.get("audio") or {}
+        for tid, t in st["takes"].items():
+            a = self.audio.summary(tid, set(copied.get(tid) or {}))
+            if a:
+                t["audio"] = a
         return st
 
     # -- playback from the STUDIO drive (read-only mount, managed by hub-ingest)
@@ -913,6 +942,12 @@ class Handler(BaseHTTPRequestHandler):
     P_CAM_SETTINGS = re.compile(r"^/api/camera/(cam\d+)/settings$")
     P_PHONE_CALIB = re.compile(r"^/api/calib/phone/([^/]+)$")
     P_PHONE_MOUNT = re.compile(r"^/api/phone/([^/]+)/mount$")
+    P_AUDIO = re.compile(r"^/api/audio/(\d{8}-\d{6})$")
+    P_AUDIO_SONGS = re.compile(r"^/api/audio/(\d{8}-\d{6})/songs$")
+    P_AUDIO_VERSIONS = re.compile(r"^/api/audio/(\d{8}-\d{6})/([a-z0-9-]+)/versions$")
+    P_AUDIO_PIECE = re.compile(r"^/api/audio/(\d{8}-\d{6})/([a-z0-9-]+)/v(\d+)\?offset=(\d+)$")
+    P_AUDIO_FINISH = re.compile(r"^/api/audio/(\d{8}-\d{6})/([a-z0-9-]+)/v(\d+)/finish$")
+    P_AUDIO_CHOOSE = re.compile(r"^/api/audio/(\d{8}-\d{6})/([a-z0-9-]+)/choose$")
     QUIET = ("/api/status", "/api/time", "/api/phone/poll", "/api/phone/chunk", "/api/phone/log", "/api/calib/measure",
              "/api/snap/", "/api/phone/snap/")
 
@@ -986,6 +1021,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, h.ingest_state())
         if self.path == "/api/lamp":
             return self._send(200, h.lamp.status())
+        m = self.P_AUDIO.match(self.path)
+        if m:
+            try:
+                return self._send(200, h.audio.list(m.group(1)))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
         if self.path == "/api/time":
             return self._send(200, {"hub_ns": time.time_ns()})
         m = self.P_HAVE.match(self.path)
@@ -1026,6 +1067,20 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {"error": "not found"})
 
     def do_PUT(self):
+        m = self.P_AUDIO_PIECE.match(self.path)
+        if m:
+            take, song, v, off = m.groups()
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                return self._send(200, self.hub.audio.put(take, song, int(v), int(off), self.rfile.read, n))
+            except audio.Busy as e:
+                self.close_connection = True        # the body wasn't read
+                return self._send(409, {"error": str(e), "busy": True})
+            except ValueError as e:
+                self.close_connection = True
+                return self._send(400, {"error": str(e)})
+            except OSError as e:
+                return self._send(507, {"error": "hub storage: %s" % e})
         m = self.P_CHUNK.match(self.path)
         if not m:
             return self._send(404, {"error": "not found"})
@@ -1072,6 +1127,19 @@ class Handler(BaseHTTPRequestHandler):
             m = self.P_PHONE_MOUNT.match(self.path)
             if m:
                 return self._send(200, h.phones.set_mount(m.group(1), b.get("mount")))
+            m = self.P_AUDIO_SONGS.match(self.path)
+            if m:
+                return self._send(200, h.audio.new_song(m.group(1), b.get("name")))
+            m = self.P_AUDIO_VERSIONS.match(self.path)
+            if m:
+                return self._send(200, h.audio.new_version(m.group(1), m.group(2), b.get("filename"), b.get("bytes")))
+            m = self.P_AUDIO_FINISH.match(self.path)
+            if m:
+                return self._send(200, h.audio.finish(m.group(1), m.group(2), int(m.group(3))))
+            m = self.P_AUDIO_CHOOSE.match(self.path)
+            if m:
+                v = b.get("version")
+                return self._send(200, h.audio.choose(m.group(1), m.group(2), int(v) if v is not None else None))
             if self.path == "/api/rec":
                 return self._send(200, h.rec(b.get("nodes")))
             if self.path == "/api/stop":

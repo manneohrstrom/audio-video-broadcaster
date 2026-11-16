@@ -25,6 +25,14 @@
     mode: "0644"
   notify: Restart hubd
 
+- name: hubd audio modules (bounce uploads, hub mic recording)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/hubd/{{ item }}"
+    dest: "/opt/hubd/{{ item }}"
+    mode: "0644"
+  loop: [audio.py, scratch.py]
+  notify: Restart hubd
+
 - name: hubd recording light module
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../hub/hubd/lamp.py"

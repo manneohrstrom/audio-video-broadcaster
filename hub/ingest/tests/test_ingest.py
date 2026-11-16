@@ -465,6 +465,52 @@ class ProgressTest(Base):
         self.assertEqual(cs["mov_bytes"], os.path.getsize(cs["path"]))
 
 
+class AudioCopyTest(Base):
+    def setUp(self):
+        super().setUp()
+        self.ing.cfg["audio_dir"] = self.adir = os.path.join(self.tmp, "audio")
+        self.ing.state["takes"][TAKE] = {}
+
+    def put(self, take, rel, data):
+        p = os.path.join(self.adir, take, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(data)
+        return p
+
+    def test_finished_files_of_known_takes_are_copied_once(self):
+        self.put(TAKE, "songs.json", b'{"songs": []}')
+        self.put(TAKE, "track-1/v1/mix.wav", b"RIFF" + b"\x00" * 100)
+        self.put(TAKE, "track-1/v2/mix2.wav.part", b"half")              # still uploading
+        self.put("20990101-000000", "songs.json", b"{}")                  # aborted / unknown take
+        todo = self.ing.audio_pending()
+        self.assertEqual(sorted(r for r, _, _ in todo[TAKE]), ["songs.json", "track-1/v1/mix.wav"])
+        self.assertNotIn("20990101-000000", todo)
+        self.ing.copy_audio(todo)
+        dst = os.path.join(self.folder(), "audio", "track-1", "v1", "mix.wav")
+        with open(dst, "rb") as f:
+            self.assertEqual(f.read(), b"RIFF" + b"\x00" * 100)
+        self.assertEqual(self.ing.audio_pending(), {})
+        # songs.json changes when a version is added: copied again
+        p = self.put(TAKE, "songs.json", b'{"songs": [1]}')
+        os.utime(p, ns=(1, 2))
+        self.assertEqual([r for r, _, _ in self.ing.audio_pending()[TAKE]], ["songs.json"])
+
+    def test_tick_copies_audio_when_there_is_no_video_to_ingest(self):
+        self.put(TAKE, "scratch/scratch.wav", b"RIFF" + b"\x01" * 10)
+        self.ing.manual = True
+        self.ing.tick()
+        self.assertTrue(os.path.exists(os.path.join(self.folder(), "audio", "scratch", "scratch.wav")))
+        self.assertFalse(self.drive.is_mounted)                            # unmounted after writing
+
+    def test_no_copy_while_rig_busy(self):
+        self.put(TAKE, "songs.json", b"{}")
+        self.rig.busy = True
+        self.ing.manual = True
+        self.ing.tick()
+        self.assertFalse(os.path.exists(os.path.join(self.folder(), "audio")))
+
+
 class EjectTest(Base):
     def test_ejected_flag_cleared_when_drive_returns(self):
         self.command("eject")
