@@ -41,6 +41,17 @@ def limits(hub_free_b, hub_reserve_b, pis, phones, elapsed_s=0.0, node_reserve_b
             "limited_by": by, "per": {k: round(v) for k, v in per.items()}}
 
 
+def drive_fit(free_b, waiting_b, rate_Bps, elapsed_s=0.0, reserve_b=0):
+    """Information only (never stops a take): how long a take fits on the STUDIO drive
+    once ingest has copied it, after the footage still waiting for ingest.
+    free_b None (drive not plugged in, or never read) or no rate -> None."""
+    if free_b is None or rate_Bps <= 0:
+        return None
+    total = max(0.0, free_b - waiting_b - reserve_b) / rate_Bps
+    return {"total_s": round(total), "remaining_s": round(max(0.0, total - elapsed_s)),
+            "free_gb": round(free_b / 1e9, 1), "waiting_gb": round(waiting_b / 1e9, 1)}
+
+
 def measured_rate(written_b, elapsed_s, default_Bps, min_s=60.0):
     """Rate from what a camera has written so far, once there is enough to go on.
     Never below half the default (protects against an early, still-dark scene)."""

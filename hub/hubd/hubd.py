@@ -28,7 +28,7 @@ import calibrate  # noqa: E402
 import lamp  # noqa: E402
 import phones  # noqa: E402
 
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -59,7 +59,7 @@ DEFAULT_CONFIG = {
     # Rates are starting guesses (Pi measured ~8 Mbps, phones ~15); during a take the
     # measured rates take over after a minute.
     "budget": {"hub_reserve_gb": 15.0, "node_reserve_gb": 1.0, "pi_mbps": 10.0, "phone_mbps": 15.0,
-               "warn_s": 300, "min_rec_s": 120, "auto_stop": True},
+               "warn_s": 300, "min_rec_s": 120, "auto_stop": True, "drive_reserve_gb": 0.5},
     # Recording light (lamp.py, Phase 4 C1). type null = no bulb. See lamp.DEFAULT_LAMP.
     "lamp": {"type": None},
 }
@@ -456,7 +456,41 @@ class Hub:
                           pis, ph, elapsed, b["node_reserve_gb"] * 1e9)
         r.update(cameras=len(pis), phones=len(ph),
                  warn=r["remaining_s"] is not None and r["remaining_s"] <= b["warn_s"])
+        drive_free, waiting = self.drive_waiting((take or {}).get("take_id"))
+        r["drive"] = budget.drive_fit(drive_free, waiting,
+                                      sum(rt for _, rt in pis.values()) + sum(ph.values()),
+                                      elapsed, b["drive_reserve_gb"] * 1e9)
         return r
+
+    def drive_waiting(self, current_take=None):
+        """(STUDIO drive free bytes or None, bytes of earlier takes not on it yet).
+        Waiting footage is estimated from its length at the default rates; refreshed
+        at most every 30 s (it reads the take log and the phone manifests)."""
+        now = self.clock()
+        c = getattr(self, "_drive_cache", None)
+        if c and now - c[0] < 30 and c[1] == current_take:
+            return c[2], c[3]
+        st = self.ingest_state(limit=10 ** 6)
+        free = st.get("drive_free_gb")
+        b = self.cfg["budget"]
+        waiting = 0.0
+        takes = st.get("takes", {})
+        # Takes ingest has registered (per-camera steps), and newer ones it hasn't
+        # reached yet. An older unregistered take is gone from the cameras (deleted
+        # before ingest existed) and will never reach the drive.
+        known = {tid for tid, t in takes.items()
+                 if any(isinstance(v, dict) and "done" in v for v in t.values())}
+        newest = max(known, default="")
+        for tid, t in takes.items():
+            if tid == current_take or t.get("complete") or (tid not in known and tid < newest):
+                continue
+            for cam, info in ((t.get("recorded") or {}).get("cameras") or {}).items():
+                if "written" in ((t.get(cam) or {}).get("done") or []):
+                    continue
+                secs = (info.get("frames") or 0) / 30.0 or (t["recorded"].get("length_s") or 0)
+                waiting += secs * (b["phone_mbps"] if info.get("phone") else b["pi_mbps"]) * budget.MBPS
+        self._drive_cache = (now, current_take, free * 1e9 if free is not None else None, waiting)
+        return self._drive_cache[2], waiting
 
     def check_budget(self):
         """Every poll: refresh the estimate; stop the take when it runs out."""

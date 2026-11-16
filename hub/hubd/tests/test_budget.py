@@ -115,5 +115,43 @@ class HubBudgetTest(unittest.TestCase):
         self.assertEqual(b["total_s"], round(85e9 / (48 * M)))
 
 
+class DriveFitTest(unittest.TestCase):
+    def test_formula(self):
+        d = budget.drive_fit(56 * GB, 6 * GB, 40 * M, elapsed_s=600, reserve_b=0)
+        self.assertEqual(d["total_s"], round(50e9 / (40 * M)))
+        self.assertEqual(d["remaining_s"], d["total_s"] - 600)
+        self.assertEqual((d["free_gb"], d["waiting_gb"]), (56.0, 6.0))
+        self.assertIsNone(budget.drive_fit(None, 0, 40 * M))
+        self.assertEqual(budget.drive_fit(1 * GB, 5 * GB, 40 * M)["total_s"], 0)
+
+    def test_hub_counts_takes_waiting_for_ingest(self):
+        import json
+        cfg = hubd.load_config(None)
+        cfg.update(state_dir=tempfile.mkdtemp())
+        cfg["ingest_dir"] = os.path.join(cfg["state_dir"], "ingest")
+        os.makedirs(cfg["ingest_dir"])
+        rig = FakeRig(cfg["nodes"])
+        for st in rig.st.values():
+            st["free_gb"] = 20.0
+        hub = hubd.Hub(cfg, nodes=rig, sleep=lambda s: None)
+        hub.health = {"free_gb": 100.0}
+        cam = lambda n: {"take_id": n, "frames": 3000, "duration_s": 100.0}  # noqa: E731
+        for tid in ("20260101-000000", "20260102-000000", "20260103-000000", "20260104-000000"):
+            hub.append_log({"take_id": tid, "cameras": {"cam1": cam(tid), "cam2": cam(tid)}})
+        done = {"done": ["pulled", "checked", "conformed", "verified", "written", "marked"]}
+        state = {"drive_free_gb": 50.0, "takes": {
+            # 0101: never registered, older than a registered take -> gone, not counted
+            "20260102-000000": {"cam1": done, "cam2": done, "complete": True},
+            "20260103-000000": {"cam1": done, "cam2": {"done": ["pulled"]}},   # cam2 still waiting
+        }}                                                                     # 0104: newer, waiting
+        with open(os.path.join(cfg["ingest_dir"], "state.json"), "w") as f:
+            json.dump(state, f)
+        hub.poll_once()
+        d = hub.compute_budget()["drive"]
+        waiting = 3 * 100 * 10 * M            # three camera files of 100 s at 10 Mbps
+        self.assertEqual(d["waiting_gb"], round(waiting / GB, 1))
+        self.assertEqual(d["total_s"], round((50 * GB - waiting - 0.5 * GB) / (4 * 10 * M)))
+
+
 if __name__ == "__main__":
     unittest.main()

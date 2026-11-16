@@ -18,7 +18,8 @@
   #rec { background:var(--rec); } #stop { background:#555; } #live { background:var(--live); }
   #rigbox { margin-left:auto; align-self:center; text-align:right; }
   #rig { font-size:22px; font-weight:700; }
-  #budget { font-size:14px; color:var(--dim); } #budget.warn { color:var(--warn); font-weight:700; }
+  #budget, #drivefit { font-size:14px; color:var(--dim); } #budget.warn { color:var(--warn); font-weight:700; }
+  #drivefit.short { color:var(--warn); }
   #rig.recording { color:var(--rec); } #rig.starting, #rig.stopping { color:var(--warn); }
   #msg { min-height:1.4em; margin-bottom:12px; color:var(--warn); white-space:pre-line; }
   #msg.err { color:var(--bad); }
@@ -89,7 +90,7 @@
   <button id="rec">● REC</button>
   <button id="stop">■ STOP</button>
   <button id="live">LIVE</button>
-  <div id="rigbox"><div id="rig">…</div><div id="budget"></div></div>
+  <div id="rigbox"><div id="rig">…</div><div id="budget"></div><div id="drivefit"></div></div>
 </div>
 <div id="msg"></div>
 <div class="grid" id="cards"></div>
@@ -251,6 +252,13 @@ function budgetTxt(b, state) {
   if (state === "recording") return `${hm(b.remaining_s)} left · stops itself at ${hm(b.total_s)} (${by})`;
   return `≈ ${hm(b.total_s)} of recording space · ${who} · limit: ${by}`;
 }
+function driveTxt(b, state) {
+  const d = b && b.drive;
+  if (!d) return b && b.total_s != null ? "STUDIO drive: not plugged in (or not read yet)" : "";
+  const waiting = d.waiting_gb ? `, ${d.waiting_gb} GB waiting for ingest` : "";
+  if (state === "recording") return `STUDIO drive: room for ${hm(d.remaining_s)} more of this take (${d.free_gb} GB free${waiting})`;
+  return `STUDIO drive: ≈ ${hm(d.total_s)} of takes fit (${d.free_gb} GB free${waiting})`;
+}
 function render() {
   if (!snap) return;
   $("#ver").textContent = "hubd " + snap.hub_version;
@@ -264,6 +272,10 @@ function render() {
   bd.textContent = budgetTxt(snap.budget, snap.state);
   bd.className = snap.budget && snap.budget.warn ? "warn" : "";
   bd.title = snap.budget && snap.budget.per ? Object.entries(snap.budget.per).map(([k, v]) => `${k}: ${hm(v)}`).join("\n") : "";
+  const df = $("#drivefit"), d = snap.budget && snap.budget.drive;
+  df.textContent = driveTxt(snap.budget, snap.state);
+  df.className = d && snap.budget.total_s != null && d.total_s < snap.budget.total_s ? "short" : "";
+  df.title = "Information only: if the drive fills up, ingest waits for a drive with space; nothing is lost.";
   $("#rec").disabled = busy || snap.state !== "idle";
   $("#stop").disabled = busy || snap.state !== "recording";
   $("#live").disabled = busy || snap.state !== "idle";
