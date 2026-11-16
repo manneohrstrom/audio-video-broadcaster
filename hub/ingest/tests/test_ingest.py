@@ -879,3 +879,76 @@ class RealTimingTest(Base):
         self.assertEqual(self.ing.tick(), "ingested")
         cs = self.load_take()["cameras"]["pauls-pixel"]
         self.assertEqual((cs["timing"], cs["repeated"]), ("real", 0))
+
+
+class FakeSyncProc:
+    """Stands in for `nice python3 audiosync.py ...`."""
+    def __init__(self, out, polls=1):
+        self.out, self.left, self.killed = out, polls, False
+
+    def poll(self):
+        if self.killed:
+            return -9
+        self.left -= 1
+        return None if self.left >= 0 else 0
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self):
+        return -9
+
+    def communicate(self):
+        return self.out, ""
+
+
+class SyncJobTest(Base):
+    def queue(self, v=1):
+        with open(os.path.join(self.ing.cmd_dir, "%f-sync.json" % time.time()), "w") as f:
+            json.dump({"cmd": "sync", "take": TAKE, "song": "track-1", "version": v}, f)
+        self.ing.handle_commands()
+
+    def test_synced(self):
+        self.queue()
+        cmds = []
+
+        def popen(cmd, **kw):
+            cmds.append(cmd)
+            return FakeSyncProc(json.dumps({"bounce_start_ns": 1, "anchor": "hub mic: music", "confidence": "high"}))
+        self.ing.run_syncs(popen=popen, poll=0)
+        job = self.ing.state["syncs"]["%s/track-1/v1" % TAKE]
+        self.assertEqual((job["status"], job["anchor"], job["confidence"]), ("synced", "hub mic: music", "high"))
+        self.assertEqual(cmds[0][:3], ["nice", "-n", "19"])
+        self.assertTrue(cmds[0][4].endswith("audiosync.py"))
+
+    def test_needs_sync(self):
+        self.queue()
+        self.ing.run_syncs(popen=lambda cmd, **kw: FakeSyncProc(json.dumps({"failed": True, "reason": "no hub mic recording"})), poll=0)
+        job = self.ing.state["syncs"]["%s/track-1/v1" % TAKE]
+        self.assertEqual((job["status"], job["reason"]), ("needs sync", "no hub mic recording"))
+
+    def test_rec_stops_the_sync_and_requeues_it(self):
+        self.queue()
+        procs = []
+
+        def popen(cmd, **kw):
+            procs.append(FakeSyncProc("{}", polls=5))
+            return procs[-1]
+        orig = self.ing.rig_busy
+        calls = [0]
+
+        def busy():
+            calls[0] += 1
+            return calls[0] > 1                    # idle at the start, then REC
+        self.ing.rig_busy = busy
+        self.ing.run_syncs(popen=popen, poll=0)
+        self.assertTrue(procs[0].killed)
+        self.assertEqual(self.ing.state["syncs"]["%s/track-1/v1" % TAKE]["status"], "queued")
+        self.ing.rig_busy = orig
+        self.ing.run_syncs(popen=lambda cmd, **kw: FakeSyncProc(json.dumps({"anchor": "a", "confidence": "high"})), poll=0)
+        self.assertEqual(self.ing.state["syncs"]["%s/track-1/v1" % TAKE]["status"], "synced")
+
+    def test_same_sync_not_queued_twice(self):
+        self.queue()
+        self.queue()
+        self.assertEqual(len(self.ing.state["syncs"]), 1)

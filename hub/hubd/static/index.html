@@ -510,10 +510,21 @@ function videoSteps(r) {
     return `<span class="st">○ ${name}</span>`;
   }).join("") + (r.status === "queued" ? `<span class="st">queued${r.status_note ? ": " + esc(r.status_note) : ""}</span>` : "");
 }
+function syncTxt(take, song, v) {
+  const s = v.sync || {}, d = `data-take="${esc(take)}" data-song="${esc(song)}" data-v="${v.version}"`;
+  if (s.state === "syncing") return `<small>· <span class="spin"></span> syncing to the video${s.note ? " (" + esc(s.note) + ")" : ""}</small>`;
+  if (s.state === "needs sync") return `<small class="bad" title="${esc(s.reason || "")}">· needs sync: ${esc(s.reason || "")}</small> <button class="addaudio" data-sync="1" ${d}>Sync again</button>`;
+  if (s.state === "synced") {
+    const check = s.confidence && s.confidence !== "high";
+    const tip = `${s.anchor || "by hand"}${s.confidence ? ", confidence " + s.confidence : ""}${(s.notes || []).length ? " · " + s.notes.join("; ") : ""}`;
+    return `<small title="${esc(tip)}" ${check ? 'style="color:var(--warn)"' : 'class="good"'}>· ${check ? "synced, check it" : "✓ synced"}</small>`;
+  }
+  return v.complete ? `<small>· not synced</small> <button class="addaudio" data-sync="1" ${d}>Sync</button>` : "";
+}
 function videoTxt(take, song, v) {
   const r = v.render, d = `data-take="${esc(take)}" data-song="${esc(song)}" data-v="${v.version}"`;
   const make = label => `<button class="addaudio" data-render="1" ${d}>${label}</button>`;
-  if (!r) return { inline: v.synced ? make("▶ Make video") : '<small title="Syncing the bounce to the video comes with the hub mic (Phase 4 Track A)">· not synced yet</small>' };
+  if (!r) return { inline: syncTxt(take, song, v) + (v.synced ? " " + make("▶ Make video") : "") };
   if (r.status === "done") return { inline: `<button class="play" data-video="${esc(r.file)}" data-take="${esc(take)}">▶ Watch video</button> ` + make("Make again"), steps: videoSteps(r) };
   if (r.status === "error") return { inline: make("Try again"), steps: videoSteps(r) };
   return { inline: "", steps: videoSteps(r) };
@@ -556,6 +567,11 @@ document.addEventListener("click", async e => {
   else if (b.dataset.render) {
     b.disabled = true;
     try { await jpost("/api/render", { take: b.dataset.take, song: b.dataset.song, version: +b.dataset.v }); msg("Video queued: it starts when the rig is idle."); }
+    catch (err) { msg(err.message, true); }
+    pollIngest();
+  } else if (b.dataset.sync) {
+    b.disabled = true;
+    try { await jpost("/api/sync", { take: b.dataset.take, song: b.dataset.song, version: +b.dataset.v }); msg("Syncing: it runs when no take or live session is on."); }
     catch (err) { msg(err.message, true); }
     pollIngest();
   } else if (b.dataset.video) openVideo(b.dataset.take, b.dataset.video);

@@ -30,7 +30,7 @@ import lamp  # noqa: E402
 import phones  # noqa: E402
 import scratch  # noqa: E402
 
-VERSION = "0.11.0"
+VERSION = "0.12.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -884,9 +884,11 @@ class Hub:
         st["takes"] = dict(sorted(takes.items())[-limit:])
         copied = st.get("audio") or {}
         jobs = st.get("renders") or {}
+        syncs = st.get("syncs") or {}
         for tid, t in st["takes"].items():
             a = self.audio.summary(tid, set(copied.get(tid) or {}),
-                                   {k.split("/", 1)[1]: j for k, j in jobs.items() if k.startswith(tid + "/")})
+                                   {k.split("/", 1)[1]: j for k, j in jobs.items() if k.startswith(tid + "/")},
+                                   {k.split("/", 1)[1]: j for k, j in syncs.items() if k.startswith(tid + "/")})
             if a:
                 t["audio"] = a
         return st
@@ -929,6 +931,13 @@ class Hub:
             json.dump(dict(fields, cmd=cmd), f)
         os.replace(p + ".tmp", p)
         return dict(fields, queued=cmd)
+
+    def request_sync(self, take, song, version):
+        """hub-ingest syncs the bounce to the take from the hub mic (audiosync.py)."""
+        v = self.audio.version_info(take, song, int(version))
+        if not v.get("complete"):
+            raise ValueError("that version isn't finished uploading")
+        return self.ingest_command("sync", take=take, song=song, version=int(version))
 
     def request_render(self, take, song, version):
         """Quick mix (Phase 4 A4): hub-ingest renders it when the rig is idle."""
@@ -1200,7 +1209,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, h.audio.new_version(m.group(1), m.group(2), b.get("filename"), b.get("bytes")))
             m = self.P_AUDIO_FINISH.match(self.path)
             if m:
-                return self._send(200, h.audio.finish(m.group(1), m.group(2), int(m.group(3))))
+                v = h.audio.finish(m.group(1), m.group(2), int(m.group(3)))
+                if v.get("complete"):
+                    h.request_sync(m.group(1), m.group(2), int(m.group(3)))    # automatic sync (Track A)
+                return self._send(200, v)
+            if self.path == "/api/sync":           # {"take", "song", "version"}: sync again
+                return self._send(200, h.request_sync(b.get("take"), b.get("song"), int(b.get("version") or 0)))
             m = self.P_AUDIO_CHOOSE.match(self.path)
             if m:
                 v = b.get("version")

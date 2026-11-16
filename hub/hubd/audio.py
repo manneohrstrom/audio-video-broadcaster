@@ -255,10 +255,27 @@ class Audio:
         v["synced"] = os.path.exists(os.path.join(self._vdir(take, song, version), "sync.json"))
         return v
 
-    def summary(self, take, on_drive=(), renders=None):
+    def sync_state(self, take, song, version, job=None):
+        """{"state": "synced"|"syncing"|"needs sync"|None, ...} for the page."""
+        d = self._vdir(take, song, version)
+        if job and job.get("status") in ("queued", "syncing"):
+            return {"state": "syncing", "note": job.get("note")}
+        for name, state in (("sync.json", "synced"), ("sync_failed.json", "needs sync")):
+            try:
+                with open(os.path.join(d, name)) as f:
+                    doc = json.load(f)
+            except (OSError, ValueError):
+                continue
+            return {"state": state, "anchor": doc.get("anchor"), "confidence": doc.get("confidence"),
+                    "reason": doc.get("reason"), "notes": doc.get("notes") or []}
+        if job and job.get("status") == "error":
+            return {"state": "needs sync", "reason": "the sync failed: %s" % (job.get("error") or "")[-120:]}
+        return {"state": None}
+
+    def summary(self, take, on_drive=(), renders=None, syncs=None):
         """Short form for the take list. on_drive: relative paths hub-ingest has copied;
-        renders: hub-ingest's render jobs of this take, keyed "<song>/v<N>"."""
-        renders = renders or {}
+        renders, syncs: hub-ingest's render and sync jobs of this take, keyed "<song>/v<N>"."""
+        renders, syncs = renders or {}, syncs or {}
         out = {}
         if os.path.exists(os.path.join(self.root, take, "songs.json")):
             try:
@@ -270,6 +287,7 @@ class Audio:
                  "bytes": v["bytes"], "received": v.get("received", v["bytes"]), "duration_s": v.get("duration_s"),
                  "on_drive": "%s/v%d/%s" % (s["id"], v["version"], v["filename"]) in on_drive,
                  "synced": os.path.exists(os.path.join(self.root, take, s["id"], "v%d" % v["version"], "sync.json")),
+                 "sync": self.sync_state(take, s["id"], v["version"], syncs.get("%s/v%d" % (s["id"], v["version"]))),
                  "render": {k: (renders.get("%s/v%d" % (s["id"], v["version"])) or {}).get(k)
                             for k in ("status", "progress", "eta_s", "error", "file", "status_note")}
                  if renders.get("%s/v%d" % (s["id"], v["version"])) else None}

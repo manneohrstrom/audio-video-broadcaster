@@ -225,3 +225,22 @@ class ScratchTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SyncStateTest(AudioTest):
+    def test_states(self):
+        s = self.a.new_song(TAKE, "Song")
+        self.upload(s["id"], wav_bytes())
+        d = os.path.join(self.root, TAKE, s["id"], "v1")
+        self.assertEqual(self.a.sync_state(TAKE, s["id"], 1)["state"], None)
+        self.assertEqual(self.a.sync_state(TAKE, s["id"], 1, {"status": "queued"})["state"], "syncing")
+        with open(os.path.join(d, "sync_failed.json"), "w") as f:
+            json.dump({"reason": "no hub mic recording"}, f)
+        st = self.a.sync_state(TAKE, s["id"], 1)
+        self.assertEqual((st["state"], st["reason"]), ("needs sync", "no hub mic recording"))
+        with open(os.path.join(d, "sync.json"), "w") as f:
+            json.dump({"bounce_start_ns": 1, "anchor": "hub mic: music", "confidence": "high"}, f)
+        st = self.a.sync_state(TAKE, s["id"], 1)
+        self.assertEqual((st["state"], st["confidence"]), ("synced", "high"))
+        summ = self.a.summary(TAKE)
+        self.assertEqual(summ["songs"][0]["versions"][0]["sync"]["state"], "synced")

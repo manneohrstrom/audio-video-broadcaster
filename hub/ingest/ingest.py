@@ -37,7 +37,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import render  # noqa: E402
 
-VERSION = "0.6.2"
+VERSION = "0.7.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -88,8 +88,11 @@ DEFAULT_CONFIG = {
     # per take, in the layout they get under STUDIO/takes/<take folder>/audio/.
     "audio_dir": "/var/lib/hubd/audio",
     "quick_shot_s": 10.0,       # quick mix (render.py): a new camera this often
+    # Automatic bounce sync (audiosync.py): settings passed through, e.g. {"mic_latency_s": 0.074}.
+    "sync": {},
 }
 TAKE_RE = re.compile(r"^\d{8}-\d{6}$")
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def load_config(path):
@@ -568,6 +571,8 @@ class Ingest:
             c = doc.get("cmd")
             if c == "render":
                 self.queue_render(doc)
+            elif c == "sync":
+                self.queue_sync(doc)
             elif c == "start":
                 self.manual = True
             elif c == "eject":
@@ -853,6 +858,58 @@ class Ingest:
         self.state["audio"].setdefault(take_id, {})[rel] = {
             "size": size, "mtime_ns": mtime_ns, "sha256": sha, "path": dst}
         self.save()
+
+    # -- automatic bounce sync (Phase 4 Track A, audiosync.py)
+    def queue_sync(self, doc):
+        take, song, v = doc.get("take"), doc.get("song"), doc.get("version")
+        if not (TAKE_RE.match(take or "") and isinstance(v, int) and re.match(r"^[a-z0-9-]+$", song or "")):
+            return
+        key = "%s/%s/v%d" % (take, song, v)
+        jobs = self.state.setdefault("syncs", {})
+        if (jobs.get(key) or {}).get("status") in ("queued", "syncing"):
+            return
+        jobs[key] = {"take": take, "song": song, "version": v, "status": "queued", "queued_at": self.clock()}
+        self.save()
+
+    def run_syncs(self, popen=subprocess.Popen, poll=1.0):
+        """Queued syncs, one at a time, niced, in a separate process. Doesn't need the drive
+        (the audio is staged on the hub). Stops and goes back to the queue if the rig gets busy."""
+        for key, job in sorted((self.state.get("syncs") or {}).items()):
+            if job["status"] != "queued":
+                continue
+            if self.rig_busy():
+                return
+            job.update(status="syncing", started=self.clock(), error=None)
+            self.save()
+            cmd = ["nice", "-n", "19", sys.executable, os.path.join(HERE, "audiosync.py"),
+                   os.path.join(self.cfg["audio_dir"], job["take"]), job["song"], str(job["version"]),
+                   json.dumps(self.cfg.get("sync") or {})]
+            p = popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            while p.poll() is None:
+                time.sleep(poll)
+                if self.rig_busy():
+                    p.kill()
+                    p.wait()
+                    job.update(status="queued", note="waits: a take or live session started")
+                    self.save()
+                    return
+            out, err = p.communicate()
+            try:
+                res = json.loads(out.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                job.update(status="error", error=(err or out or "no output")[-400:], finished=self.clock())
+                self.save()
+                continue
+            if res.get("failed"):
+                job.update(status="needs sync", reason=res.get("reason"), finished=self.clock())
+            else:
+                job.update(status="synced", anchor=res.get("anchor"), confidence=res.get("confidence"),
+                           finished=self.clock())
+            job.pop("note", None)
+            self.save()
+
+    def syncs_ready(self):
+        return any(j["status"] == "queued" for j in (self.state.get("syncs") or {}).values())
 
     # -- quick mix renders (Phase 4 A4, render.py)
     def queue_render(self, doc):
@@ -1176,6 +1233,8 @@ class Ingest:
         if self.state.get("drive") == "ejected" and self.drive.present():
             self.state["drive"] = None           # plugged back in
         self.state["drive_free_gb"] = self.drive_free()
+        if self.syncs_ready():              # needs neither the drive nor 30 min idle, only a quiet rig
+            self.run_syncs()
         ok, why = self.should_run()
         if not ok:
             self.settle_drive()

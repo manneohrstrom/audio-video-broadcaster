@@ -629,3 +629,19 @@ class SnapshotTest(unittest.TestCase):
         ph.put_snap("pauls-pixel", b"\xff\xd8x")
         self.assertFalse(self.hub.phone_poll(body)["snap"])     # got it: don't ask again
         self.assertEqual(ph.get_snap("pauls-pixel")[0], b"\xff\xd8x")
+
+
+class SyncRequestTest(unittest.TestCase):
+    def test_finished_upload_queues_a_sync(self):
+        cfg = hubd.load_config(None)
+        tmp = tempfile.mkdtemp()
+        cfg.update(state_dir=tmp, ingest_dir=os.path.join(tmp, "ingest"), client_head_start_s=0, sync_timeout_s=1)
+        hub = hubd.Hub(cfg, nodes=FakeRig(cfg["nodes"]), sleep=lambda s: None)
+        hub.audio.version_info = lambda t, s, v: {"complete": True}
+        hub.request_sync("20261116-185403", "track-1", 1)
+        d = os.path.join(tmp, "ingest", "commands")
+        cmds = [json.load(open(os.path.join(d, n))) for n in os.listdir(d)]
+        self.assertEqual(cmds, [{"cmd": "sync", "take": "20261116-185403", "song": "track-1", "version": 1}])
+        hub.audio.version_info = lambda t, s, v: {"complete": False}
+        with self.assertRaises(ValueError):
+            hub.request_sync("20261116-185403", "track-1", 2)
