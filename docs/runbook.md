@@ -60,6 +60,15 @@ Any Android phone with an up-to-date Chrome works (tested: Pixel 3, Pixel 9a). i
 - Hub space: each phone uses ~7 GB per hour on the hub's SD until ingest has run. The phone card warns when space is short.
 - Dropped frames are kept and marked: the take list shows "rough sections" per camera, to avoid in the edit.
 
+## Editor (full video)
+
+The editor is at "✎ Edit" on a synced song in the hub page. Its timeline works in any browser; the **full-quality video** uses WebCodecs, which browsers only allow on secure pages (HTTPS or localhost). The hub is plain `http://studio-hub.local`, so on each computer that edits, once:
+
+1. In Chrome, open `chrome://flags/#unsafely-treat-insecure-origin-as-secure`.
+2. Add `http://studio-hub.local`, set it to **Enabled**, relaunch Chrome.
+
+Without it the video window shows enlarged strip thumbnails and says so. (HTTPS on the hub with its own certificate would remove this step; not built yet.)
+
 ## Recording light (smart bulb)
 
 hubd drives a LocalBytes RGB bulb from the rig state (`hub/hubd/lamp.py`, Phase 4 C1): off when nothing is happening (ready; user, 2026-11-16), amber arming, red recording, blue live, pulsing purple ingest running (user, 2026-11-16), off again when ingest is done (the purple "safe to eject" look is switched off; user, 2026-11-16), flashing red error (camera offline, REC failed, new dropped frames, drive full or needing repair). The bulb is only ever told what to show; if it's off or unreachable, hubd logs it once and carries on.

@@ -1,28 +1,39 @@
-// The video window. For now it shows the strip thumbnails, enlarged: the camera that is on
-// at the playhead (with the dissolve between shots), or the camera under the mouse while
-// skimming. The full-quality player (WebCodecs, spike E2) replaces the picture source next.
+// The video window: the camera that is on at the playhead (with the dissolve between
+// shots), or the camera under the mouse while skimming. Pictures come from the WebCodecs
+// player (media/video-player.js); until a camera's frame is decoded, its strip thumbnail
+// stands in, enlarged.
 import { useEffect, useRef } from "preact/hooks";
 import { html } from "./html.js";
 import { everyFrame } from "../frame-loop.js";
 import { cutIndexAt } from "../edit-model.js";
 import { formatSeconds } from "../time-format.js";
+import { fullVideoAvailable } from "../media/video-player.js";
 
-export function VideoWindow({ store, thumbnailsByCamera }) {
+const NO_FULL_VIDEO_NOTE = "thumbnails only: full video needs a secure page (see the hub runbook, Editor)";
+
+export function VideoWindow({ store, thumbnailsByCamera, player }) {
   const canvasRef = useRef(null);
   const badgeRef = useRef(null);
   const wrapperRef = useRef(null);
 
-  useEffect(() => everyFrame(() => {
+  const noteRef = useRef(null);
+
+  useEffect(() => everyFrame(now => {
     const canvas = canvasRef.current;
+    const pictures = { player, thumbnailsByCamera, now, waiting: false };
+    player.prerollNextShot(now);
     const context = canvas.getContext("2d");
     const { camera: skimCamera, seconds } = whatToShow(store);
     context.fillStyle = "#000";
     context.fillRect(0, 0, canvas.width, canvas.height);
     if (skimCamera) {
-      drawCamera(context, store, thumbnailsByCamera, skimCamera, seconds, canvas);
+      drawCamera(context, store, pictures, skimCamera, seconds, canvas);
     } else {
-      drawProgram(context, store, thumbnailsByCamera, seconds, canvas);
+      drawProgram(context, store, pictures, seconds, canvas);
     }
+    const note = !fullVideoAvailable ? NO_FULL_VIDEO_NOTE : pictures.waiting ? "loading video…" : "";
+    if (noteRef.current.textContent !== note) noteRef.current.textContent = note;
+    noteRef.current.hidden = !note;
     const shown = skimCamera || store.cameraAt(seconds);
     wrapperRef.current.style.setProperty("--frame-colour", skimCamera ? `var(--color-camera-${(shown.index % 6) + 1})` : "transparent");
     const text = `${shown.number} ${shown.label}` + (skimCamera ? ` · ${formatSeconds(seconds)}` : "");
@@ -32,9 +43,9 @@ export function VideoWindow({ store, thumbnailsByCamera }) {
   return html`
     <div class="video-stage">
       <div class="video-window" ref=${wrapperRef}>
-        <canvas ref=${canvasRef} width="960" height="540" aria-label="Video preview"></canvas>
+        <canvas ref=${canvasRef} width="1920" height="1080" aria-label="Video preview"></canvas>
         <div class="video-badge" ref=${badgeRef}></div>
-        <div class="video-note">preview from thumbnails · full video next</div>
+        <div class="video-note" ref=${noteRef} hidden></div>
       </div>
     </div>`;
 }
@@ -48,13 +59,20 @@ function whatToShow(store) {
   return { camera: null, seconds: store.playheadSeconds };
 }
 
-function drawCamera(context, store, thumbnailsByCamera, camera, seconds, canvas) {
+/** One camera's picture: the decoded frame, else the thumbnail (and note that we're waiting). */
+function drawCamera(context, store, pictures, camera, seconds, canvas) {
   if (!store.isRecording(camera, seconds)) return;
-  thumbnailsByCamera.get(camera.id)?.draw(context, store.cameraFileSeconds(camera, seconds), 0, 0, canvas.width, canvas.height);
+  const frame = pictures.player.pictureFor(camera, seconds, pictures.now);
+  if (frame) {
+    context.drawImage(frame, 0, 0, canvas.width, canvas.height);
+    return;
+  }
+  pictures.waiting = true;
+  pictures.thumbnailsByCamera.get(camera.id)?.draw(context, store.cameraFileSeconds(camera, seconds), 0, 0, canvas.width, canvas.height);
 }
 
 /** The program picture, with the dissolve centred on each cut. */
-function drawProgram(context, store, thumbnailsByCamera, seconds, canvas) {
+function drawProgram(context, store, pictures, seconds, canvas) {
   const cuts = store.cuts;
   const index = cutIndexAt(cuts, seconds);
   const dissolve = store.dissolveSeconds;
@@ -68,11 +86,11 @@ function drawProgram(context, store, thumbnailsByCamera, seconds, canvas) {
   }
   const camera = id => store.camerasById.get(id);
   if (!from) {
-    drawCamera(context, store, thumbnailsByCamera, camera(cuts[index].cameraId), seconds, canvas);
+    drawCamera(context, store, pictures, camera(cuts[index].cameraId), seconds, canvas);
     return;
   }
-  drawCamera(context, store, thumbnailsByCamera, camera(from.cameraId), seconds, canvas);
+  drawCamera(context, store, pictures, camera(from.cameraId), seconds, canvas);
   context.globalAlpha = mix * mix * (3 - 2 * mix);
-  drawCamera(context, store, thumbnailsByCamera, camera(to.cameraId), seconds, canvas);
+  drawCamera(context, store, pictures, camera(to.cameraId), seconds, canvas);
   context.globalAlpha = 1;
 }

@@ -5,6 +5,7 @@ import { html } from "./html.js";
 import { loadProject } from "../api.js";
 import { EditorStore } from "../editor-store.js";
 import { Transport } from "../transport.js";
+import { VideoPlayer } from "../media/video-player.js";
 import { CameraThumbnails } from "../media/thumbnails.js";
 import { attachKeyboard } from "../keyboard.js";
 import { VideoWindow } from "./VideoWindow.js";
@@ -29,6 +30,9 @@ export function App({ takeId, songId, version }) {
 function Editor({ project }) {
   const store = useMemo(() => new EditorStore(project), [project]);
   const transport = useMemo(() => new Transport(store), [store]);
+  const player = useMemo(() => new VideoPlayer(store), [store]);
+  useEffect(() => () => player.close(), [player]);
+  window.editorDebug = { store, player, transport };       // for the browser console and automated checks
   const [, rerender] = useState(0);
   const [videoHeight, setVideoHeight] = useState(savedVideoHeight());
   const [waveform, setWaveform] = useState(null);
@@ -66,7 +70,7 @@ function Editor({ project }) {
         </div>
       </header>
       <div class="video-area">
-        <${VideoWindow} store=${store} thumbnailsByCamera=${thumbnailsByCamera} />
+        <${VideoWindow} store=${store} thumbnailsByCamera=${thumbnailsByCamera} player=${player} />
         <${TransportBar} store=${store} transport=${transport} />
       </div>
       <${Splitter} onResize=${setVideoHeight} />
