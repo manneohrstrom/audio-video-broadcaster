@@ -29,6 +29,23 @@ Three things the rig can't do yet:
 - **Upload:** "Add audio" on each take in the hub page: pick or create the song, then the file. Resumable chunked upload (8 MB pieces). It pauses during takes and live sessions, like ingest. *Built 2026-11-16 (hubd 0.9.0, ingest 0.5.0) with one change: uploads are staged on the hub's SD card and hub-ingest copies them to the drive like video (`.part`, fsync, checksum, rename), instead of streaming straight to the drive. So uploading works without the drive plugged in, and hub-ingest stays the only thing that mounts it.*
 - **Scratch recording (built 2026-11-16, before the mic arrived):** `arecord` from the first USB mic for every take, from REC (before the cameras arm) to after STOP; each 100 ms block stamped with the hub's clock (`scratch.times.tsv`), so the mic's drift (A2) can be fitted out whatever it is. No mic or a failing mic never affects REC.
 
+### Backlog: focus during recorded takes (user, 2026-11-17)
+
+**How we got here:**
+- 2026-11-15: the user wanted autofocus, e.g. when someone walks up to a camera. That conflicted with "no auto focus during takes"; answered as continuous AF per camera and per take, off by default (Decisions, 1).
+- 2026-11-16 (B5, revised with the user): **no autofocus on the Pis.** They're fixed on the wall, the wide lens is sharp from about 1 m to infinity at 1080p, and nobody comes closer than about 75 cm; mid-take hunting or breathing is worse than slight softness. One fixed lens position per Pi, set with the focus help (loupe and sharpness, now the hub page's focus view).
+- Phones are marked **tripod** (focus measured once, then locked) or **handheld** (continuous autofocus). Exposure and white balance stay locked either way.
+- Bug fixed on the way: the phone's focus sweep locked a Pixel 9a at 0.05 m because readings were taken before the picture had settled; each reading now waits until two agree.
+
+**Built today:** the Pis' saved lens position is used for every take; phones follow tripod/handheld. Nothing checks focus during or after a take.
+
+**Open, to explore with real sessions:**
+1. **Does fixed focus hold up?** Watch real takes for soft stretches: players or instruments closer than ~1 m, a camera knocked off its saved position. Only if it doesn't hold: bring back autofocus on the Pis as the per-take option decided on 2026-11-15.
+2. **Handheld phones:** how much continuous AF hunts or breathes in a take; log the phone's focus distance per chunk so the hunting is visible afterwards.
+3. **A focus check before REC:** compare each Pi's sharpness with the value saved with its focus and warn on the deck when a camera has been bumped or someone moved it.
+4. **Soft stretches as data for the editor:** sharpness per second per camera (from the thumbnails or proxies, after ingest), marked like rough sections, so the cut avoids them (automatic cut v2, `docs/editor-plan.md` section 3b, already treats focus as a hard limit).
+5. **Focus changes mid-take by hand** (a focus pull from the hub) are not planned: a Pi's settings are fixed when `rpicam-vid` starts, and changing them would need a restart.
+
 ### Polish backlog: sparklines of health metrics (user, 2026-11-16)
 
 Small sparkline charts on the hub page showing each metric over time (e.g. the last hour), next to the current value:
