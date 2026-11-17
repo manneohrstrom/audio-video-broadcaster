@@ -42,7 +42,7 @@ import edit_render  # noqa: E402
 import drive_records  # noqa: E402
 import motion  # noqa: E402
 
-VERSION = "0.17.0"
+VERSION = "0.18.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -52,6 +52,30 @@ TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the mani
 DEFAULT_RATES = {"pulled": 1.0, "checked": 0.01, "conformed": 1.0, "verified": 0.25,
                  "written": 0.05, "marked": 0.0}
 STEP_OVERHEAD_S = 2.0
+
+
+RSYNC_TEMP_RE = re.compile(r"^\.(.+)\.[A-Za-z0-9]{6}$")    # ".video.h264.zEmXtj" -> "video.h264"
+
+
+def pulled_bytes(folder):
+    """How much of a camera's files rsync has in `folder`, for the pull's progress.
+
+    rsync writes each file to a hidden temporary (".video.h264.zEmXtj") and renames it at
+    the end. On a resumed pull (a pull stopped when the rig got busy: --partial kept what
+    had arrived as video.h264) rsync builds a whole new temporary from that partial copy
+    plus the rest, so the folder holds both. Counting both reached 100 % at about a third
+    of the way through a 20 min take (2026-11-17). So where a temporary exists, it counts
+    instead of the file it will replace."""
+    finished, temporary = {}, {}
+    for entry in os.scandir(folder):
+        if not entry.is_file() or entry.name == "ts.mkv":
+            continue
+        match = RSYNC_TEMP_RE.match(entry.name)
+        if match:
+            temporary[match.group(1)] = entry.stat().st_size
+        else:
+            finished[entry.name] = entry.stat().st_size
+    return sum(temporary.get(name, finished.get(name, 0)) for name in set(finished) | set(temporary))
 
 
 def ffmpeg_progress(path, duration_s):
@@ -697,9 +721,8 @@ class Ingest:
         want = self.cam_state(take_id, cam).get("src_bytes")
 
         def poll():
-            if want:   # rsync's temporary (dot) files count too
-                got = sum(e.stat().st_size for e in os.scandir(d) if e.is_file() and e.name != "ts.mkv")
-                self.progress(take_id, cam, min(1.0, got / want))
+            if want:
+                self.progress(take_id, cam, min(1.0, pulled_bytes(d) / want))
         self.runner.run(["rsync", "-a", "--partial", "--timeout=60", "-e", ssh,
                          "--include=video.h264", "--include=video.pts", "--include=manifest.json",
                          "--exclude=*", "%s.local:%s/" % (cam, take_id), d + "/"],
@@ -1517,7 +1540,8 @@ class Ingest:
                 raise RuntimeError("the border and logo image is missing: %s" % brand_frame)
             renderer = edit_render.EditRenderer(edit, take_doc, folder, bounce, edit.get("look"), looks, out_dir,
                                                 busy=busy, should_abort=self.eject_requested, progress=progress,
-                                                brand_frame=brand_frame)
+                                                brand_frame=brand_frame,
+                                                brand_colour=edit.get("branding_colour") or "#ffffff")
             job.update(frames=renderer.total_frames, shots=len(renderer.shots),
                        length_s=round(renderer.total_frames / render.FPS, 1))
             renderer.run(tmp)

@@ -1131,3 +1131,32 @@ class RemovedTakesTest(Base):
         self.drive.uuid = "1TB-NEW-DRIVE"                        # a different drive with the same label
         self.assertEqual(self.look(), [])
         self.assertIn(TAKE, self.ing.state["takes"])
+
+
+class PulledBytesTest(unittest.TestCase):
+    """The pull's progress (ingest.pulled_bytes): rsync's temporary replaces, not adds to,
+    a partial file kept from a stopped pull."""
+
+    def write(self, name, size):
+        with open(os.path.join(self.folder, name), "wb") as f:
+            f.write(b"\0" * size)
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp()
+
+    def test_first_pull_counts_the_temporary(self):
+        self.write("manifest.json", 10)
+        self.write(".video.h264.Ab12Cd", 300)
+        self.assertEqual(ingest.pulled_bytes(self.folder), 310)
+
+    def test_resumed_pull_counts_the_partial_copy_once(self):
+        self.write("manifest.json", 10)
+        self.write("video.h264", 700)                 # kept from the stopped pull
+        self.write(".video.h264.zEmXtj", 400)         # the new copy, built from it and the rest
+        self.assertEqual(ingest.pulled_bytes(self.folder), 410)
+
+    def test_finished_files_and_the_mkv_scratch(self):
+        self.write("video.h264", 1000)
+        self.write("video.pts", 50)
+        self.write("ts.mkv", 999)                     # the conform's scratch file, not pulled
+        self.assertEqual(ingest.pulled_bytes(self.folder), 1050)

@@ -122,23 +122,36 @@ DECODER_THREADS = "1"
 AUDIO_BITRATE = "384k"
 
 
-def brand_overlay(graph, extra_inputs, brand_frame):
-    """Put the brand frame (white border and logo, a 1920x1080 PNG with transparency) on top
-    of the finished picture: the last step, after the look, its effects and the grain, so
-    nothing changes it. graph: the effects' filter graph ending in [video], or None.
+def brand_colour_filter(colour):
+    """lutrgb turning the brand frame's white into `colour` ("#rrggbb"); alpha untouched.
+    The frame is pure white with transparency, so this is the colour exactly."""
+    red, green, blue = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+    return "lutrgb=r=val*%d/255:g=val*%d/255:b=val*%d/255" % (red, green, blue)
+
+
+def brand_overlay(graph, extra_inputs, brand_frame, colour="#ffffff"):
+    """Put the brand frame (border and logo, a white 1920x1080 PNG with transparency, in
+    `colour`) on top of the finished picture: the last step, after the look, its effects and
+    the grain, so nothing changes it. graph: the effects' filter graph ending in [video], or None.
     One frame, no -loop: overlay repeats a finished input's last frame (eof_action repeat)."""
     brand_input = 2 + sum(1 for part in extra_inputs if part == "-i")
     extra_inputs = extra_inputs + ["-i", brand_frame]
+    brand = "[%d:v]" % brand_input
+    chains = []
+    if colour.lower() != "#ffffff":
+        chains.append("%sformat=rgba,%s[brand]" % (brand, brand_colour_filter(colour)))
+        brand = "[brand]"
     if graph:
         assert graph.endswith("[video]")
-        graph = graph[:-len("[video]")] + "[looked];[looked][%d:v]overlay=format=auto[video]" % brand_input
+        chains.insert(0, graph[:-len("[video]")] + "[looked]")
+        chains.append("[looked]%soverlay=format=auto[video]" % brand)
     else:
-        graph = "[0:v][%d:v]overlay=format=auto[video]" % brand_input
-    return extra_inputs, graph
+        chains.append("[0:v]%soverlay=format=auto[video]" % brand)
+    return extra_inputs, ";".join(chains)
 
 
 def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir=".", preset=FINAL_PRESET, crf=FINAL_CRF,
-                    brand_frame=None):
+                    brand_frame=None, brand_colour="#ffffff"):
     command = render.encoder_cmd(bounce, audio_start_s, frames, out, preset=preset, crf=crf)
     command[command.index("-b:a") + 1] = AUDIO_BITRATE
     command[command.index("-threads") + 1] = ENCODER_THREADS
@@ -148,7 +161,7 @@ def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir="
         if effects:
             extra_inputs, graph = look_render.effect_filter_graph(effects, work_dir, first_extra_input=2)
         if brand_frame:
-            extra_inputs, graph = brand_overlay(graph, extra_inputs, brand_frame)
+            extra_inputs, graph = brand_overlay(graph, extra_inputs, brand_frame, brand_colour)
         audio_input_end = command.index(bounce) + 1
         command[audio_input_end:audio_input_end] = extra_inputs
         at = command.index("-map")
@@ -167,9 +180,10 @@ class EditRenderer:
 
     def __init__(self, edit, take_doc, video_dir, bounce, look, looks, work_dir,
                  busy=lambda: False, should_abort=lambda: False, progress=lambda done, total: None,
-                 brand_frame=None):
+                 brand_frame=None, brand_colour="#ffffff"):
         self.edit, self.take_doc, self.video_dir, self.bounce = edit, take_doc, video_dir, bounce
         self.brand_frame = brand_frame           # the border and logo on top (edit's "branding"), or None
+        self.brand_colour = brand_colour         # their colour (edit's "branding_colour")
         self.busy, self.should_abort, self.progress = busy, should_abort, progress
         self.dissolve_s = float(edit.get("dissolve_s") or 0)
         self.shots, self.total_frames = plan_shots(edit, take_doc, self.dissolve_s)
@@ -261,7 +275,8 @@ class EditRenderer:
 
     def run(self, out_path):
         encoder = self.spawn(encoder_command(self.bounce, self.audio_start_s(), self.total_frames, out_path,
-                                             self.effects, self.work_dir, brand_frame=self.brand_frame),
+                                             self.effects, self.work_dir, brand_frame=self.brand_frame,
+                                             brand_colour=self.brand_colour),
                              stdin=subprocess.PIPE)
         try:
             current = 0

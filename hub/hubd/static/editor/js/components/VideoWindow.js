@@ -71,7 +71,7 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
       <div class="video-window" ref=${wrapperRef}
            onPointerDown=${hold(true)} onPointerUp=${hold(false)} onPointerLeave=${hold(false)}>
         <canvas ref=${canvasRef} width="1920" height="1080" aria-label="Video preview"></canvas>
-        ${store.branding && html`<img class="brand-frame" src="/editor/brand/brand-frame.png" alt="" />`}
+        ${store.branding && html`<div class="brand-frame" style=${{ background: store.brandingColour }}></div>`}
         ${store.step === "look" && html`<div class="video-hold">${store.comparing ? "Without the look" : "Press and hold to compare"}</div>`}
         <div class="video-badge" ref=${badgeRef}></div>
         <div class="video-note" ref=${noteRef} hidden></div>

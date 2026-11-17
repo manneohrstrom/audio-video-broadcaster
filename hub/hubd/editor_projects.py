@@ -485,7 +485,11 @@ class EditorProjects:
         branding = edit.get("branding", False)     # the border and logo on top (brand-frame.png)
         if not isinstance(branding, bool):
             raise ProjectError("branding must be true or false")
+        branding_colour = edit.get("branding_colour", "#ffffff")
+        if not isinstance(branding_colour, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", branding_colour):
+            raise ProjectError("branding_colour must be a colour like #ffffff")
         saved = self._new_edit(take_id, song_id, version, range_ns, cuts, "user")
-        saved.update(look=edit.get("look"), dissolve_s=dissolve_s, branding=branding, saved_at=self.clock())
+        saved.update(look=edit.get("look"), dissolve_s=dissolve_s, branding=branding,
+                     branding_colour=branding_colour.lower(), saved_at=self.clock())
         self._write_working_copy(take_id, song_id, version, saved)
         return saved

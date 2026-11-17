@@ -190,6 +190,7 @@ A second step (a tab, after the cut is done): **what's the vibe of this video?**
 
 Every video on the channel has a white border and the Brockley Live logo in the bottom right. The editor's footer has a **Border & logo** switch (off by default, saved with the edit as `branding`). It is the topmost layer: on top of the look, its effects, the film overlays, the grain and the dissolves, and nothing changes it.
 
+- Colour (user, same day): a colour picker next to the switch, white by default, saved as `branding_colour` ("#rrggbb"). The image is white with transparency, so the editor uses it as a CSS mask over the colour and the render multiplies it by the colour (lutrgb) before the overlay: both give exactly that colour.
 - Sizes (user, option A of three mock-ups): border 24 px on every side, covering the picture's edges; logo 345 px wide (18 % of the width, its empty margin trimmed); 32 px in from the border's inner edge, right and below; no shadow.
 - One image does both: `hub/hubd/static/editor/brand/brand-frame.png` (1920x1080, transparent except border and logo), made by `hub/tools/make_brand_frame.py` from `hub/brand/brockley-live-logo.png`. The editor lays it over the video window; the render overlays it last in the encoder's ffmpeg graph (`edit_render.brand_overlay`). Change the numbers in the script and rerun it to restyle.
 

@@ -186,6 +186,11 @@ class ProjectTest(unittest.TestCase):
         self.assertTrue(self.projects.project(TAKE, "track-1", 1)["edit"]["branding"])
         with self.assertRaises(ep.ProjectError):
             self.projects.save_edit(TAKE, "track-1", 1, dict(cut, branding="yes"))
+        self.assertEqual(self.projects.project(TAKE, "track-1", 1)["edit"]["branding_colour"], "#ffffff")
+        self.assertEqual(self.projects.save_edit(TAKE, "track-1", 1, dict(cut, branding_colour="#C0182A"))["branding_colour"],
+                         "#c0182a")
+        with self.assertRaises(ep.ProjectError):
+            self.projects.save_edit(TAKE, "track-1", 1, dict(cut, branding_colour="red"))
 
     def test_bad_requests(self):
         with self.assertRaises(ep.ProjectError):

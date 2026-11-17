@@ -296,6 +296,21 @@ class AgentTest(unittest.TestCase):
             time.sleep(0.02)
         self.fail("sha256 never written")
 
+    def test_hash_finished_after_restart(self):
+        """A take whose hashing was cut short by a restart is hashed when the agent starts."""
+        d = os.path.join(self.tmp, "cut-short")
+        os.makedirs(d)
+        with open(os.path.join(d, "video.h264"), "wb") as f:
+            f.write(b"frames")
+        camnode.write_json_atomic(os.path.join(d, "manifest.json"), {"take_id": "cut-short", "sha256": None})
+        self.make()
+        for _ in range(100):
+            with open(os.path.join(d, "manifest.json")) as f:
+                if json.load(f)["sha256"]:
+                    return
+            time.sleep(0.02)
+        self.fail("sha256 never written after restart")
+
     def test_bad_sync_difference_recorded(self):
         man = self.take(env={"FAKE_SYNC_DIFF": "-183870"})
         self.assertEqual(man["sync_difference_us"], -183870)

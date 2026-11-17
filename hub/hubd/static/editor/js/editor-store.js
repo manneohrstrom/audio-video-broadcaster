@@ -36,6 +36,7 @@ export class EditorStore {
     this.dissolveSeconds = project.edit.dissolve_s ?? 0.3;
     // The border and logo on top of everything (brand/brand-frame.png): in the preview and the video.
     this.branding = project.edit.branding === true;
+    this.brandingColour = project.edit.branding_colour || "#ffffff";
 
     // Step 2, the look (docs/editor-plan.md section 5): one filter with a strength and any
     // number of effects with a strength each, for the whole song. Definitions: looks.json.
@@ -261,6 +262,12 @@ export class EditorStore {
     this.notify();
   }
 
+  setBrandingColour(colour) {
+    this.brandingColour = colour;
+    this.scheduleSave();
+    this.notify();
+  }
+
   setBranding(on) {
     this.branding = on;
     this.scheduleSave();
@@ -329,7 +336,7 @@ export class EditorStore {
     const { take_id: takeId, song, version } = this.project;
     try {
       await saveEdit(takeId, song.id, version, { cuts: cutsToFile(this.cuts), dissolve_s: this.dissolveSeconds, look: this.look,
-                      branding: this.branding });
+                      branding: this.branding, branding_colour: this.brandingColour });
       this.saveState = this.saveState === "saving" ? "saved" : this.saveState;
       this.saveProblem = null;
     } catch (error) {

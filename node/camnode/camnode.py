@@ -18,7 +18,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 NOMINAL_MS = 1000.0 / 30
 TAKE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WC_RE = re.compile(rb'"FrameWallClock":\s*(\d+)')
@@ -486,6 +486,21 @@ class Agent:
                 man = build_manifest(d, take, None, "recovered-after-agent-restart")
                 write_json_atomic(os.path.join(d, "manifest.json"), man)
                 self.last_take = man
+        # Takes still without a checksum: the agent (or the camera) restarted while _hash ran
+        # after STOP (cam1, 2026-11-17: rebooted 3 min after a 20 min take). Without it the
+        # hub never gets past checking the pull and the camera never frees the space.
+        unhashed = [self.take_dir(name) for name in sorted(os.listdir(self.cfg["takes_dir"]))
+                    if needs_hash(self.take_dir(name))]
+        if unhashed:
+            threading.Thread(target=self._hash_all, args=(unhashed,), daemon=True).start()
+
+    def _hash_all(self, dirs):
+        """Hash takes one after another (one at a time keeps the SD card free for recording)."""
+        for d in dirs:
+            try:
+                self._hash(d)
+            except (OSError, ValueError) as e:
+                sys.stderr.write("hash %s: %s\n" % (d, e))
 
     def list_takes(self):
         out = []
@@ -781,6 +796,18 @@ class Agent:
             write_json_atomic(p, man)
             if self.last_take and self.last_take["take_id"] == man["take_id"]:
                 self.last_take = man
+
+
+def needs_hash(d):
+    """A finished take (manifest written) whose video has no checksum yet."""
+    p = os.path.join(d, "manifest.json")
+    if not (os.path.isfile(p) and os.path.isfile(os.path.join(d, "video.h264"))):
+        return False
+    try:
+        with open(p) as f:
+            return not json.load(f).get("sha256")
+    except (OSError, ValueError):
+        return False
 
 
 def _summary(man):
