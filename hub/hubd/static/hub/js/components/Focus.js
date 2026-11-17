@@ -6,9 +6,17 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { html } from "shared/html.js";
 import { Icon } from "shared/icons.js";
-import { shownMode } from "../format.js";
+import { focusDistance, focusParts, shownMode } from "../format.js";
 
-const LENS_HINT = "0 = far away, 0.5 ≈ 2 m, 1 ≈ 1 m";
+// Focus is stored as libcamera's lens position (dioptres, 1 / metres) and shown in metres.
+// The nudges step in dioptres too: the same step moves far focus a lot in metres and near
+// focus a little, which matches how much sharpness changes.
+const NUDGES = [
+  { delta: -0.1, label: "◀◀", name: "farther, big step" },
+  { delta: -0.02, label: "◀", name: "farther, small step" },
+  { delta: 0.02, label: "▶", name: "nearer, small step" },
+  { delta: 0.1, label: "▶▶", name: "nearer, big step" },
+];
 const AUTO_REFRESH_MS = 5000;
 
 /** A still from a Pi camera, at a lens position (or its saved one): { url, info }. */
@@ -99,7 +107,7 @@ function CameraFocus({ id, node, savedLens, rigIdle, shotRequest, say, onSaved }
     if (top) {
       setLens(top.lens);
       await shoot(top.lens);
-      say(`${id}: sharpest at ${top.lens.toFixed(2)}. Tap save focus to keep it.`);
+      say(`${id}: sharpest at about ${focusDistance(top.lens)}. Tap save focus to keep it.`);
     }
     setSweeping(false);
   }
@@ -110,7 +118,7 @@ function CameraFocus({ id, node, savedLens, rigIdle, shotRequest, say, onSaved }
     const answer = await response.json().catch(() => ({}));
     if (!response.ok) { say(answer.error || "Didn't save.", true); return; }
     onSaved();
-    say(`${id}: focus ${lens.toFixed(2)} saved. Every take uses it from now on.`);
+    say(`${id}: focus at about ${focusDistance(lens)} saved. Every take uses it from now on.`);
   }
 
   const locked = !canShoot || busy || sweeping;
@@ -130,19 +138,20 @@ function CameraFocus({ id, node, savedLens, rigIdle, shotRequest, say, onSaved }
         <canvas class="loupe" ref=${loupeRef} width="640" height="360" title="The middle of the picture at full resolution"></canvas>
         <div class="focus-controls">
           <div class="readout"><span>sharpness</span><b class=${"lcd-number" + (isBest ? " best" : "")}>${sharpness == null ? "---" : Math.round(sharpness)}</b></div>
-          <div class="readout"><span>focus</span><b class="lcd-number">${lens == null ? "auto" : lens.toFixed(2)}</b></div>
+          <div class="readout"><span>focus</span><b class="lcd-number">${focusParts(lens).value}<small class="lcd-unit">${focusParts(lens).unit}</small></b></div>
           <div class="nudges">
-            ${[-0.1, -0.02, 0.02, 0.1].map(delta => html`
-              <button class="round-key" disabled=${locked} onClick=${() => nudge(delta)} aria-label=${`Focus ${delta > 0 ? "nearer" : "farther"} by ${Math.abs(delta)}`}>
-                ${delta > 0 ? "+" : "−"}${Math.abs(delta) === 0.1 ? ".1" : ".02"}</button>`)}
+            ${NUDGES.map(({ delta, label, name }) => html`
+              <button class="round-key" disabled=${locked} onClick=${() => nudge(delta)} aria-label=${"Focus " + name} title=${"Focus " + name}>
+                ${label}</button>`)}
           </div>
+          <div class="nudge-caption"><span>farther</span><span>nearer</span></div>
           <button class="key" disabled=${locked} onClick=${findSharpest} title="Tries focus positions and picks the sharpest middle">
             <${Icon} name="magnifier" size=${16} />find sharpest</button>
           <button class=${"key" + (unsaved ? " signal" : "")} disabled=${locked || lens == null} onClick=${save}>
             <${Icon} name="check" size=${16} />save focus</button>
         </div>
       </div>
-      <p class="note">${savedLens == null ? "nothing saved yet" : `saved: ${savedLens.toFixed(2)}`}${unsaved ? " · not saved" : ""} · ${LENS_HINT}</p>
+      <p class="note">${savedLens == null ? "nothing saved yet" : `saved: about ${focusDistance(savedLens)}`}${unsaved ? " · not saved" : ""}</p>
     </article>`;
 }
 

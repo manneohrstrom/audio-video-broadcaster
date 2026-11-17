@@ -57,3 +57,25 @@ export function when(unixSeconds) {
 export function shownMode(mode) {
   return mode === "snapshot" ? "idle" : mode;
 }
+
+/**
+ * A Pi camera's lens position as a focus distance, split for the LCD readout (DSEG7 has
+ * digits only): { value: "1.20", unit: "m" }, { value: "45", unit: "cm" }, { value: "", unit: "∞" }.
+ * libcamera's LensPosition is in dioptres (1 / distance in metres), so 0 is infinity.
+ * The module's calibration is approximate: read it as "about".
+ */
+export function focusParts(lens) {
+  if (lens == null) return { value: "", unit: "auto" };
+  if (lens <= 0.01) return { value: "", unit: "∞" };
+  const metres = 1 / lens;
+  if (metres >= 10) return { value: String(Math.round(metres)), unit: "m" };
+  if (metres >= 2) return { value: metres.toFixed(1), unit: "m" };
+  if (metres >= 1) return { value: metres.toFixed(2), unit: "m" };
+  return { value: String(Math.round(metres * 100)), unit: "cm" };
+}
+
+/** The same as text: "∞", "4.0 m", "1.20 m", "45 cm", "auto". */
+export function focusDistance(lens) {
+  const { value, unit } = focusParts(lens);
+  return value ? value + " " + unit : unit;
+}

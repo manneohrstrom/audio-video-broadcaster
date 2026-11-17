@@ -32,7 +32,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.24.1"
+VERSION = "0.25.1"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
