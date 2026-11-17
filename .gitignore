@@ -14,3 +14,6 @@ deploy/.venv/
 *.mov
 *.mp4
 *.mkv
+
+# Overlay source images and clips (licences forbid redistribution; they live on the hub)
+overlays/
