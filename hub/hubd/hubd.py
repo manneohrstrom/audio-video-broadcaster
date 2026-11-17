@@ -1375,10 +1375,9 @@ class Handler(BaseHTTPRequestHandler):
             if not got:
                 return self._send(404, {"error": "no picture from this phone yet"})
             return self._send(200, got[0], "image/jpeg", {"X-Snap-Info": json.dumps({"age_s": round(time.time() - got[1], 1)})})
-        if path in ("/", "/index.html"):          # the hub page (static/hub, Preact like the editor)
+        if path in ("/", "/index.html", "/snap"): # the hub page (static/hub, Preact like the editor); /snap opens its focus view
             return self._app_static("hub", "index.html")
-        name = {"/classic": "index.html", "/phone": "phone.html",       # /classic: the plain-JS page, kept
-                "/snap": "snap.html"}.get(path, path.lstrip("/"))        # while the new one proves itself
+        name = {"/phone": "phone.html"}.get(path, path.lstrip("/"))
         if "/" in name or name.startswith("."):
             return self._send(404, {"error": "not found"})
         p = os.path.join(h.cfg["static_dir"], name)

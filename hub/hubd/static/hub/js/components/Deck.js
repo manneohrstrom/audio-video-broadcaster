@@ -100,7 +100,7 @@ export function Deck({ status, busy, act, openDialog, go }) {
       </div>
 
       <div class="small-keys">
-        <a class="key" href="/snap"><${Icon} name="camera" size=${18} />snapshots & focus</a>
+        <button class="key" onClick=${() => go("focus")}><${Icon} name="camera" size=${18} />snapshots & focus</button>
         <button class="key" onClick=${() => openDialog({ kind: "qr" })}><${Icon} name="phone" size=${18} />use a phone as a camera</button>
       </div>
     </section>`;

@@ -2,6 +2,7 @@
 //
 //   deck     the big keys: REC, STOP, LIVE; the rig's state; one LED per camera
 //   monitor  every device's health, with the last 30 minutes as small charts
+//   focus    a still from every camera, the loupe, and each Pi camera's fixed focus (/snap)
 //   archive  takes on the STUDIO drive: ingest, playback, songs, videos
 //
 // The rig's state comes from hubd every second (/api/status), the takes every 3 s
@@ -14,6 +15,7 @@ import { hms } from "../format.js";
 import { Deck } from "./Deck.js";
 import { Monitor } from "./Monitor.js";
 import { Archive } from "./Archive.js";
+import { Focus } from "./Focus.js";
 import { QrDialog } from "./QrDialog.js";
 import { AudioDialog } from "./AudioDialog.js";
 import { Player } from "./Player.js";
@@ -23,11 +25,12 @@ import { notIngested } from "../takes.js";
 const VIEWS = [
   { id: "deck", label: "deck", icon: "deck" },
   { id: "monitor", label: "monitor", icon: "scope" },
+  { id: "focus", label: "focus", icon: "camera" },
   { id: "archive", label: "archive", icon: "cassette" },
 ];
 
 function viewFromHash() {
-  const id = location.hash.slice(1);
+  const id = location.hash.slice(1) || (location.pathname === "/snap" ? "focus" : "");     // /snap: the old address
   return VIEWS.some(view => view.id === id) ? id : "deck";
 }
 
@@ -120,11 +123,11 @@ export function App() {
       <main class="view">
         ${view === "deck" && html`<${Deck} ...${context} />`}
         ${view === "monitor" && html`<${Monitor} ...${context} />`}
+        ${view === "focus" && html`<${Focus} ...${context} />`}
         ${view === "archive" && html`<${Archive} ...${context} />`}
       </main>
       <footer class="plate-row">
         <span class="model-plate"><span class="grille" aria-hidden="true"></span>SM-1 <small>no cloud · no subscription · no mercy</small></span>
-        <a class="quiet-link" href="/classic">old page</a>
       </footer>
       ${dialog && dialog.kind === "qr" && html`<${QrDialog} onClose=${() => setDialog(null)} />`}
       ${dialog && dialog.kind === "audio" && html`<${AudioDialog} take=${dialog.take} onClose=${() => { setDialog(null); refreshIngest(); }} onChange=${refreshIngest} />`}
