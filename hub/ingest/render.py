@@ -39,12 +39,14 @@ def grid_origin_ns(wc_ns):
     return sec * NS + (frac * FPS // NS) * NS // FPS
 
 
-def cameras(take_doc):
-    """{cam: {"origin_ns", "start_ns", "end_ns", "rough": [(a_ns, b_ns)]}} for the Pi cameras."""
+def cameras(take_doc, include_phones=False):
+    """{cam: {"origin_ns", "start_ns", "end_ns", "rough": [(a_ns, b_ns)]}} for the Pi cameras,
+    and the phones too with include_phones (the editor can cut to a phone; the quick mix's
+    rotation is Pi cameras only). Phone files are laid out like the Pis' (ingest rewrap)."""
     out = {}
     mans = take_doc.get("manifests") or {}
     for cam, man in sorted(mans.items()):
-        if man.get("source") == "phone" or not man.get("first_frame_wallclock_ns"):
+        if not man.get("first_frame_wallclock_ns") or (man.get("source") == "phone" and not include_phones):
             continue
         first = man["first_frame_wallclock_ns"]
         last = man.get("last_frame_wallclock_ns") or first + int((man.get("duration_s") or 0) * NS)

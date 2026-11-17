@@ -38,19 +38,33 @@ NS = render.NS
 
 
 class Shot:
-    """One shot of the cut, in output frames, with the frames its decoder must deliver."""
+    """One shot of the cut, in output frames, with the frames its decoder must deliver.
+
+    covered_from..covered_to: the output frames the camera recorded at all. Outside them
+    (it started late or stopped early) the shot is black, as in the editor's preview,
+    and the decoder only runs for the frames it has: seeking before a file's first frame
+    would hand over its first frames too early (out of sync), and asking past its last
+    frame would end the decoder short (2026-11-17, found with a synthetic take)."""
 
     def __init__(self, camera_id, first_frame, end_frame):
         self.camera_id = camera_id
         self.first_frame, self.end_frame = first_frame, end_frame       # what's on screen
         self.decode_from, self.decode_to = first_frame, end_frame       # plus dissolve overlap
+        self.covered_from, self.covered_to = first_frame, end_frame
         self.process = None
+        self.started = False
+        self.last_picture = None
+
+    def decoded_frames(self):
+        """(first output frame, count) the decoder delivers: the shot's frames the camera has."""
+        first = max(self.decode_from, self.covered_from)
+        return first, max(0, min(self.decode_to, self.covered_to) - first)
 
 
 def plan_shots(edit, take_doc, dissolve_s):
     """The shots of the edit, each widened by half the dissolve on both sides where the
     camera has those frames. Returns (shots, total frames)."""
-    cameras = render.cameras(take_doc)
+    cameras = render.cameras(take_doc, include_phones=True)
     range_start, range_end = edit["range_ns"]
     total = int(round((range_end - range_start) * FPS / NS))
     bounds = [int(round(cut["at_ns"] * FPS / NS)) for cut in edit["cuts"]] + [total]
@@ -60,9 +74,11 @@ def plan_shots(edit, take_doc, dissolve_s):
         camera = cameras.get(shot.camera_id)
         if camera is None:
             raise ValueError("camera %s isn't in this take" % shot.camera_id)
-        # Frames this camera has (output frame numbers), with a frame of margin at each end.
-        has_from = int(np.ceil((camera["start_ns"] - range_start) * FPS / NS)) + 1
-        has_to = int(np.floor((camera["end_ns"] - range_start) * FPS / NS)) - 1
+        # Frames this camera has (output frame numbers): at or after its first frame, at or
+        # before its last. For the dissolve overlap, a frame of margin at each end.
+        shot.covered_from = int(np.ceil((camera["start_ns"] - range_start) * FPS / NS))
+        shot.covered_to = int(np.floor((camera["end_ns"] - range_start) * FPS / NS)) + 1
+        has_from, has_to = shot.covered_from + 1, shot.covered_to - 2
         if i > 0:
             shot.decode_from = max(shot.first_frame - half, has_from, 0)
         if i + 1 < len(shots):
@@ -141,9 +157,10 @@ class EditRenderer:
         self.lut_path = look_render.write_look_lut(os.path.join(work_dir, "look.cube"), look, looks)
         self.pixel_format = "yuv420p"
         self.frame_bytes = WIDTH * HEIGHT * 3 // 2
-        self.cameras = render.cameras(take_doc)
+        self.cameras = render.cameras(take_doc, include_phones=True)
         self.processes = []
         self.suspended = False
+        self.black = None                        # a black frame through the look (lazily)
 
     def audio_start_s(self):
         return (self.edit["range_ns"][0] - self.edit["bounce_start_ns"]) / NS
@@ -153,10 +170,25 @@ class EditRenderer:
         return (hub_ns - self.cameras[camera_id]["origin_ns"]) / NS
 
     def start_decoder(self, shot):
+        shot.started = True
+        first, count = shot.decoded_frames()
+        if count <= 0:
+            return                               # the camera recorded none of this shot: black
         command = decoder_command(os.path.join(self.video_dir, shot.camera_id + ".mov"),
-                                  self.file_seconds(shot.camera_id, shot.decode_from),
-                                  shot.decode_to - shot.decode_from, self.lut_path, self.pixel_format)
+                                  self.file_seconds(shot.camera_id, first), count, self.lut_path, self.pixel_format)
         shot.process = self.spawn(command, stdout=subprocess.PIPE)
+
+    def black_frame(self):
+        """Where a camera didn't record: black, through the look's colour table (a faded
+        look lifts black in the preview too)."""
+        if self.black is None:
+            command = ["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i",
+                       "color=c=black:s=%dx%d:r=%d" % (WIDTH, HEIGHT, FPS), "-frames:v", "1"]
+            if self.lut_path:
+                command += ["-vf", "lut3d=file='%s':interp=trilinear" % self.lut_path.replace("'", "")]
+            self.black = subprocess.run(command + ["-f", "rawvideo", "-pix_fmt", self.pixel_format, "-"],
+                                        capture_output=True, check=True).stdout
+        return self.black
 
     def spawn(self, command, **kwargs):
         def lower_priority():
@@ -170,12 +202,21 @@ class EditRenderer:
         self.processes.append(process)
         return process
 
-    def read_frame(self, shot):
+    def read_frame(self, shot, frame_number):
+        """The shot's picture at this output frame: decoded, or black where its camera
+        didn't record. A decoder may come up a frame or two short at the very end of its
+        file (the last frame's rounding): the last picture is held then."""
+        first, count = shot.decoded_frames()
+        if shot.process is None or not first <= frame_number < first + count:
+            return self.black_frame()
         data = shot.process.stdout.read(self.frame_bytes)
-        if len(data) != self.frame_bytes:
-            error = shot.process.stderr.read().decode(errors="replace")[-300:]
-            raise RuntimeError("decoding %s ended early: %s" % (shot.camera_id, error))
-        return data
+        if len(data) == self.frame_bytes:
+            shot.last_picture = data
+            return data
+        if shot.last_picture is not None and frame_number >= first + count - 2:
+            return shot.last_picture
+        error = shot.process.stderr.read().decode(errors="replace")[-300:]
+        raise RuntimeError("decoding %s ended early: %s" % (shot.camera_id, error))
 
     def as_array(self, data):
         return np.frombuffer(data, np.uint8)
@@ -211,20 +252,20 @@ class EditRenderer:
                     current += 1
                 shot = self.shots[current]
                 upcoming = self.shots[current + 1] if current + 1 < len(self.shots) else None
-                if upcoming and upcoming.process is None and frame_number >= upcoming.decode_from:
+                if upcoming and not upcoming.started and frame_number >= upcoming.decode_from:
                     # Normally started exactly at decode_from; after very short shots it can be
                     # later: then it starts at this frame (never delivering frames from too early).
                     upcoming.decode_from = frame_number
                     self.start_decoder(upcoming)
-                picture = self.as_array(self.read_frame(shot))
+                picture = self.as_array(self.read_frame(shot, frame_number))
                 if upcoming and upcoming.process is not None and frame_number >= upcoming.decode_from:
-                    incoming = self.as_array(self.read_frame(upcoming))
+                    incoming = self.as_array(self.read_frame(upcoming, frame_number))
                     mix = dissolve_mix(frame_number, upcoming.first_frame, self.half_dissolve)
                     picture = (picture.astype(np.float32) * (1 - mix) + incoming.astype(np.float32) * mix + 0.5).astype(np.uint8)
                 elif current > 0 and frame_number < shot.first_frame + self.half_dissolve:
                     previous = self.shots[current - 1]
                     if previous.process is not None and frame_number < previous.decode_to:
-                        outgoing = self.as_array(self.read_frame(previous))
+                        outgoing = self.as_array(self.read_frame(previous, frame_number))
                         mix = dissolve_mix(frame_number, shot.first_frame, self.half_dissolve)
                         picture = (outgoing.astype(np.float32) * (1 - mix) + picture.astype(np.float32) * mix + 0.5).astype(np.uint8)
                 encoder.stdin.write(picture.tobytes() if isinstance(picture, np.ndarray) else picture)

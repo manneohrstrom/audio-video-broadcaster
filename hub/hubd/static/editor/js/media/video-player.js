@@ -55,8 +55,14 @@ export class VideoPlayer {
     this.keepNear(camera, decoder, fileSeconds, now);
     const frame = decoder.frameAt(fileSeconds);
     // While a seek is still decoding, the frame on screen may be from somewhere else: only
-    // use it if it's within a frame or two of what's wanted.
-    if (frame && Math.abs(frame.timestamp / 1e6 - fileSeconds) > 0.07 && !this.store.isPlaying) return null;
+    // use it if it's within a frame or two of the frame that belongs here, the latest one
+    // not after this time. Measured from that frame, not from the time itself: inside
+    // dropped frames the right picture is the last frame before them, maybe seconds back.
+    if (frame && !this.store.isPlaying) {
+      const wanted = decoder.frameIndexAt(Math.round(fileSeconds * 1e6) + 1);
+      const wantedSeconds = wanted >= 0 ? decoder.samples[wanted].timeUs / 1e6 : fileSeconds;
+      if (Math.abs(frame.timestamp / 1e6 - wantedSeconds) > 0.07) return null;
+    }
     return frame;
   }
 

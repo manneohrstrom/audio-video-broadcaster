@@ -74,6 +74,22 @@ class MathTest(unittest.TestCase):
         self.assertIsNone(calibrate.card_problem({"marker_px": 80, "grey_spread": 2}))
 
 
+class CardEvennessTest(unittest.TestCase):
+    """The white patch against the grey: is the card lit evenly enough for its colour readings?"""
+
+    def test_an_evenly_lit_card(self):
+        self.assertTrue(calibrate.card_lit_evenly({"grey": [119, 119, 119], "patches": {"white": [236, 238, 240]}}))
+
+    def test_the_readings_of_2026_11_16(self):
+        # cam1 and cam3 from that day: the right side of the card was dark.
+        self.assertFalse(calibrate.card_lit_evenly({"grey": [118.1, 118.1, 117.1], "patches": {"white": [154.9, 155.5, 159.5]}}))
+        self.assertFalse(calibrate.card_lit_evenly({"grey": [120, 119, 119], "patches": {"white": [107, 103, 94]}}))
+
+    def test_no_white_reading_says_nothing(self):
+        self.assertIsNone(calibrate.card_lit_evenly({"grey": [119, 119, 119], "patches": {}}))
+        self.assertIsNone(calibrate.Calibrator.record_note({"card_even": None}))
+        self.assertEqual(calibrate.Calibrator.record_note({"card_even": False}), calibrate.UNEVEN_CARD)
+
 class CalibratorTest(unittest.TestCase):
     def setUp(self):
         self.now = [1000.0]
@@ -114,6 +130,7 @@ class CalibratorTest(unittest.TestCase):
         self.assertTrue(calibrate.good(picture(s["gain"], s["awb_gains"])))
         rec = json.load(open(os.path.join(self.cfg["state_dir"], "calibration.json")))["cam1"]
         self.assertTrue(rec["converged"] and rec["light_ok"])
+        self.assertIn("card_even", rec)
         # Settings go out with the next take, and the take log keeps the card readings.
         self.hub.rec()
         arm = [b for n, p, b in self.rig.bodies if n == "cam1" and p == "/take/arm"][-1]
@@ -195,9 +212,12 @@ class PhoneCalibrationTest(unittest.TestCase):
         self.assertEqual(cal.status()["phones"]["pauls-pixel"]["status"], "calibrating")
         with self.assertRaises(ValueError):
             cal.phone_report("pauls-pixel", {"status": "calibrated"})          # no record
+        cal.phone_report("pauls-pixel", {"status": "calibrated", "record": {
+            "iso": 170, "k": 2850, "light_ok": True, "grey": [120, 119, 118], "patches": {"white": [140, 139, 138]}}})
+        self.assertEqual(cal.status()["phones"]["pauls-pixel"]["message"], calibrate.UNEVEN_CARD)   # kept with the record
         cal.phone_report("pauls-pixel", {"status": "calibrated", "record": {"iso": 170, "k": 2850, "light_ok": True}})
         st = cal.status()
-        self.assertEqual((st["seq"], st["phones"]["pauls-pixel"]["iso"]), (1, 170))
+        self.assertEqual((st["seq"], st["phones"]["pauls-pixel"]["iso"]), (2, 170))   # two reports
         self.hub.poll_once()
         self.hub.rec()
         self.hub.phone_poll(self.body)          # the phone is told to record

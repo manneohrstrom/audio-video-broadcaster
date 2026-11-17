@@ -48,6 +48,29 @@ def lin(v):
     return (max(float(v), 0.5) / 255.0) ** GAMMA
 
 
+# The card's white is printed at 243 and its grey at 119: in linear light white is about
+# 4.8 times as bright. Much less than that and the light falls unevenly across the card
+# (the white patch is in its lower right corner, the grey in the top middle). The grey,
+# which the lock uses, is still right then, but the colour readings kept for the editor
+# aren't: on 2026-11-16 cam3 read white darker than grey, the whole right side of the card
+# dark (2026-11-17 check of the calibration data).
+WHITE_OVER_GREY_MIN = 2.0       # phones compress highlights more than the Pis: room for that
+UNEVEN_CARD = "the card's right side reads dark: light it evenly and show it again (colour readings unreliable)"
+
+
+def luminance(rgb):
+    r, g, b = (lin(v) for v in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def card_lit_evenly(readings):
+    """False if the white patch reads too dark next to the grey; None if it wasn't read."""
+    white, grey = (readings.get("patches") or {}).get("white"), readings.get("grey")
+    if not white or not grey:
+        return None
+    return luminance(white) >= WHITE_OVER_GREY_MIN * luminance(grey)
+
+
 def ratios(grey):
     R, G, B = (lin(v) for v in grey)
     return R / G, B / G
@@ -149,7 +172,7 @@ class Calibrator:
                 rec = self.records.get(cam)
                 cur = self.live.get(cam) or {}
                 st = cur.get("status") or ("calibrated" if rec else "waiting")
-                out[cam] = {"status": st, "message": cur.get("message"),
+                out[cam] = {"status": st, "message": cur.get("message") or self.record_note(rec),
                             "at": rec and rec["at"], "gain": rec and rec["gain"], "awb_gains": rec and rec["awb_gains"],
                             "light_ok": rec and rec["light_ok"]}
             phones = {}
@@ -157,10 +180,17 @@ class Calibrator:
                 rec = self.records.get("phone:" + name)
                 cur = self.live.get("phone:" + name) or {}
                 phones[name] = {"status": cur.get("status") or ("calibrated" if rec else "waiting"),
-                                "message": cur.get("message"), "at": rec and rec["at"],
+                                "message": cur.get("message") or self.record_note(rec), "at": rec and rec["at"],
                                 "iso": rec and rec.get("iso"), "k": rec and rec.get("k"),
                                 "light_ok": rec and rec.get("light_ok")}
             return {"watching": self.watching(), "seq": self.seq, "devices": out, "phones": phones}
+
+    @staticmethod
+    def record_note(record):
+        """What a kept calibration needs saying about itself (shown until it's redone)."""
+        if record and record.get("card_even") is False:
+            return UNEVEN_CARD
+        return None
 
     # -- phones calibrate themselves on their page (it has the camera controls) and report here
     PHONE_STATUS = ("waiting", "calibrating", "calibrated")
@@ -177,7 +207,7 @@ class Calibrator:
                 rec = body.get("record")
                 if not isinstance(rec, dict):
                     raise ValueError("a calibrated report needs its record")
-                rec = dict(rec, at=self.clock())
+                rec = dict(rec, at=self.clock(), card_even=card_lit_evenly(rec))
                 self.records[key] = rec
                 self._write()
                 self.seq += 1
@@ -304,7 +334,8 @@ class Calibrator:
     def save(self, cam, gain, awb, light_ok, m, rounds, converged):
         self.hub.set_camera_settings(cam, {"gain": gain, "awb_gains": awb})
         rec = {"at": self.clock(), "gain": gain, "awb_gains": awb, "light_ok": light_ok, "converged": converged,
-               "rounds": rounds, "grey": m["grey"], "patches": m["patches"], "marker_px": m.get("marker_px")}
+               "rounds": rounds, "grey": m["grey"], "patches": m["patches"], "marker_px": m.get("marker_px"),
+               "card_even": card_lit_evenly(m)}
         with self.lock:
             self.records[cam] = rec
             self._write()
@@ -312,4 +343,5 @@ class Calibrator:
             msg = None if light_ok else "not enough light: at maximum gain"
             if not converged and light_ok:
                 msg = "close, not exact: show the card again to retry"
+            msg = msg or self.record_note(rec)
             self.live[cam] = {"status": "calibrated", "message": msg}

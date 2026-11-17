@@ -35,6 +35,7 @@ These are the versions verified working in Phase 1 (2026-11-14). Provisioning (A
 | iperf3 | 3.18-2+deb13u2 |
 | python3 | 3.13.5-1 |
 | python3-opencv | 4.10.0+dfsg-5 (ArUco detection of the calibration card, Track B) |
+| python3-numpy | 1:2.2.4+ds-1 (the editor's render, the shared grade maths, `hub/tools/add_overlay.py`; pinned and held 2026-11-17) |
 | cloud-guest-utils | 0.33-1 (`growpart`, used once to grow the root partition after the move to the 128 GB card, 2026-11-16) |
 | SD card | 128 GB (116.5 GB raw), cloned from the original 32 GB card 2026-11-16; root partition 115 GB |
 
