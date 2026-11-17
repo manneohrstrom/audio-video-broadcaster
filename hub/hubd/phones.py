@@ -342,7 +342,7 @@ class Phones:
         if st.get("visible") not in (None, "visible"):
             p.append("%s page is not in front: it may stop recording" % name)
         if st.get("state") == "ready" and not st.get("locked"):
-            p.append("%s settings not locked (tap Auto, then lock)" % name)
+            p.append("%s not calibrated: show it the card (otherwise it locks itself at REC)" % name)
         rtt = st.get("rtt_ms")
         if rtt is not None and rtt > 60:
             p.append("%s Wi-Fi slow (clock round trip %d ms)" % (name, rtt))

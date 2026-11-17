@@ -153,7 +153,7 @@ class PhonesTest(unittest.TestCase):
         self.poll(charging=False, battery=30, visible="hidden", locked=False, rtt_ms=90, storage_free_gb=2)
         p = self.ph.snapshot(free_gb=3.0)["phone1"]["problems"]
         text = " | ".join(p)
-        for want in ("not charging", "not in front", "not locked", "Wi-Fi slow", "hub has room for 0.4 h", "phone storage low"):
+        for want in ("not charging", "not in front", "not calibrated", "Wi-Fi slow", "hub has room for 0.4 h", "phone storage low"):
             self.assertIn(want, text)
         self.now[0] += 30
         snap = self.ph.snapshot(free_gb=3.0)["phone1"]

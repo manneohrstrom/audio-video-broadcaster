@@ -106,14 +106,11 @@
       <button id="disconnect" hidden title="Stop the camera, leave full screen and go back to the start">disconnect</button>
     </div>
     <p id="msg"></p>
-    <p class="section-title">Lock the picture <small>point at the scene first (~20 s)</small></p>
-    <div class="keys">
-      <button id="autolock" class="main">auto, then lock</button>
-      <button id="auto">all auto</button>
-    </div>
-    <div id="mountrow" role="radiogroup" aria-label="How the phone is held">
-      <label><input type="radio" name="mount" value="tripod"> on a tripod</label>
-      <label><input type="radio" name="mount" value="handheld"> handheld</label>
+    <p class="dim">Show it the calibration card while the hub page is open: it locks its picture by itself.
+      Without a card it locks itself when REC starts.</p>
+    <div id="mountrow" role="radiogroup" aria-label="Focus">
+      <label title="On a tripod: focus measured once, then locked"><input type="radio" name="mount" value="tripod"> focus locked</label>
+      <label title="Handheld: the phone keeps refocusing"><input type="radio" name="mount" value="handheld"> focus follows</label>
     </div>
     <div id="calstate"></div>
     <div class="kv" id="stats"></div>
@@ -224,7 +221,7 @@ async function disconnect() {
   try { if (S.wake) await S.wake.release(); } catch (e) {}
   try { screen.orientation.unlock(); } catch (e) {}
   try { if (document.fullscreenElement) await document.exitFullscreen(); } catch (e) {}
-  Object.assign(S, {stream: null, track: null, wake: null, locked: false, id: null, hubOk: false, mount: null});
+  Object.assign(S, {stream: null, track: null, wake: null, locked: false, lockedAtRec: false, id: null, hubOk: false, mount: null});
   S.cal = {inView: false, running: false};
   setState("off");
   $("name").disabled = false; $("connect").hidden = false; $("disconnect").hidden = true;
@@ -257,6 +254,13 @@ async function lockThese() {
   S.locked = !r.some(x => x.includes("FAILED"));
   showCaps(false);
   msg(r.join(" · "));
+}
+/** After a take, a lock made at REC is released (as the Pis': it was for that take only);
+ *  the next take measures again. A card calibration stays. */
+function releaseRecLock() {
+  if (!S.lockedAtRec) return;
+  S.locked = false; S.lockedAtRec = false;
+  allAuto().catch(() => {});
 }
 async function allAuto() {
   const caps = S.track.getCapabilities ? S.track.getCapabilities() : {};
@@ -332,52 +336,50 @@ async function focusSweep(caps, log) {
   
   return focusWarn;
 }
-async function autoThenLock() {
-  if (S.state === "recording") { msg("Not during a take: settings stay fixed while recording."); return; }
-  const caps = S.track.getCapabilities();
-  const btn = $("autolock"); btn.disabled = true;
-  let focusWarn = "";
-  try {
-    await allAuto();
-    msg("auto for 3 s …"); await wait(3000);
-    const target = await avgStats(5);
-    const log = {target, steps: []};
-    // 1. shutter fixed at the rig's 1/50 s; ISO bisected (log scale) to match auto's brightness
-    const exp = num("exposureTime") || 200;
-    let lo = caps.iso.min, hi = caps.iso.max, iso = 400, bestIso = null, bestErr = 1e9;
-    for (let i = 0; i < 9; i++) {
-      iso = Math.round(Math.sqrt(lo * hi));
-      await setC({exposureMode: "manual", exposureTime: exp, iso}); await wait(900);
-      const st = await avgStats(); log.steps.push({iso, y: +st.y.toFixed(1)});
-      msg(`matching brightness: ISO ${iso}`);
+// Lock at REC (user, 2026-11-17; as the Pis' "auto, then lock"): a phone the card hasn't
+// calibrated locks its picture when the take starts, quickly, before it records. Chrome
+// doesn't report the live auto values, so it measures the picture as the calibration does,
+// in fewer steps: shutter fixed at the rig's 1/50 s and ISO matched to auto's brightness,
+// the white-balance preset closest to auto's colour, and focus by the focus switch. The
+// phone joins the take a few seconds late; the render handles late starts.
+const REC_LOCK_PRESETS = [3000, 4000, 5000, 6500];
+async function lockAtRec() {
+  const caps = S.track.getCapabilities ? S.track.getCapabilities() : {};
+  const startedAt = performance.now(), log = {steps: []};
+  const target = await avgStats(3);                        // auto's picture, as it is now
+  const exposure = num("exposureTime") || 200;
+  if (caps.exposureMode && caps.iso) {
+    let lo = caps.iso.min, hi = caps.iso.max, bestIso = null, bestErr = 1e9;
+    for (let i = 0; i < 5; i++) {
+      const iso = Math.round(Math.sqrt(lo * hi));
+      await setC({exposureMode: "manual", exposureTime: exposure, iso}); await wait(400);
+      const st = await avgStats(1); log.steps.push({iso, y: +st.y.toFixed(1)});
       const err = Math.abs(st.y - target.y);
       if (err < bestErr) { bestErr = err; bestIso = iso; }
-      if (err < 0.03 * target.y || hi / lo < 1.08) break;
+      if (err < 0.05 * target.y) break;
       if (st.y < target.y) lo = iso; else hi = iso;
     }
-    iso = bestIso;
-    await setC({exposureMode: "manual", exposureTime: exp, iso}); await wait(600);
-    $("iso").value = iso;
-    // 2. WB: Chrome maps Kelvin to the camera's AWB presets; keep the one closest to auto's colour
-    if (caps.colorTemperature) {
-      const r = caps.colorTemperature; let bestK = null, bestD = 1e9;
-      for (const k of [2850, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000].filter(k => k >= r.min && k <= r.max)) {
-        await setC({whiteBalanceMode: "manual", colorTemperature: k}); await wait(600);
-        const st = await avgStats(2); log.steps.push({k, rb: +st.rb.toFixed(3)});
-        msg(`matching colour: ${k} K`);
-        const d = Math.abs(Math.log(st.rb / target.rb));
-        if (d < bestD) { bestD = d; bestK = k; }
-      }
-      await setC({whiteBalanceMode: "manual", colorTemperature: bestK}); await wait(500);
-      $("colorTemperature").value = bestK;
+    await setC({exposureMode: "manual", exposureTime: exposure, iso: bestIso});
+    $("iso").value = bestIso;
+  }
+  if (caps.whiteBalanceMode && caps.colorTemperature) {
+    const range = caps.colorTemperature; let bestK = null, bestD = 1e9;
+    for (const k of REC_LOCK_PRESETS.filter(k => k >= range.min && k <= range.max)) {
+      await setC({whiteBalanceMode: "manual", colorTemperature: k}); await wait(350);
+      const st = await avgStats(1); log.steps.push({k, rb: +st.rb.toFixed(3)});
+      const d = Math.abs(Math.log(st.rb / target.rb));
+      if (d < bestD) { bestD = d; bestK = k; }
     }
-    // 3. focus
-    focusWarn = await focusSweep(caps, log);
-    S.locked = true;
-    const warn = iso >= caps.iso.max * 0.9 ? " · the room is too dark for 1/50 s: add light" : "";
-    msg(`Locked: 1/${Math.round(10000 / exp)} s, ISO ${iso}, ${$("colorTemperature").value} K, focus ${$("focusDistance").value} m${warn}${focusWarn}`);
-    hublog({ev: "autolock", log, settings: showCaps(false).set});
-  } finally { btn.disabled = false; }
+    if (bestK) { await setC({whiteBalanceMode: "manual", colorTemperature: bestK}); $("colorTemperature").value = bestK; }
+  }
+  let focus = "follows";
+  if (S.mount !== "handheld" && caps.focusMode) {
+    if (num("focusDistance") !== undefined) { await setC({focusMode: "manual", focusDistance: num("focusDistance")}); focus = "locked"; }
+    else if (caps.focusMode.includes("single-shot")) { await setC({focusMode: "single-shot"}); focus = "focused once"; }
+    else focus = "follows (no focus measured: show it the card next time)";
+  }
+  S.locked = true; S.lockedAtRec = true;
+  hublog({ev: "lock_at_rec", ms: Math.round(performance.now() - startedAt), focus, log, settings: showCaps(false).set});
 }
 
 async function wakeLock() {
@@ -405,6 +407,12 @@ async function startRec(takeId, part) {
                     uploaded: 0, bytesUp: 0, clock: [], hidden: 0, maxGapMs: 0, lastArr: null, queue: [], lastErr: ""});
   S.pendingMeta.clear();
   setState("recording");
+  if (!S.locked) {                                         // not calibrated: lock the picture first
+    msg("Not calibrated: locking the picture before recording…");
+    try { await lockAtRec(); } catch (e) { hublog({ev: "lock_at_rec_err", err: String(e)}); }
+    if (S.state !== "recording") return;                   // the take stopped meanwhile
+    msg("");
+  }
   await pingBurst(8);
   const ts = S.track.getSettings();
   S.encCfg = await pickEncoder(ts.width, ts.height);     // before reading frames: configuring later stalls capture
@@ -503,6 +511,7 @@ async function stopRec() {
   while (S.queue.length || S.uploading) { pump(); await wait(500); }
   await finish(S.take, S.part, body, S.chunkDir ? S.take + "_" + S.part : null);
   setState("ready");
+  releaseRecLock();
   updateStorage();
 }
 async function finish(take, part, body, opfsName) {
@@ -598,7 +607,7 @@ setInterval(() => {
     ["take", S.take ? S.take + (S.part && S.part !== S.id ? " · " + S.part : "") : "–"],
     ["frames", S.encoded + (S.missing ? `  (${S.missing} dropped)` : "")],
     ["upload", `${S.uploaded} pieces · ${(S.bytesUp / 1e6).toFixed(0)} MB${S.queue.length ? " · " + S.queue.length + " waiting" : ""}`],
-    ["picture", S.locked ? "locked" : "<b style='color:var(--color-warning)'>not locked</b>"],
+    ["picture", S.locked ? (S.lockedAtRec ? "locked at REC" : "locked") : "locks itself at REC"],
     ["battery", S.battery ? Math.round(S.battery.level * 100) + "%" + (S.battery.charging ? " charging" : " <b style='color:var(--warn)'>not charging</b>") : "–"],
     ["clock", bestRtt() ? "round trip " + bestRtt().toFixed(0) + " ms" : "–"],
   ];
@@ -716,7 +725,7 @@ async function phoneCalibrate() {
     else if (num("focusDistance") === undefined) { await calReport("calibrating", "focusing: hold still"); focusWarn = await focusSweep(caps, log); }
     stillReady();
     m = await cardRead(6);
-    S.locked = true; S.cal.inView = true; S.cal.done = true;
+    S.locked = true; S.lockedAtRec = false; S.cal.inView = true; S.cal.done = true;
     const record = {iso, k: best ? best.k : null, exposure_us: 20000, grey: m.grey, patches: m.patches,
                     marker_px: m.marker_px, light_ok: lightOk, mount: S.mount || "tripod", model: S.model,
                     focus_m: S.mount === "handheld" ? null : num("focusDistance")};
@@ -813,8 +822,6 @@ $("cardgo").onclick = cardTest;
 $("connect").onclick = startCamera;
 $("disconnect").onclick = disconnect;
 $("lock").onclick = lockThese;
-$("autolock").onclick = autoThenLock;
-$("auto").onclick = () => allAuto().then(() => msg("All auto: not locked."));
 </script>
 </body>
 </html>

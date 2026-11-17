@@ -103,16 +103,17 @@ function PhonePanel({ id, phone, calibration, onChange }) {
       st.take && ["take", `${st.take} · ${st.frames ?? 0} fr`],
       st.take && ["dropped", st.dropped ? `${st.dropped} frames` : "0", st.dropped ? "bad" : "good"],
       st.take && ["upload", `${st.uploaded ?? 0} pieces · ${st.queue ? st.queue + " waiting" : "up to date"}`, st.queue ? "warn" : ""],
-      ["picture", st.locked ? `locked · ISO ${settings.iso ?? "–"} · ${settings.colorTemperature ?? "–"} K` : "not locked", st.locked ? "" : "warn"],
+      ["picture", st.locked ? `locked · ISO ${settings.iso ?? "–"} · ${settings.colorTemperature ?? "–"} K` : "not calibrated: locks itself at REC", st.locked ? "" : "warn"],
       ["battery", `${st.battery ?? "–"}%${st.charging ? " · charging" : st.charging === false ? " · not charging" : ""}`, st.charging === false ? "bad" : ""],
       ["clock", st.rtt_ms != null ? `round trip ${st.rtt_ms} ms` : "–"],
       ["model", st.model || "–"],
     ]} />
     <${CalibrationLine} entry=${(calibration.phones || {})[id]} watching=${calibration.watching} phone />
-    ${!recording && html`<div class="segmented" role="group" aria-label="How the phone is held">
+    ${!recording && html`<div class="segmented" role="group" aria-label="Focus">
       ${["tripod", "handheld"].map(choice => html`
-        <button aria-pressed=${String((phone.mount || "tripod") === choice)} onClick=${() => mount(choice)}>
-          ${choice === "tripod" ? "on a tripod" : "handheld"}</button>`)}
+        <button aria-pressed=${String((phone.mount || "tripod") === choice)} onClick=${() => mount(choice)}
+                title=${choice === "tripod" ? "On a tripod: focus measured once, then locked" : "Handheld: the phone keeps refocusing"}>
+          ${choice === "tripod" ? "focus locked" : "focus follows"}</button>`)}
     </div>`}
     ${(phone.problems || []).length > 0 && !recording && html`<p class="note warn">${phone.problems.join(" · ")}</p>`}
   <//>`;
