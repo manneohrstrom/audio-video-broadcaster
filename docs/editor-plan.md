@@ -108,6 +108,17 @@ It runs right after a bounce is synced, so the cut is ready the first time the u
 - **Zoom is a horizontal slider**, not − / + buttons.
 - The rest of the layout: "really great".
 
+## 4b. Sync by hand (user, 2026-11-17)
+
+For a bounce the automatic sync (Phase 4 Track A) can't place ("needs sync") or is unsure of ("synced, check it"), or one that's simply wrong: move the bounce against the video by hand.
+
+- **Where:** in the editor, a "Sync" mode on the song, reachable from the take card's "needs sync" and "synced, check it" lines as well as for a synced bounce.
+- **How:** drag the bounce waveform left or right against the camera strips, and nudge it in steps of 1 frame (33 ms) and 10 ms (keys and buttons). Playback and scrub use the current offset, so you can check on a visible hit (a drum stroke, a clap, a strum) on any camera.
+- **Starting point:** the automatic result if there is one; otherwise the bounce placed at the start of the take, or the best match the sync found, even when it wasn't confident enough.
+- **Saving** writes `sync.json` with `anchor: "by hand"` (the automatic result kept next to it, as `sync-by-hand.json` was for S1), so "Make video" appears and the cut works as usual. Drift: kept from the automatic match if it had one, otherwise 0 (one offset; a few ms over a song).
+- **The cut stays put:** cut times are on the hub clock, so moving the bounce moves the music under the pictures, not the cuts against the pictures. The song's range is rebased if the bounce now starts or ends elsewhere (as for a new bounce version, section 6b).
+- **"Sync again"** still runs the automatic sync and replaces a by-hand result only if you choose it.
+
 ## 5. Editor UI: step 2, the look
 
 *Revised with the user, 2026-11-16: replaces "colour per camera". The look is global, for the whole video, not per camera.*
@@ -168,6 +179,7 @@ What's known so far:
 | **M-E1** | Ingest switched to `-c copy` with real timing (if the user OKs section 1). Tests; `CLAUDE.md` and `docs/design.md` updated. |
 | **M-E2** | Edit format; automatic cut v1; render (YouTube master); render progress on the hub page. A finished video with no UI work yet. |
 | **M-E3** | Step 1, the cut (section 4): thumbnails after ingest, video window, camera strips, waveform, hover, scrub, choose a camera, save. Can be built now against the S1 take (synced by hand), ahead of Track A. |
+| **M-E3b** | Sync by hand (section 4b): drag and nudge the bounce against the video, save as `anchor: "by hand"`, links from the take card. Tests. After M-E3. |
 | **M-E4** | Step 2, the look (section 5): colour presets and overlays with strength, preview in WebGL, the same in the render, automatic camera match from the card readings. |
 | **M-EX** | Exit checks; `docs/editor-results.md`. |
 
