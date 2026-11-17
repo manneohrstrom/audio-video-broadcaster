@@ -32,7 +32,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.19.0"
+VERSION = "0.20.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -1007,6 +1007,20 @@ class Hub:
         os.replace(p + ".tmp", p)
         return dict(fields, queued=cmd)
 
+    def film_overlays(self):
+        """The film overlays added with hub/tools/add_overlay.py, for the editor's Effects."""
+        folder = os.path.join(self.cfg["state_dir"], "overlays")
+        out = []
+        for overlay_id in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            try:
+                with open(os.path.join(folder, overlay_id, "overlay.json")) as f:
+                    info = json.load(f)
+            except (OSError, ValueError):
+                continue
+            info["preview_url"] = "/media-overlay/%s/preview.mp4" % overlay_id
+            out.append(info)
+        return {"overlays": out}
+
     def request_edit_render(self, take, song, version):
         """The editor's edit as the finished video (hub-ingest's edit_render.py), when idle."""
         path = self.editor.working_copy_path(take, song, version)
@@ -1117,6 +1131,8 @@ class Handler(BaseHTTPRequestHandler):
     P_EDITOR_RENDER = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/render$")
     P_EDITOR_WAVEFORM = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/waveform$")
     # Strip thumbnails (hub-ingest's thumbnails.py): index.json and sheet-NNN.jpg per camera.
+    # Film overlays (hub/tools/add_overlay.py): /media-overlay/<id>/clip.mp4 or preview.mp4
+    MEDIA_OVERLAY = re.compile(r"^/media-overlay/([a-z0-9][a-z0-9-]{0,40})/(clip|preview)\.mp4$")
     MEDIA_PROXY = re.compile(r"^/media-proxy/(\d{8}-\d{6})/([a-z0-9][a-z0-9-]{0,40})\.mp4$")
     MEDIA_THUMBS = re.compile(r"^/media-thumbs/(\d{8}-\d{6})/([a-z0-9][a-z0-9-]{0,40})/(index\.json|sheet-\d{3}\.jpg)$")
     P_AUDIO_SONGS = re.compile(r"^/api/audio/(\d{8}-\d{6})/songs$")
@@ -1134,6 +1150,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._media_audio(head=True)
         if self.MEDIA_PROXY.match(self.path.split("?")[0]):
             return self._media_proxy(head=True)
+        if self.MEDIA_OVERLAY.match(self.path.split("?")[0]):
+            return self._media_overlay(head=True)
         self.send_response(405)
         self.end_headers()
 
@@ -1141,6 +1159,13 @@ class Handler(BaseHTTPRequestHandler):
     MEDIA_AUDIO = re.compile(r"^/media-audio/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})$")
     AUDIO_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac", ".m4a": "audio/mp4",
                    ".aif": "audio/aiff", ".aiff": "audio/aiff", ".ogg": "audio/ogg"}
+
+    def _media_overlay(self, head=False):
+        overlay_id, kind = self.MEDIA_OVERLAY.match(self.path.split("?")[0]).groups()
+        path = os.path.join(self.hub.cfg["state_dir"], "overlays", overlay_id, kind + ".mp4")
+        if not os.path.isfile(path):
+            return self._send(404, {"error": "no such overlay"})
+        return self._serve_file(path, "video/mp4", head)
 
     def _media_proxy(self, head=False):
         """An editing proxy (hub-ingest's proxies.py), from the hub's SD card."""
@@ -1225,6 +1250,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._media_audio()
         if self.MEDIA_PROXY.match(self.path.split("?")[0]):
             return self._media_proxy()
+        if self.MEDIA_OVERLAY.match(self.path.split("?")[0]):
+            return self._media_overlay()
+        if self.path.split("?")[0] == "/api/overlays":
+            return self._send(200, h.film_overlays())
         m = self.MEDIA_THUMBS.match(self.path.split("?")[0])
         if m:
             path = os.path.join(h.cfg["state_dir"], "thumbs", *m.groups())

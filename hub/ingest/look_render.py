@@ -20,6 +20,7 @@ Why ffmpeg and not numpy (2026-11-16): per-frame numpy effects on 1080p RGB need
 dissolve; ffmpeg's filters run in C, multithreaded, on frames it already holds.
 Masks are computed once with numpy and written as .ppm images.
 """
+import json
 import os
 
 import numpy as np
@@ -49,8 +50,27 @@ def write_look_lut(path, look, looks):
 
 
 def active_effects(look):
+    """The look's effects that are on: built-in ones and a film overlay ("overlay:<id>")."""
     return {name: float(value) for name, value in ((look or {}).get("effects") or {}).items()
-            if value and name in EFFECTS}
+            if value and (name in EFFECTS or name.startswith("overlay:"))}
+
+
+OVERLAY_BLEND = {"overlay": "overlay", "screen": "screen", "soft-light": "softlight", "multiply": "multiply"}
+
+
+def film_overlay(effects, overlays_dir):
+    """(clip path, ffmpeg blend mode, strength) of the look's film overlay, or None."""
+    for name, strength in effects.items():
+        if not name.startswith("overlay:"):
+            continue
+        folder = os.path.join(overlays_dir, name.split(":", 1)[1])
+        try:
+            with open(os.path.join(folder, "overlay.json")) as f:
+                info = json.load(f)
+        except (OSError, ValueError):
+            return None                               # removed since: render without it
+        return os.path.join(folder, "clip.mp4"), OVERLAY_BLEND.get(info.get("mode"), "overlay"), strength
+    return None
 
 
 def smoothstep(edge0, edge1, x):
@@ -99,7 +119,7 @@ def leak_expression(strength, channel_weight, width, height):
     return "255*%.4f*%s" % (channel_weight, amount)
 
 
-def effect_filter_graph(effects, work_dir, first_extra_input):
+def effect_filter_graph(effects, work_dir, first_extra_input, overlays_dir="/var/lib/hubd/overlays"):
     """(extra ffmpeg inputs, filter_complex text) turning [0:v] into [video] with the effects.
     first_extra_input: the input number the first extra input (a mask image) will get."""
     inputs, chains = [], []
@@ -110,12 +130,20 @@ def effect_filter_graph(effects, work_dir, first_extra_input):
         step[0] += 1
         return "[e%d]" % step[0]
 
+    def clip_input(path):
+        """A film overlay clip, looped for as long as the video runs."""
+        inputs.extend(["-stream_loop", "-1", "-i", path])
+        return "[%d:v]" % (first_extra_input + count_inputs() - 1)
+
+    def count_inputs():
+        return sum(1 for part in inputs if part == "-i")
+
     def image_input(path):
         # One frame, no -loop: blend repeats a finished input's last frame (eof_action
         # repeat). A looping image input made ffmpeg decode copies ahead: +250 MB per
         # mask on the 1 GB hub (2026-11-16).
         inputs.extend(["-i", path])
-        return "[%d:v]" % (first_extra_input + len(inputs) // 2 - 1)
+        return "[%d:v]" % (first_extra_input + count_inputs() - 1)
 
     out = label()
     chains.append("%sformat=gbrp%s" % (current, out))
@@ -145,6 +173,13 @@ def effect_filter_graph(effects, work_dir, first_extra_input):
         mask, out = label(), label()
         chains.append("%sformat=gbrp%s" % (mask_in, mask))
         chains.append("%s%sblend=all_mode=multiply%s" % (current, mask, out))
+        current = out
+    film = film_overlay(effects, overlays_dir)
+    if film:                                     # after the vignette, as in the editor's shader
+        clip_in = clip_input(film[0])
+        layer, out = label(), label()
+        chains.append("%sscale=%d:%d,format=gbrp%s" % (clip_in, WIDTH, HEIGHT, layer))
+        chains.append("%s%sblend=all_mode=%s:all_opacity=%.4f:shortest=1%s" % (current, layer, film[1], film[2], out))
         current = out
     if effects.get("vhs"):
         mask_in = image_input(write_ppm(os.path.join(work_dir, "scanlines.ppm"), scanline_mask(effects["vhs"])))

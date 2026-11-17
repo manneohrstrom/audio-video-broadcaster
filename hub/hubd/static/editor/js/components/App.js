@@ -53,6 +53,7 @@ function Editor({ project }) {
   useEffect(() => attachKeyboard(store, transport), [store, transport]);
   useEffect(() => {
     fetch("/editor/looks.json").then(r => r.json()).then(looks => { store.looks = looks; store.notify(); }).catch(() => {});
+    fetch("/api/overlays").then(r => r.json()).then(d => { store.overlays = d.overlays || []; store.notify(); }).catch(() => {});
     fetch(project.bounce.waveform_url).then(r => (r.ok ? r.json() : null)).then(setWaveform).catch(() => {});
     transport.player.load().catch(error => store.showToast(`The bounce didn't load: ${error.message}`));
   }, [project]);

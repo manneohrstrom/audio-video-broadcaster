@@ -173,6 +173,13 @@ export class EditorStore {
     this.notify();
   }
 
+  /** The chosen film overlay: { id, mode, strength, preview_url } or null. */
+  activeOverlay() {
+    const key = Object.keys(this.look.effects).find(k => k.startsWith("overlay:"));
+    const overlay = key && (this.overlays || []).find(o => `overlay:${o.id}` === key);
+    return overlay ? { ...overlay, strength: this.look.effects[key] } : null;
+  }
+
   filterSettings(id = this.look.filter) {
     return this.looks?.filters.find(filter => filter.id === id)?.grade || {};
   }
@@ -185,14 +192,17 @@ export class EditorStore {
     this.notify();
   }
 
-  /** Tap an effect: on (at its default strength) or, if it's on, off (user, 2026-11-16). */
+  /** Tap an effect: on (at its default strength) or, if it's on, off (user, 2026-11-16).
+   *  Film overlays ("overlay:<id>") are one at a time: choosing one replaces the other. */
   tapEffect(id) {
     if (this.look.effects[id] != null) {
       this.removeEffect(id);
       return;
     }
-    const effect = this.looks.effects.find(e => e.id === id);
-    this.look = { ...this.look, effects: { ...this.look.effects, [id]: effect.default_strength } };
+    const isOverlay = id.startsWith("overlay:");
+    const effect = isOverlay ? (this.overlays || []).find(o => `overlay:${o.id}` === id) : this.looks.effects.find(e => e.id === id);
+    const effects = Object.fromEntries(Object.entries(this.look.effects).filter(([key]) => !(isOverlay && key.startsWith("overlay:"))));
+    this.look = { ...this.look, effects: { ...effects, [id]: effect.default_strength } };
     this.scheduleSave();
     this.notify();
   }

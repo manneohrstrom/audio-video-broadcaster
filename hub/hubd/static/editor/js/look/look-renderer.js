@@ -27,8 +27,19 @@ uniform sampler2D picture;
 uniform sampler3D lut;
 uniform float grain, vignette, leak, glow, vhs, seconds, frameNumber;
 uniform vec2 size;
+uniform sampler2D overlayPicture;      // a film overlay clip (grain, dust…), looping
+uniform float overlayStrength;         // 0 = none
+uniform int overlayMode;               // 0 overlay, 1 screen, 2 soft-light, 3 multiply
 
 float random(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+
+// The render does the same with ffmpeg's blend filter (picture on top, overlay below).
+vec3 blendOverlay(vec3 b, vec3 s, int mode) {
+  if (mode == 1) return b + s - b * s;
+  if (mode == 3) return b * s;
+  if (mode == 2) return mix(b - b * (1.0 - 2.0 * s) * (1.0 - b), b + (2.0 * s - 1.0) * (sqrt(b) - b), step(0.5, s));
+  return mix(2.0 * b * s, 1.0 - 2.0 * (1.0 - b) * (1.0 - s), step(0.5, b));
+}
 
 vec3 graded(vec2 at) {
   vec3 c = texture(picture, vec2(at.x, 1.0 - at.y)).rgb;
@@ -63,6 +74,10 @@ void main() {
     float d = distance(uv, vec2(0.5)) / 0.7071;            // 0 centre .. 1 corner
     c *= 1.0 - vignette * 0.9 * smoothstep(0.45, 1.0, d);
   }
+  if (overlayStrength > 0.0) {
+    vec3 film = texture(overlayPicture, vec2(uv.x, 1.0 - uv.y)).rgb;
+    c = mix(c, blendOverlay(c, film, overlayMode), overlayStrength);
+  }
   if (vhs > 0.0) {
     c *= 1.0 - vhs * 0.35 * step(0.5, fract(gl_FragCoord.y / 3.0));
   }
@@ -89,10 +104,13 @@ export class LookRenderer {
     gl.vertexAttribPointer(location, 2, gl.FLOAT, false, 0, 0);
     this.pictureTexture = this.makeTexture(gl.TEXTURE_2D);
     this.lutTexture = this.makeTexture(gl.TEXTURE_3D);
-    this.uniforms = Object.fromEntries(["picture", "lut", "grain", "vignette", "leak", "glow", "vhs", "seconds", "frameNumber", "size"]
+    this.overlayTexture = this.makeTexture(gl.TEXTURE_2D);
+    this.uniforms = Object.fromEntries(["picture", "lut", "grain", "vignette", "leak", "glow", "vhs", "seconds", "frameNumber", "size",
+                                        "overlayPicture", "overlayStrength", "overlayMode"]
       .map(name => [name, gl.getUniformLocation(this.program, name)]));
     gl.uniform1i(this.uniforms.picture, 0);
     gl.uniform1i(this.uniforms.lut, 1);
+    gl.uniform1i(this.uniforms.overlayPicture, 2);
     this.lutKey = null;
     this.frameNumber = 0;
   }
@@ -141,8 +159,11 @@ export class LookRenderer {
                   buildLut(settings, strength, LUT_SIZE, adjust));
   }
 
-  /** Draw `source` (a canvas, image or VideoFrame) through the filter and effects. */
-  render(source, effects, seconds) {
+  /**
+   * Draw `source` (a canvas, image or VideoFrame) through the filter and effects.
+   * overlay: { video (a playing <video>), mode, strength } or null.
+   */
+  render(source, effects, seconds, overlay = null) {
     const gl = this.gl;
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.activeTexture(gl.TEXTURE0);
@@ -152,6 +173,14 @@ export class LookRenderer {
     gl.uniform1f(this.uniforms.seconds, seconds);
     gl.uniform1f(this.uniforms.frameNumber, this.frameNumber++ % 1000);
     gl.uniform2f(this.uniforms.size, this.canvas.width, this.canvas.height);
+    const overlayReady = overlay && overlay.video && overlay.video.readyState >= 2;
+    gl.uniform1f(this.uniforms.overlayStrength, overlayReady ? overlay.strength : 0);
+    if (overlayReady) {
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, this.overlayTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, overlay.video);
+      gl.uniform1i(this.uniforms.overlayMode, { overlay: 0, screen: 1, "soft-light": 2, multiply: 3 }[overlay.mode] ?? 0);
+    }
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 }

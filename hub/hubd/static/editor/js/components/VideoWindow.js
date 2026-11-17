@@ -50,9 +50,10 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
     noteRef.current.hidden = !note;
     if (renderer) {
       const withLook = !store.comparing;
+      const overlay = withLook ? overlayVideo(store.activeOverlay()) : null;
       if (withLook) renderer.setLook(store.look.adjust, store.looks?.adjustments, store.filterSettings(), store.look.filter_strength);
       else renderer.setFilter({}, 0);
-      renderer.render(picture, withLook ? store.look.effects : {}, seconds);
+      renderer.render(picture, withLook ? store.look.effects : {}, seconds, overlay);
     }
     const shown = skimCamera || store.cameraAt(seconds);
     wrapperRef.current.style.setProperty("--frame-colour", skimCamera ? `var(--color-camera-${(shown.index % 6) + 1})` : "transparent");
@@ -73,6 +74,19 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
         <div class="video-note" ref=${noteRef} hidden></div>
       </div>
     </div>`;
+}
+
+/** A looping, muted <video> of the chosen film overlay's preview, kept per overlay. */
+const overlayVideos = new Map();
+export function overlayVideo(overlay) {
+  if (!overlay) return null;
+  let video = overlayVideos.get(overlay.id);
+  if (!video) {
+    video = Object.assign(document.createElement("video"), { src: overlay.preview_url, muted: true, loop: true, playsInline: true });
+    video.play().catch(() => {});
+    overlayVideos.set(overlay.id, video);
+  }
+  return { video, mode: overlay.mode, strength: overlay.strength };
 }
 
 /** Skim the camera under the mouse when not playing; otherwise the program at the playhead. */

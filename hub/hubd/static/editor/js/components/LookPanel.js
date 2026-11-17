@@ -8,6 +8,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { html } from "./html.js";
 import { LookRenderer } from "../look/look-renderer.js";
 import { everyFrame } from "../frame-loop.js";
+import { overlayVideo } from "./VideoWindow.js";
 
 const TILE_REFRESH_MS = 500;
 
@@ -32,6 +33,11 @@ export function LookPanel({ store }) {
           renderer.setLook(store.look.adjust, looks.adjustments, store.filterSettings(id),
                            id === store.look.filter ? store.look.filter_strength : 1);
           renderer.render(store.pictureCanvas, {}, store.playheadSeconds);
+        } else if (kind === "film") {
+          const overlay = (store.overlays || []).find(o => o.id === id);
+          renderer.setLook(store.look.adjust, looks.adjustments, store.filterSettings(), store.look.filter_strength);
+          const shown = overlayVideo(overlay && { ...overlay, strength: store.look.effects[`overlay:${id}`] ?? overlay.default_strength });
+          renderer.render(store.pictureCanvas, {}, store.playheadSeconds, shown);
         } else {
           const effect = looks.effects.find(e => e.id === id);
           renderer.setLook(store.look.adjust, looks.adjustments, store.filterSettings(), store.look.filter_strength);
@@ -73,6 +79,14 @@ export function LookPanel({ store }) {
         </div>
         ${looks.effects.filter(effect => store.look.effects[effect.id] != null).map(effect =>
           strengthRow(effect.name, store.look.effects[effect.id], value => store.setStrength(effect.id, value)))}
+        ${(store.overlays || []).length ? html`
+          <div class="filter-group">Film</div>
+          <div class="look-row">
+            ${store.overlays.map(overlay => tile(`film:${overlay.id}`, overlay, store.look.effects[`overlay:${overlay.id}`] != null,
+                                                store.look.effects[`overlay:${overlay.id}`] != null, () => store.tapEffect(`overlay:${overlay.id}`)))}
+          </div>
+          ${store.overlays.filter(o => store.look.effects[`overlay:${o.id}`] != null).map(o =>
+            strengthRow(o.name, store.look.effects[`overlay:${o.id}`], value => store.setStrength(`overlay:${o.id}`, value)))}` : ""}
         ${!effectsOn && html`<p class="look-hint">Tap an effect to turn it on, tap it again to turn it off. Effects stack.</p>`}
       </div>
       <div class="look-section">
