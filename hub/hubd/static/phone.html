@@ -103,6 +103,7 @@
       <span class="grille" aria-hidden="true"></span>
       <input id="name" maxlength="24" placeholder="name, e.g. Paul's Pixel" autocomplete="off" aria-label="This phone's name">
       <button id="connect" class="main">start camera</button>
+      <button id="disconnect" hidden title="Stop the camera, leave full screen and go back to the start">disconnect</button>
     </div>
     <p id="msg"></p>
     <p class="section-title">Lock the picture <small>point at the scene first (~20 s)</small></p>
@@ -197,7 +198,7 @@ async function startCamera() {
   } catch (e) { msg("Camera: " + e.name + " " + e.message, true); return; }
   S.track = S.stream.getVideoTracks()[0];
   $("preview").srcObject = S.stream;
-  $("name").disabled = true; $("connect").hidden = true;
+  $("name").disabled = true; $("connect").hidden = true; $("disconnect").hidden = false;
   setState("ready"); msg("");
   const ts = S.track.getSettings();
   if (ts.height > ts.width) msg("Video is portrait (" + ts.width + "×" + ts.height + "): turn the phone sideways and reload the page.", true);
@@ -209,6 +210,26 @@ async function startCamera() {
   updateStorage();
   hublog({ev: "start", model: S.model, ua: navigator.userAgent, opfs: !!S.opfs});
   uploadLeftovers().catch(e => hublog({ev: "leftovers_err", err: String(e)}));
+}
+// Disconnect (user, 2026-11-17): stop the camera and give the phone back: leave full screen
+// and the landscape lock, let the screen sleep, and reset the page to how it opened. Not
+// during a take or while chunks are still uploading. The hub shows the phone as gone once
+// it stops checking in.
+async function disconnect() {
+  if (S.state !== "ready") { msg("Not now: wait until the take has stopped and finished uploading.", true); return; }
+  if (S.queue.length) { msg(`Not yet: ${S.queue.length} pieces of the last take are still uploading.`, true); return; }
+  hublog({ev: "disconnect"});
+  if (S.stream) S.stream.getTracks().forEach(track => track.stop());
+  $("preview").srcObject = null;
+  try { if (S.wake) await S.wake.release(); } catch (e) {}
+  try { screen.orientation.unlock(); } catch (e) {}
+  try { if (document.fullscreenElement) await document.exitFullscreen(); } catch (e) {}
+  Object.assign(S, {stream: null, track: null, wake: null, locked: false, id: null, hubOk: false, mount: null});
+  S.cal = {inView: false, running: false};
+  setState("off");
+  $("name").disabled = false; $("connect").hidden = false; $("disconnect").hidden = true;
+  $("stats").innerHTML = ""; calShow("");
+  msg("Disconnected. Start the camera again to rejoin the rig.");
 }
 async function updateStorage() {
   try { const e = await navigator.storage.estimate(); S.storageFreeGb = (e.quota - e.usage) / 1e9; } catch (e) {}
@@ -363,7 +384,7 @@ async function wakeLock() {
   try { if ("wakeLock" in navigator) S.wake = await navigator.wakeLock.request("screen"); } catch (e) {}
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") wakeLock();
+  if (document.visibilityState === "visible" && S.state !== "off") wakeLock();
   else if (S.state === "recording") { S.hidden++; hublog({ev: "hidden_during_take"}); }
 });
 
@@ -570,13 +591,14 @@ setInterval(async () => {
 }, 60000);
 setInterval(() => { if (S.state === "ready" && S.clock.length < 3) pingBurst(3); }, 5000);
 setInterval(() => {
+  if (S.state === "off") return;               // before the camera starts, and after disconnecting
   const rows = [
     ["hub", S.hubOk ? (S.rig && S.rig.state === "recording" ? "recording " + S.rig.take_id : "connected · " + (S.rig ? S.rig.state : "")) : "<b style='color:#f66'>not reachable</b>"],
     ["name", esc(S.name) + (S.id ? ` <span class="dim">(files: ${S.id}.mov)</span>` : "")],
     ["take", S.take ? S.take + (S.part && S.part !== S.id ? " · " + S.part : "") : "–"],
     ["frames", S.encoded + (S.missing ? `  (${S.missing} dropped)` : "")],
     ["upload", `${S.uploaded} pieces · ${(S.bytesUp / 1e6).toFixed(0)} MB${S.queue.length ? " · " + S.queue.length + " waiting" : ""}`],
-    ["picture", S.locked ? "locked" : "<b style='color:var(--warn)'>not locked</b>"],
+    ["picture", S.locked ? "locked" : "<b style='color:var(--color-warning)'>not locked</b>"],
     ["battery", S.battery ? Math.round(S.battery.level * 100) + "%" + (S.battery.charging ? " charging" : " <b style='color:var(--warn)'>not charging</b>") : "–"],
     ["clock", bestRtt() ? "round trip " + bestRtt().toFixed(0) + " ms" : "–"],
   ];
@@ -789,6 +811,7 @@ async function cardTest() {
 if (new URLSearchParams(location.search).get("test") === "card") $("cardtest").hidden = false;
 $("cardgo").onclick = cardTest;
 $("connect").onclick = startCamera;
+$("disconnect").onclick = disconnect;
 $("lock").onclick = lockThese;
 $("autolock").onclick = autoThenLock;
 $("auto").onclick = () => allAuto().then(() => msg("All auto: not locked."));
