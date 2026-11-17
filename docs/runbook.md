@@ -48,7 +48,7 @@ Any Android phone with an up-to-date Chrome works (tested: Pixel 3, Pixel 9a). i
 1. Plug the phone in and mount it in landscape.
 2. Open `http://studio-hub.local/phone` (or tap **📱 Use a phone as a camera** on the hub page).
 3. Type a name ("Paul's Pixel"); the phone remembers it. Tap **Start camera**.
-4. Set its focus switch: **focus locked** (on a tripod: measured once, then locked) or **focus follows** (handheld: continuous autofocus). Then show it the calibration card while a hub page is open: it sets exposure and the nearest white balance from the card and locks them, like the Pis. Without the card, **Auto, then lock** (about 20 s) sets the shutter to the rig's 1/50 s and fixes what auto chose. If it says the room is too dark, add light.
+4. Set its focus switch: **focus locked** (on a tripod: measured once, then locked) or **focus follows** (handheld: continuous autofocus). Then show it the calibration card while a hub page is open: it sets exposure and the nearest white balance from the card and locks them, like the Pis. Without the card it locks itself when REC starts (shutter at the rig's 1/50 s, what auto chose fixed for the take, a few seconds late into the take). If the hub says the room is too dark, add light.
 5. Leave the page in front with the screen on. Press REC/STOP on the hub page as usual; ready phones record with the cameras. A phone that opens late, reloads or loses Wi-Fi joins in by itself.
 
 **On the hub page** each phone has a card: recording, frames and drops, upload backlog, picture locked, battery. Warnings (not charging, page not in front, not locked, slow Wi-Fi, low space) never stop REC.
