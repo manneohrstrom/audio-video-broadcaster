@@ -16,6 +16,7 @@ import { Timeline } from "./Timeline.js";
 import { LookPanel } from "./LookPanel.js";
 import { MakeVideo } from "./MakeVideo.js";
 import { SyncBar } from "./SyncBar.js";
+import { Icon } from "./icons.js";
 import { formatSeconds } from "../time-format.js";
 
 export function App({ takeId, songId, version, mode = "edit" }) {
@@ -27,7 +28,7 @@ export function App({ takeId, songId, version, mode = "edit" }) {
   }, [takeId, songId, version, mode]);
 
   if (problem) return html`<p class="message problem">Can't open this song: ${problem}</p>`;
-  if (!project) return html`<p class="message">Opening the song…</p>`;
+  if (!project) return html`<p class="message">Opening the pod bay doors…</p>`;
   return html`<${Editor} project=${project} />`;
 }
 
@@ -100,15 +101,15 @@ function Editor({ project }) {
             : html`<span class="details">bounce v${project.version}</span>`}
         </div>
         <nav class="steps" aria-label="Steps">
-          <button aria-current=${store.step === "cut" ? "step" : null} onClick=${() => store.setStep("cut")}><span class="step-number">1</span>Cut</button>
-          <button aria-current=${store.step === "look" ? "step" : null} onClick=${() => store.setStep("look")}><span class="step-number">2</span>Look</button>
+          <button aria-current=${store.step === "cut" ? "step" : null} onClick=${() => store.setStep("cut")}><${Icon} name="scissors" />Cut</button>
+          <button aria-current=${store.step === "look" ? "step" : null} onClick=${() => store.setStep("look")}><${Icon} name="eye" />Look</button>
         </nav>
         <div class="header-actions">
           <span class=${"save-state " + store.saveState} title=${store.saveProblem || ""}>${saveLabel}</span>
-          <button class="button" disabled=${!store.history.canUndo} onClick=${() => store.undo()} title="Undo (⌘Z)">Undo</button>
-          <button class="button" disabled=${!store.history.canRedo} onClick=${() => store.redo()} title="Redo (⇧⌘Z)">Redo</button>
+          <button class="round-key" disabled=${!store.history.canUndo} onClick=${() => store.undo()} aria-label="Undo" title="Undo (⌘Z)"><${Icon} name="undo" /></button>
+          <button class="round-key" disabled=${!store.history.canRedo} onClick=${() => store.redo()} aria-label="Redo" title="Redo (⇧⌘Z)"><${Icon} name="redo" /></button>
           <button class="button" onClick=${() => openSyncMode(store)}
-                  title=${`Check or fix where the bounce sits (sync: ${project.bounce.sync.anchor || "by hand"}${project.bounce.sync.confidence ? ", confidence " + project.bounce.sync.confidence : ""})`}>Sync</button>
+                  title=${`Check or fix where the bounce sits (sync: ${project.bounce.sync.anchor || "by hand"}${project.bounce.sync.confidence ? ", confidence " + project.bounce.sync.confidence : ""})`}><${Icon} name="tuningFork" size=${16} />Sync</button>
           <${MakeVideo} store=${store} />
         </div>
       </header>`}
@@ -129,6 +130,7 @@ function Editor({ project }) {
           <kbd>,</kbd><kbd>.</kbd> 10 ms · <kbd>⇧</kbd><kbd>,</kbd><kbd>.</kbd> 1 frame ·
           <kbd>1</kbd>–<kbd>${store.cameras.length}</kbd> camera · <kbd>space</kbd> play
         </span>
+        <${ModelPlate} />
       </footer>` : html`
       <footer class="editor-footer">
         <label for="dissolve">Dissolve
@@ -141,7 +143,14 @@ function Editor({ project }) {
           <kbd>1</kbd>–<kbd>${store.cameras.length}</kbd> camera from the playhead · <kbd>←</kbd><kbd>→</kbd> frame ·
           <kbd>⌫</kbd> remove cut · <kbd>⌘Z</kbd> undo
         </span>
+        <${ModelPlate} />
       </footer>`}
       ${store.toast && html`<div class="toast" role="status">${store.toast}</div>`}
     </div>`;
+}
+
+/** The little plate on the instrument's corner, as on the back of a 1970s radio. */
+function ModelPlate() {
+  return html`<span class="model-plate" title="Studio Multicam editor · made at home, not on Jupiter">
+    <span class="grille" aria-hidden="true"></span>SM-1 <small>multicam</small></span>`;
 }

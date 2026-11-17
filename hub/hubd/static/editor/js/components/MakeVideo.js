@@ -5,6 +5,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { html } from "./html.js";
 import { requestRender, renderStatus } from "../api.js";
+import { Icon } from "./icons.js";
 
 const POLL_MS = 3000;
 const RUNNING = ["queued", "rendering", "paused", "checking", "writing"];
@@ -51,10 +52,10 @@ export function MakeVideo({ store }) {
       ${problem && html`<span class="render-state problem" title=${problem}>${problem}</span>`}
       ${job.status === "done" && job.file && html`
         <a class="button" href=${`/media/${takeId}/${job.file}`} target="_blank" rel="noopener"
-           title=${`Bounce v${job.version}`}>▶ Watch video ${job.video_number || ""}</a>`}
-      <button class="button primary" disabled=${running} onClick=${make}
+           title=${`Bounce v${job.version}`}><${Icon} name="watch" size=${16} />Watch video ${job.video_number || ""}</a>`}
+      <button class="button signal" disabled=${running} onClick=${make}
               title=${`Render a new video version with bounce v${version}, from the full-quality cameras, ready for YouTube`}>
-        Make video
+        <${Icon} name="reel" size=${16} />Make video
       </button>
     </div>`;
 }

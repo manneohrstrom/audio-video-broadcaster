@@ -1,50 +1,78 @@
-/* Design tokens for the editor (docs/editor-plan.md: own design system). Dark by choice:
-   this is video work, and colour judgements need a neutral dark surround. Every colour the
-   editor uses is defined here; components only use these variables. */
+/* Design tokens for the editor (docs/editor-plan.md: own design system).
+
+   The language: a 1970s desk instrument that ended up on a spaceship. A warm graphite body
+   with round keycaps (the desk calculator), recessed black displays for the pictures and
+   the timeline, an LCD for the numbers, and one red eye that watches while it plays.
+
+   Dark by choice: this is video work, and colour judgements need a neutral dark surround,
+   so the body is graphite, not cream. Every colour the editor uses is defined here;
+   components only use these variables. */
+
+/* Jost (geometric, from the Futura family) and DSEG7 (a seven-segment LCD face), both
+   under the SIL Open Font License, copied into vendor/fonts and pinned (docs/versions.md). */
+@font-face { font-family: "Jost"; font-weight: 400; font-display: swap; src: url("../vendor/fonts/jost-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Jost"; font-weight: 500; font-display: swap; src: url("../vendor/fonts/jost-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Jost"; font-weight: 600; font-display: swap; src: url("../vendor/fonts/jost-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "DSEG7"; font-weight: 700; font-display: swap; src: url("../vendor/fonts/DSEG7Classic-Bold.woff2") format("woff2"); }
+
 :root {
   color-scheme: dark;
 
-  /* Surfaces, from the page background up */
-  --color-background: #131217;
-  --color-panel: #1b1a20;
-  --color-lane: #201f26;
-  --color-raised: #29272f;
-  --color-line: #34323b;
+  /* The body and its displays, from the deepest well up to a keycap */
+  --color-background: #1e1c1a;     /* the instrument's body */
+  --color-well: #11100f;           /* recessed displays: timeline, video bezel, LCD */
+  --color-panel: #26231f;          /* a panel set into the body */
+  --color-lane: #1a1816;           /* a lane inside the timeline display */
+  --color-raised: #3b3732;         /* a keycap */
+  --color-raised-edge: #2a2723;    /* the keycap's lower edge (its depth) */
+  --color-line: #3a3631;
 
   /* Text */
-  --color-text: #ede9e3;
-  --color-text-muted: #9c96a3;
-  --color-text-dim: #646070;
+  --color-text: #ece5d6;
+  --color-text-muted: #a39a8a;
+  --color-text-dim: #6e665b;
 
   /* Meaning */
-  --color-accent: #f4efe6;     /* selection and focus */
-  --color-playhead: #ff5d6c;
-  --color-warning: #f2c14c;
-  --color-problem: #ff6b5b;
+  --color-cream: #e4dccb;          /* a light keycap: the main key of a group */
+  --color-signal: #ff6a13;         /* the one action that makes something: Make video, Save sync */
+  --color-accent: #f2c230;         /* selection and focus: the calculator's equals key */
+  --color-playhead: #e8322b;       /* the red eye: the playhead, playing */
+  --color-good: #62a05a;           /* saved, synced */
+  --color-warning: #f2c230;
+  --color-problem: #ff5a3c;
+  --color-lcd: #c9e27a;            /* LCD segments */
+  --color-lcd-off: #26301a;        /* unlit segments behind them */
 
-  /* One colour per camera slot, in camera order (Pi cameras first, then phones) */
-  --color-camera-1: #6fa8ff;
-  --color-camera-2: #f29a4c;
-  --color-camera-3: #5cc8a1;
-  --color-camera-4: #c59bff;
-  --color-camera-5: #f2d45c;
-  --color-camera-6: #ff8fb1;
+  /* One colour per camera slot, in camera order (Pi cameras first, then phones):
+     the colours of a 1970s pencil box, distinct on the dark display */
+  --color-camera-1: #5b9be0;
+  --color-camera-2: #f08a2c;
+  --color-camera-3: #6bbf7f;
+  --color-camera-4: #b99be6;
+  --color-camera-5: #e9c93a;
+  --color-camera-6: #ee8fb0;
 
   /* Type */
-  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-numbers: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-ui: "Jost", "Futura", "Avenir Next", system-ui, sans-serif;
+  --font-numbers: "Jost", "Futura", system-ui, sans-serif;   /* with tabular figures */
+  --font-lcd: "DSEG7", "Jost", monospace;
   --font-size-small: 12px;
-  --font-size-body: 13px;
-  --font-size-title: 16px;
+  --font-size-body: 14px;
+  --font-size-title: 18px;
 
-  /* Shape and space */
-  --radius: 8px;
-  --radius-small: 5px;
+  /* Shape and space: keys are round or pill-shaped; panels have soft corners;
+     displays are cut into the body (inset shadow) */
+  --radius: 10px;
+  --radius-small: 6px;
+  --radius-panel: 16px;
+  --radius-key: 999px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --label-column-width: 152px;
+  --key-depth: 0 2px 0 var(--color-raised-edge), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --well-depth: inset 0 2px 6px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 html, body, #app { height: 100%; margin: 0; }
@@ -52,6 +80,12 @@ body {
   background: var(--color-background);
   color: var(--color-text);
   font: var(--font-size-body)/1.4 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
 }
 button { font: inherit; color: inherit; }
-button:focus-visible, input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.icon { display: block; flex: none; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}

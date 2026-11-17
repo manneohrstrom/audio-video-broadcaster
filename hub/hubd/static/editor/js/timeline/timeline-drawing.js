@@ -186,7 +186,7 @@ export class TimelineDrawing {
       if (x < -8 || x > width + 8) return;
       const selected = index === store.selectedCutIndex;
       const hot = store.hover?.cutHandle === index;
-      context.fillStyle = cut.by === "user" || selected ? this.colours.accent : this.colours.autoCut;
+      context.fillStyle = selected ? this.colours.accent : cut.by === "user" ? this.colours.userCut : this.colours.autoCut;
       context.fillRect(x - 1, lane.top, 2, lane.height);
       const knobWidth = selected || hot ? 9 : 7;
       context.beginPath();
@@ -201,7 +201,7 @@ export class TimelineDrawing {
     context.font = `600 11px ${this.colours.uiFont}`;
     const textWidth = context.measureText(text).width;
     if (x1 - x0 < textWidth + 16) return;
-    context.fillStyle = "rgba(10,10,12,0.72)";
+    context.fillStyle = "rgba(17,16,15,0.8)";
     context.fillRect(x0 + 5, top + 10, textWidth + 10, 17);
     context.fillStyle = colour;
     context.fillText(text, x0 + 10, top + 22);
@@ -390,18 +390,19 @@ export function readColours(element) {
     text: token("--color-text"),
     textMuted: token("--color-text-muted"),
     accent: token("--color-accent"),
+    userCut: token("--color-cream"),
     playhead: token("--color-playhead"),
     cameras: [1, 2, 3, 4, 5, 6].map(n => token(`--color-camera-${n}`)),
     tick: token("--color-line"),
-    noPicture: "#0e0d11",
-    dimmed: "rgba(19,18,23,0.62)",
-    notRecording: "rgba(255,255,255,0.07)",
-    rough: "rgba(255,255,255,0.4)",
-    autoCut: "rgba(244,239,230,0.6)",
-    hoverLine: "rgba(244,239,230,0.5)",
-    waveform: "#5f5a69",
-    waveformPlayed: "#b3acbd",
-    waveformGhost: "rgba(179,172,189,0.38)",
+    noPicture: "#0b0a09",
+    dimmed: "rgba(17,16,15,0.66)",
+    notRecording: "rgba(236,229,214,0.07)",
+    rough: "rgba(236,229,214,0.4)",
+    autoCut: "rgba(228,220,203,0.6)",
+    hoverLine: "rgba(228,220,203,0.5)",
+    waveform: "#6b6458",
+    waveformPlayed: "#d9cfbb",
+    waveformGhost: "rgba(217,207,187,0.3)",
     uiFont: token("--font-ui"),
     numberFont: token("--font-numbers"),
   };

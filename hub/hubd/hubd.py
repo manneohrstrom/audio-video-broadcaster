@@ -1133,7 +1133,8 @@ class Hub:
 # ---------------------------------------------------------------- HTTP
 
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json",
-                ".css": "text/css", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
+                ".css": "text/css", ".svg": "image/svg+xml", ".ico": "image/x-icon",
+                ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8"}   # editor fonts and their licences
 
 
 class Handler(BaseHTTPRequestHandler):

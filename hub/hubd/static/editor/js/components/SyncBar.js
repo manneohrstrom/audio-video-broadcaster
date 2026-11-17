@@ -6,12 +6,13 @@
 import { html } from "./html.js";
 import { FRAME_SECONDS } from "../editor-store.js";
 import { NS_PER_SECOND } from "../time-format.js";
+import { Icon } from "./icons.js";
 
 const NUDGES = [
-  { seconds: -FRAME_SECONDS, label: "◀︎ 1 frame", key: "⇧," },
-  { seconds: -0.01, label: "◀︎ 10 ms", key: "," },
-  { seconds: 0.01, label: "10 ms ▶︎", key: "." },
-  { seconds: FRAME_SECONDS, label: "1 frame ▶︎", key: "⇧." },
+  { seconds: -FRAME_SECONDS, label: "1 frame", key: "⇧,", icon: "nudgeEarlier" },
+  { seconds: -0.01, label: "10 ms", key: ",", icon: "nudgeEarlier" },
+  { seconds: 0.01, label: "10 ms", key: ".", icon: "nudgeLater" },
+  { seconds: FRAME_SECONDS, label: "1 frame", key: "⇧.", icon: "nudgeLater" },
 ];
 
 /** What Sync mode started from, in words (project.sync_start.source). */
@@ -22,10 +23,10 @@ function startingPointText(start) {
   return "at the start of the take (no automatic sync to start from)";
 }
 
-/** "+0.120 s", "−1.033 s" */
+/** "+0.120", "-1.033" (seconds; the LCD face has a plain hyphen, not a minus sign) */
 function signedSeconds(seconds) {
   const rounded = Math.round(seconds * 1000) / 1000;
-  return `${rounded < 0 ? "−" : "+"}${Math.abs(rounded).toFixed(3)} s`;
+  return `${rounded < 0 ? "-" : "+"}${Math.abs(rounded).toFixed(3)}`;
 }
 
 /** Where the music starts against the video, e.g. "music starts 5.012 s before the video". */
@@ -67,14 +68,16 @@ export function SyncBar({ store }) {
       <div class="sync-nudges" role="group" aria-label="Move the bounce">
         ${NUDGES.slice(0, 2).map(nudge => html`
           <button class="button small" onClick=${() => store.moveBounceBy(nudge.seconds)}
-                  title=${`Bounce earlier (${nudge.key})`}>${nudge.label}</button>`)}
+                  title=${`Bounce earlier (${nudge.key})`}><${Icon} name=${nudge.icon} size=${16} />${nudge.label}</button>`)}
         <div class="sync-readout" aria-live="polite">
-          <strong class=${moved ? "moved" : ""}>${moved ? signedSeconds(moved) : "not moved"}</strong>
+          ${moved
+            ? html`<strong class="lcd-text moved">${signedSeconds(moved)}<span class="unit">s</span></strong>`
+            : html`<strong>not moved</strong>`}
           <small>${placementText(store)}</small>
         </div>
         ${NUDGES.slice(2).map(nudge => html`
           <button class="button small" onClick=${() => store.moveBounceBy(nudge.seconds)}
-                  title=${`Bounce later (${nudge.key})`}>${nudge.label}</button>`)}
+                  title=${`Bounce later (${nudge.key})`}>${nudge.label}<${Icon} name=${nudge.icon} size=${16} /></button>`)}
       </div>
       <div class="header-actions">
         <span class="sync-start" title=${start.reason || ""}>${startingPointText(start)}</span>
@@ -82,11 +85,11 @@ export function SyncBar({ store }) {
           <button class="button" onClick=${() => store.setBounceStartNs(automaticNs)}
                   title="Put the bounce where the automatic sync had it">Automatic</button>`}
         <button class="button" disabled=${!moved} onClick=${() => store.setBounceStartNs(store.syncStartNs)}
-                title="Undo the moves: back to where Sync opened">Reset</button>
+                title="Undo the moves: back to where Sync opened"><${Icon} name="reset" size=${16} />Reset</button>
         <button class="button" onClick=${() => leaveSyncMode({ synced: isSynced })}
                 title="Leave without saving">Cancel</button>
-        <button class="button primary" disabled=${saving} onClick=${save}
-                title="Save this as the bounce's sync and go back to the editor">${saving ? "Saving…" : "Save sync"}</button>
+        <button class="button signal" disabled=${saving} onClick=${save}
+                title="Save this as the bounce's sync and go back to the editor"><${Icon} name="check" size=${16} />${saving ? "Saving…" : "Save sync"}</button>
       </div>
     </header>`;
 }
