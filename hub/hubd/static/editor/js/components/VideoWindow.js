@@ -50,7 +50,9 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
     noteRef.current.hidden = !note;
     if (renderer) {
       const withLook = !store.comparing;
-      const overlay = withLook ? overlayVideo(store.activeOverlay()) : null;
+      const active = withLook ? store.activeOverlay() : null;
+      const overlay = overlayVideo(active);
+      playOnlyOverlay(active ? active.id : null);
       if (withLook) renderer.setLook(store.look.adjust, store.looks?.adjustments, store.filterSettings(), store.look.filter_strength);
       else renderer.setFilter({}, 0);
       renderer.render(picture, withLook ? store.look.effects : {}, seconds, overlay);
@@ -76,17 +78,33 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
     </div>`;
 }
 
-/** A looping, muted <video> of the chosen film overlay's preview, kept per overlay. */
+/**
+ * A muted, looping <video> of a film overlay's preview, kept per overlay.
+ * Only the overlay that's on plays (playOnlyOverlay); the others stay paused on one frame,
+ * which is all a Film tile needs. Five overlays all playing made the browser sluggish
+ * (2026-11-17).
+ */
 const overlayVideos = new Map();
 export function overlayVideo(overlay) {
   if (!overlay) return null;
   let video = overlayVideos.get(overlay.id);
   if (!video) {
-    video = Object.assign(document.createElement("video"), { src: overlay.preview_url, muted: true, loop: true, playsInline: true });
-    video.play().catch(() => {});
+    video = Object.assign(document.createElement("video"),
+                          { src: overlay.preview_url, muted: true, loop: true, playsInline: true, preload: "auto" });
     overlayVideos.set(overlay.id, video);
   }
   return { video, mode: overlay.mode, strength: overlay.strength };
+}
+
+/** Play the overlay with this id (null: none) and pause every other one. */
+export function playOnlyOverlay(id) {
+  for (const [overlayId, video] of overlayVideos) {
+    if (overlayId === id) {
+      if (video.paused) video.play().catch(() => {});
+    } else if (!video.paused) {
+      video.pause();
+    }
+  }
 }
 
 /** Skim the camera under the mouse when not playing; otherwise the program at the playhead. */

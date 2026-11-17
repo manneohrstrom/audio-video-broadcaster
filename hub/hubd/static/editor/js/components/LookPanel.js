@@ -1,7 +1,9 @@
 // Step 2, the look: a row of Filters and a row of Effects (no tabs, user 2026-11-16).
 // Tap a filter to choose it; tap an effect to turn it on, again to turn it off. Under each
 // row: the strength sliders of the chosen filter and of every effect that is on. The tiles
-// show the current picture through each choice, refreshed twice a second. Below them the
+// show the current picture through each choice, refreshed only while playback is stopped
+// (redrawing every tile during playback cost the video window its real time, user
+// 2026-11-17): soon after a change, then every few seconds. Below them the
 // Adjust sliders: the primary correction (brightness, contrast, highlights, shadows,
 // saturation, warmth, tint, fade), applied before the filter as in a DI grade.
 import { useEffect, useRef } from "preact/hooks";
@@ -10,7 +12,9 @@ import { LookRenderer } from "../look/look-renderer.js";
 import { everyFrame } from "../frame-loop.js";
 import { overlayVideo } from "./VideoWindow.js";
 
-const TILE_REFRESH_MS = 500;
+const TILE_REFRESH_MS = 500;        // at most this often, soon after a change
+const SETTLED_FOR_MS = 1500;        // "soon": the new picture may take a moment to decode
+const IDLE_REFRESH_MS = 3000;       // otherwise (an overlay's frame arriving late, say)
 
 export function LookPanel({ store }) {
   const tiles = useRef(new Map());          // "filter:<id>" / "effect:<id>" -> tile canvas
@@ -22,9 +26,16 @@ export function LookPanel({ store }) {
     offscreen.height = 126;
     let renderer = null;
     try { renderer = new LookRenderer(offscreen); } catch (error) { return undefined; }
-    let last = 0;
+    let last = 0, changedAt = 0, seen = "";
     return everyFrame(now => {
-      if (now - last < TILE_REFRESH_MS || !store.pictureCanvas) return;
+      if (store.isPlaying || !store.pictureCanvas) return;
+      const state = JSON.stringify([store.playheadSeconds, store.look, tiles.current.size]);
+      if (state !== seen) {
+        seen = state;
+        changedAt = now;
+      }
+      const wait = now - changedAt < SETTLED_FOR_MS ? TILE_REFRESH_MS : IDLE_REFRESH_MS;
+      if (now - last < wait) return;
       last = now;
       for (const [key, tile] of tiles.current) {
         if (!tile.isConnected) continue;
