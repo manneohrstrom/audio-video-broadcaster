@@ -103,7 +103,7 @@ After STOP the hub does everything; your only step is pressing Eject and moving 
 1. **Pull:** `rsync` over SSH from each node into `takes/<date>_<take>/`, resumable after any drop. It runs only when no take or live session is active, typically overnight, so it never competes with live video or sync traffic for airtime.
 2. **Rewrap:** `ffmpeg -c copy` from raw H.264 to `.mov` at a fixed 30 fps, adding the shared start timecode and camera name. No re-encode, so it is quick on the Pi 5 (which has no hardware H.264 encoder, so it couldn't transcode cheaply anyway).
 3. **Verify:** the `.mov` frame count must match the node's manifest; dropped frames (gaps in `--save-pts`) are flagged in the UI. Counts can differ between cameras by a frame at the start, which is expected and not an error.
-4. **Delete from the node** only after verify passes, and lazily: each camera keeps a take until it needs the space, so a second copy survives as long as possible. A take that fails verify stays on the camera and the UI says so.
+4. **Delete from the node** as soon as verify passes and the take is on the drive (user decision 2026-11-17: simpler, and the cards stay nearly empty; the drive is then the only copy until it goes to the Mac). Until 2026-11-17 cameras kept verified takes until they needed the space. A take that fails verify stays on the camera and the UI says so.
 5. **Publish:** the take appears on the external drive as one folder with one `.mov` per camera. The hub never deletes from the drive; clearing old takes is your call, since you may be editing from it.
 
 | Getting it to the Mac | Your steps | Notes |

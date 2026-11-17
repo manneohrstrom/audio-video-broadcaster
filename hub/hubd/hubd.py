@@ -33,7 +33,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.28.0"
+VERSION = "0.29.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -868,7 +868,7 @@ class Hub:
             self.state = "recording"
             self.take["restarts"] = restarts
             self.take["recording_at"] = self.clock()
-            # After arming: a camera may have just freed space (lazy delete), so this,
+            # After arming: a camera may have freed space since the reading before REC, so this,
             # not the value before REC, is the baseline for its measured rate.
             self.take["node_free_gb"] = {n: (self.status[n] or {}).get("free_gb") for n in names}
             self.take["sync_warnings"] = warn

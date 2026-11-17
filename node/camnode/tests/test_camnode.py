@@ -344,28 +344,31 @@ class AgentTest(unittest.TestCase):
             self.agent.live(True)
         self.assertEqual(self.agent.status()["mode"], "live-starting")
 
-    def test_verified_and_lazy_delete(self):
-        for t in ("t1", "t2", "t3"):
+    def test_verified_take_is_deleted_at_once(self):
+        for t in ("t1", "t2"):
             self.take(t, run=0.2)
         with self.assertRaises(ValueError):
             self.agent.mark_verified("nope", {})
-        self.agent.mark_verified("t1", {"mov_sha256": "ab"})
-        self.agent.mark_verified("t2", {"mov_sha256": "cd"})
-        listed = {m["take_id"]: m.get("verified") for m in self.agent.list_takes()}
-        self.assertEqual(listed["t1"]["mov_sha256"], "ab")
-        self.assertIsNone(listed["t3"])
-        # Plenty of space: nothing deleted.
-        self.agent.free_gb = lambda: 50.0
-        self.assertEqual(self.agent.lazy_delete(), [])
-        # Low space: oldest verified first, one at a time, until above threshold.
-        frees = iter([5.0, 5.0, 12.0, 12.0])
-        self.agent.free_gb = lambda: next(frees)
-        self.assertEqual(self.agent.lazy_delete(), ["t1"])
-        # Still low with only an unverified take left besides t2: t2 goes, t3 never.
-        self.agent.free_gb = lambda: 1.0
-        self.assertEqual(self.agent.lazy_delete(), ["t2"])
-        self.assertEqual(sorted(os.listdir(self.tmp)), ["t3"])
-        self.assertTrue(os.path.exists(os.path.join(os.path.dirname(self.tmp), "deleted.jsonl")))
+        rec = self.agent.mark_verified("t1", {"mov_sha256": "ab"})
+        self.assertEqual(rec["mov_sha256"], "ab")
+        self.assertEqual(sorted(os.listdir(self.tmp)), ["t2"])          # t1 gone, t2 (not verified) kept
+        self.assertEqual([m["take_id"] for m in self.agent.list_takes()], ["t2"])
+        with open(os.path.join(os.path.dirname(self.tmp), "deleted.jsonl")) as f:
+            self.assertEqual(json.loads(f.readlines()[-1])["take_id"], "t1")
+
+    def test_verified_while_recording_waits_for_idle(self):
+        self.take("t1", run=0.2)
+        self.agent._state = "recording"                 # as if the next take were running
+        self.agent.mark_verified("t1", {})
+        self.assertIn("t1", os.listdir(self.tmp))
+        self.agent._state = "idle"
+        self.assertEqual(self.agent.delete_verified(), ["t1"])
+
+    def test_takes_verified_earlier_are_deleted_at_start(self):
+        self.take("t1", run=0.2)
+        camnode.write_json_atomic(os.path.join(self.tmp, "t1", "verified.json"), {"at": 1})
+        self.make()
+        self.assertNotIn("t1", os.listdir(self.tmp))
 
     def test_live_toggle(self):
         self.assertEqual(self.agent.live(True), "live")

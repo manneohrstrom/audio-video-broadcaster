@@ -18,7 +18,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.6.1"
+VERSION = "0.7.0"
 NOMINAL_MS = 1000.0 / 30
 TAKE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WC_RE = re.compile(rb'"FrameWallClock":\s*(\d+)')
@@ -38,8 +38,6 @@ DEFAULT_CONFIG = {
     "stop_signal": "SIGINT",
     "stop_timeout_s": 15,
     "min_free_gb": 2.0,
-    # Lazy delete: below this, remove the oldest takes the hub has verified (never others).
-    "delete_below_gb": 10.0,
     "live_ready_timeout_s": 20,
     "mediamtx_api": "http://127.0.0.1:9997",
     # Green ACT LED as a recording light. Empty string disables it. Needs the
@@ -461,6 +459,7 @@ class Agent:
         self._sys_at = 0
         os.makedirs(cfg["takes_dir"], exist_ok=True)
         self.recover_incomplete()
+        self.delete_verified()      # marked while recording, or before this camnode deleted at once
 
     @property
     def state(self):
@@ -525,24 +524,24 @@ class Agent:
             raise ValueError("no finished take %s" % take_id)
         rec = {"at": time.time_ns(), "mov_sha256": info.get("mov_sha256"), "path": info.get("path")}
         write_json_atomic(os.path.join(d, "verified.json"), rec)
+        if self.state == "idle":
+            self.delete_verified()          # while recording: the idle housekeeping does it
         return rec
 
     def free_gb(self):
         return shutil.disk_usage(self.cfg["takes_dir"]).free / 1e9
 
-    def lazy_delete(self):
-        """Delete oldest verified takes while free space is below the threshold.
-
-        Never touches unverified takes or the take being recorded. Returns deleted ids."""
+    def delete_verified(self):
+        """Delete every take the hub has verified on the STUDIO drive (verified.json): the
+        drive has it, so the camera doesn't keep a copy (user decision 2026-11-17; it used to
+        keep them until space ran low). Never touches unverified takes or the take being
+        recorded. Returns the deleted ids."""
         deleted = []
         with self.lock:
             current = self.take["take_id"] if self.take else None
-            while self.free_gb() < self.cfg["delete_below_gb"]:
-                victims = [n for n in sorted(os.listdir(self.cfg["takes_dir"]))
-                           if n != current and os.path.isfile(os.path.join(self.take_dir(n), "verified.json"))]
-                if not victims:
-                    break
-                n = victims[0]
+            for n in sorted(os.listdir(self.cfg["takes_dir"])):
+                if n == current or not os.path.isfile(os.path.join(self.take_dir(n), "verified.json")):
+                    continue
                 shutil.rmtree(self.take_dir(n))
                 deleted.append(n)
                 with open(os.path.join(os.path.dirname(self.cfg["takes_dir"].rstrip("/")), "deleted.jsonl"), "a") as f:
@@ -554,7 +553,7 @@ class Agent:
         while not stop.wait(every_s):
             if self.state == "idle":
                 try:
-                    self.lazy_delete()
+                    self.delete_verified()      # ones marked while recording
                 except OSError:
                     pass
 
@@ -703,7 +702,6 @@ class Agent:
                 raise Busy("camera is %s" % self.state)
             if self._live_active():
                 raise Busy("live mode is on")
-            self.lazy_delete()
             free = self.free_gb()
             if free < self.cfg["min_free_gb"]:
                 raise Busy("only %.1f GB free" % free)

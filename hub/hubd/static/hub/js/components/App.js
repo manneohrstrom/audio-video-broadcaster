@@ -1,14 +1,15 @@
-// The hub page: one instrument with three views.
+// The hub page: one instrument with four views.
 //
 //   deck     the big keys: REC, STOP, LIVE; the rig's state; one LED per camera
 //   monitor  every device's health, with the last 30 minutes as small charts
-//   focus    a still from every camera, the loupe, and each Pi camera's fixed focus (/snap)
+//   cameras  see through every camera (a grid of stills, every 5 s); "adjust" opens a
+//            camera's focus panel: the loupe and its fixed focus (/snap, #focus: old addresses)
 //   archive  takes on the STUDIO drive: ingest, playback, songs, videos
 //
 // The rig's state comes from hubd every second (/api/status), the takes every 3 s
 // (/api/ingest), the health history every 10 s. The view is kept in the URL (#monitor).
 // On a wide screen (user, 2026-11-17) deck and archive sit side by side as one "studio"
-// view; monitor and focus stay on their own (the expert views).
+// view; monitor and cameras stay on their own.
 import { useEffect, useState, useCallback } from "preact/hooks";
 import { html } from "shared/html.js";
 import { Icon } from "shared/icons.js";
@@ -17,7 +18,7 @@ import { hms } from "../format.js";
 import { Deck } from "./Deck.js";
 import { Monitor } from "./Monitor.js";
 import { Archive } from "./Archive.js";
-import { Focus } from "./Focus.js";
+import { Cameras } from "./Cameras.js";
 import { QrDialog } from "./QrDialog.js";
 import { AudioDialog } from "./AudioDialog.js";
 import { Player } from "./Player.js";
@@ -27,12 +28,13 @@ import { notIngested } from "../takes.js";
 const VIEWS = [
   { id: "deck", label: "deck", icon: "deck" },
   { id: "monitor", label: "monitor", icon: "scope" },
-  { id: "focus", label: "focus", icon: "camera" },
+  { id: "cameras", label: "cameras", icon: "camera" },
   { id: "archive", label: "archive", icon: "cassette" },
 ];
 
 function viewFromHash() {
-  const id = location.hash.slice(1) || (location.pathname === "/snap" ? "focus" : "");     // /snap: the old address
+  let id = location.hash.slice(1) || (location.pathname === "/snap" ? "cameras" : "");     // /snap: the old address
+  if (id === "focus") id = "cameras";                                                         // the view's old name
   return VIEWS.some(view => view.id === id) ? id : "deck";
 }
 
@@ -133,7 +135,7 @@ export function App() {
     <div class=${"hub" + (recording ? " is-recording" : "") + (sideBySide ? " side-by-side" : "")}>
       <header class="topbar">
         <div class="brand">
-          <span class="brand-icon"><${Icon} name="filmCamera" size=${28} /></span>
+          <span class="brand-icon"><${Icon} name="filmCamera" size=${22} /></span>
           <span class="brand-name">Brockley Live</span>
           <small class="version">${status ? "hubd " + status.hub_version : ""}</small>
         </div>
@@ -152,7 +154,7 @@ export function App() {
         ${sideBySide && html`<div class="studio"><${Deck} ...${context} /><${Archive} ...${context} /></div>`}
         ${!sideBySide && view === "deck" && html`<${Deck} ...${context} />`}
         ${view === "monitor" && html`<${Monitor} ...${context} />`}
-        ${view === "focus" && html`<${Focus} ...${context} />`}
+        ${view === "cameras" && html`<${Cameras} ...${context} />`}
         ${!sideBySide && view === "archive" && html`<${Archive} ...${context} />`}
       </main>
       <footer class="plate-row">
