@@ -12,6 +12,7 @@ export const WAVEFORM_HEIGHT = 50;
 export const SYNC_WAVEFORM_HEIGHT = 84;
 const GROUP_GAP = 12;
 const HANDLE_GRAB_PIXELS = 7;
+const BAR_HEIGHT = 3;                 // the camera-colour bar under a shot
 
 /**
  * Lanes top to bottom: [{ type, top, height, camera? }], plus the total height.
@@ -74,6 +75,7 @@ export class TimelineDrawing {
     this.thumbnailsByCamera = thumbnailsByCamera;   // camera id -> CameraThumbnails
     this.waveform = waveform;                       // { rate, peaks } or null while loading
     this.colours = colours;                         // resolved CSS tokens (canvas can't read var())
+    this.pixelRatio = Math.min(2, window.devicePixelRatio || 1);   // as the canvas (Timeline.js)
   }
 
   draw(context, width, lanes, height) {
@@ -155,6 +157,17 @@ export class TimelineDrawing {
     }
   }
 
+  /** x snapped to the device's pixel grid, so 1-pixel lines and bars are crisp and even. */
+  snap(x) {
+    return Math.round(x * this.pixelRatio) / this.pixelRatio;
+  }
+
+  /** A bar from x0 to x1 (snapped at both ends, so neighbouring bars meet without seams). */
+  bar(context, x0, x1, top, height) {
+    const a = this.snap(x0);
+    context.fillRect(a, top, this.snap(x1) - a, height);
+  }
+
   drawProgram(context, lane, width) {
     const store = this.store;
     this.laneBackground(context, lane, width);
@@ -165,9 +178,9 @@ export class TimelineDrawing {
       const colour = this.colours.cameras[shot.camera.index % this.colours.cameras.length];
       context.save();
       context.beginPath();
-      context.rect(x0, lane.top, x1 - x0, lane.height);
+      context.rect(this.snap(x0), lane.top, this.snap(x1) - this.snap(x0), lane.height);
       context.clip();
-      this.drawFilmstrip(context, shot.camera, lane.top + 5, lane.height - 5, x0, x1);
+      this.drawFilmstrip(context, shot.camera, lane.top, lane.height, x0, x1);
       for (const [roughStart, roughEnd] of store.roughSections(shot.camera)) {
         if (roughStart < shot.end && shot.start < roughEnd) {
           const a = store.xOf(Math.max(roughStart, shot.start));
@@ -175,36 +188,53 @@ export class TimelineDrawing {
         }
       }
       context.fillStyle = colour;
-      context.fillRect(x0, lane.top, x1 - x0, 5);
-      this.drawShotLabel(context, `${shot.camera.number} ${shot.camera.label}`, colour, x0, x1, lane.top);
+      this.bar(context, x0, x1, lane.top + lane.height - BAR_HEIGHT, BAR_HEIGHT);
+      this.drawShotLabel(context, shot.camera.label, colour, x0, x1, lane.top);
       context.restore();
     }
     this.drawSelectionPreview(context, lane);
     store.cuts.forEach((cut, index) => {
-      if (index === 0) return;
-      const x = Math.round(store.xOf(cut.atSeconds));
-      if (x < -8 || x > width + 8) return;
-      const selected = index === store.selectedCutIndex;
-      const hot = store.hover?.cutHandle === index;
-      context.fillStyle = selected ? this.colours.accent : cut.by === "user" ? this.colours.userCut : this.colours.autoCut;
-      context.fillRect(x - 1, lane.top, 2, lane.height);
-      const knobWidth = selected || hot ? 9 : 7;
-      context.beginPath();
-      context.roundRect(x - knobWidth / 2, lane.top + lane.height / 2 - 9, knobWidth, 18, 3);
-      context.fill();
-      if (selected) { context.strokeStyle = this.colours.background; context.lineWidth = 1.5; context.stroke(); }
+      if (index > 0) this.drawSplice(context, lane, width, cut, index);
     });
   }
 
+  /** A cut on the program strip: a hairline with a small notch on top, like a tape splice.
+   *  Hover thickens it; the selected cut turns the selection colour. */
+  drawSplice(context, lane, width, cut, index) {
+    const store = this.store;
+    const x = this.snap(store.xOf(cut.atSeconds));
+    if (x < -8 || x > width + 8) return;
+    const selected = index === store.selectedCutIndex;
+    const hot = store.hover?.cutHandle === index || (store.gesture?.kind === "moveCut" && store.gesture.cutIndex === index);
+    const lineWidth = selected || hot ? 2 : 1;
+    context.fillStyle = selected ? this.colours.accent : cut.by === "user" ? this.colours.userCut : this.colours.autoCut;
+    context.fillRect(x - lineWidth / 2, lane.top, lineWidth, lane.height);
+    const notch = selected || hot ? 5 : 3.5;
+    context.beginPath();
+    context.moveTo(x - notch, lane.top);
+    context.lineTo(x + notch, lane.top);
+    context.lineTo(x, lane.top + notch * 1.2);
+    context.closePath();
+    context.fill();
+  }
+
+  /** The camera's name on its shot: a small dark pill with a dot in the camera's colour. */
   drawShotLabel(context, text, colour, x0, x1, top) {
     if (x1 - x0 < 40) return;
-    context.font = `600 11px ${this.colours.uiFont}`;
+    context.font = `500 11px ${this.colours.uiFont}`;
     const textWidth = context.measureText(text).width;
-    if (x1 - x0 < textWidth + 16) return;
-    context.fillStyle = "rgba(17,16,15,0.8)";
-    context.fillRect(x0 + 5, top + 10, textWidth + 10, 17);
+    if (x1 - x0 < textWidth + 28) return;
+    const left = this.snap(x0 + 6);
+    context.fillStyle = "rgba(17,16,15,0.72)";
+    context.beginPath();
+    context.roundRect(left, top + 7, textWidth + 21, 16, 8);
+    context.fill();
     context.fillStyle = colour;
-    context.fillText(text, x0 + 10, top + 22);
+    context.beginPath();
+    context.arc(left + 8, top + 15, 3, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = this.colours.text;
+    context.fillText(text, left + 15, top + 19);
   }
 
   /** While dragging out a stretch on a camera strip: show it on the program strip too. */
@@ -217,13 +247,12 @@ export class TimelineDrawing {
     const colour = this.colours.cameras[gesture.camera.index % this.colours.cameras.length];
     const x0 = store.xOf(start);
     const x1 = store.xOf(end);
-    context.globalAlpha = 0.55;
+    context.globalAlpha = 0.35;
     context.fillStyle = colour;
-    context.fillRect(x0, lane.top, x1 - x0, lane.height);
+    this.bar(context, x0, x1, lane.top, lane.height);
     context.globalAlpha = 1;
-    context.fillRect(x0, lane.top, x1 - x0, 5);
-    this.drawShotLabel(context, `${gesture.camera.number} ${gesture.camera.label} · ${(end - start).toFixed(1)} s`,
-                       this.colours.accent, x0, Math.max(x1, x0 + 200), lane.top);
+    this.bar(context, x0, x1, lane.top + lane.height - BAR_HEIGHT, BAR_HEIGHT);
+    this.drawShotLabel(context, `${gesture.camera.label} · ${(end - start).toFixed(1)} s`, colour, x0, Math.max(x1, x0 + 200), lane.top);
   }
 
   drawCamera(context, lane, width) {
@@ -236,48 +265,47 @@ export class TimelineDrawing {
     context.rect(0, lane.top, width, lane.height);
     context.clip();
     this.drawFilmstrip(context, camera, lane.top, lane.height, 0, width);
-    if (store.syncMode) {                     // Sync mode: outline the camera that's showing
+    const bottom = lane.top + lane.height - BAR_HEIGHT;
+    if (store.syncMode) {                     // Sync mode: the camera that's showing gets the bar
       this.drawRecordingMarks(context, lane, camera);
-      if (store.cameraAt(0) === camera) {
-        context.strokeStyle = colour;
-        context.lineWidth = 2;
-        context.strokeRect(1, lane.top + 1, width - 2, lane.height - 2);
+      if (store.cameraAt(0) !== camera) {
+        context.fillStyle = this.colours.dimmedLight;
+        context.fillRect(0, lane.top, width, lane.height);
+      } else {
+        context.fillStyle = colour;
+        context.fillRect(0, bottom, width, BAR_HEIGHT);
       }
       context.restore();
       return;
     }
     const shots = store.shots();
-    // Dim what isn't in the cut, so the shots that are stand out.
+    // Dim what isn't in the cut, so the shots that are stand out at full brightness.
     for (const shot of shots) {
       if (shot.cameraId === camera.id) continue;
       context.fillStyle = this.colours.dimmed;
-      context.fillRect(store.xOf(shot.start), lane.top, store.xOf(shot.end) - store.xOf(shot.start), lane.height);
+      this.bar(context, store.xOf(shot.start), store.xOf(shot.end), lane.top, lane.height);
     }
     this.drawRecordingMarks(context, lane, camera);
-    // This camera's shots in the cut: outlined in its colour, with a bar along the bottom.
+    // This camera's shots in the cut: a bar in its colour along the bottom. No outlines.
     for (const shot of shots) {
       if (shot.cameraId !== camera.id) continue;
-      const x0 = store.xOf(shot.start);
-      const x1 = store.xOf(shot.end);
       const sliding = store.gesture?.kind === "slide" && store.gesture.shotIndex === shot.index;
-      context.strokeStyle = sliding ? this.colours.accent : colour;
-      context.lineWidth = sliding ? 3 : 2;
-      context.strokeRect(x0 + 1, lane.top + 1, x1 - x0 - 2, lane.height - 2);
-      context.fillStyle = colour;
-      context.fillRect(x0, lane.top + lane.height - 4, x1 - x0, 4);
+      if (sliding) {
+        context.fillStyle = this.colours.lift;
+        this.bar(context, store.xOf(shot.start), store.xOf(shot.end), lane.top, lane.height);
+      }
+      context.fillStyle = sliding ? this.colours.accent : colour;
+      this.bar(context, store.xOf(shot.start), store.xOf(shot.end), bottom, BAR_HEIGHT);
     }
-    // A stretch being dragged out on this strip.
+    // A stretch being dragged out on this strip: lifted, with the selection colour along the bottom.
     const gesture = store.gesture;
     if (gesture?.kind === "select" && gesture.moved && gesture.camera === camera) {
       const x0 = store.xOf(Math.min(gesture.startSeconds, gesture.currentSeconds));
       const x1 = store.xOf(Math.max(gesture.startSeconds, gesture.currentSeconds));
-      context.globalAlpha = 0.4;
-      context.fillStyle = colour;
-      context.fillRect(x0, lane.top, x1 - x0, lane.height);
-      context.globalAlpha = 1;
-      context.strokeStyle = this.colours.accent;
-      context.lineWidth = 2;
-      context.strokeRect(x0 + 1, lane.top + 1, x1 - x0 - 2, lane.height - 2);
+      context.fillStyle = this.colours.lift;
+      this.bar(context, x0, x1, lane.top, lane.height);
+      context.fillStyle = this.colours.accent;
+      this.bar(context, x0, x1, bottom, BAR_HEIGHT);
     }
     context.restore();
   }
@@ -395,10 +423,12 @@ export function readColours(element) {
     cameras: [1, 2, 3, 4, 5, 6].map(n => token(`--color-camera-${n}`)),
     tick: token("--color-line"),
     noPicture: "#0b0a09",
-    dimmed: "rgba(17,16,15,0.66)",
+    dimmed: "rgba(17,16,15,0.72)",
+    dimmedLight: "rgba(17,16,15,0.45)",
+    lift: "rgba(236,229,214,0.10)",
     notRecording: "rgba(236,229,214,0.07)",
     rough: "rgba(236,229,214,0.4)",
-    autoCut: "rgba(228,220,203,0.6)",
+    autoCut: "rgba(228,220,203,0.5)",
     hoverLine: "rgba(228,220,203,0.5)",
     waveform: "#6b6458",
     waveformPlayed: "#d9cfbb",

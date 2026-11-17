@@ -43,14 +43,15 @@
   --color-lcd: #c9e27a;            /* LCD segments */
   --color-lcd-off: #26301a;        /* unlit segments behind them */
 
-  /* One colour per camera slot, in camera order (Pi cameras first, then phones):
-     the colours of a 1970s pencil box, distinct on the dark display */
-  --color-camera-1: #5b9be0;
-  --color-camera-2: #f08a2c;
-  --color-camera-3: #6bbf7f;
-  --color-camera-4: #b99be6;
-  --color-camera-5: #e9c93a;
-  --color-camera-6: #ee8fb0;
+  /* One colour per camera slot, in camera order (Pi cameras first, then phones): the
+     paints of 1970s appliances, muted to sit on graphite. Kept clear of the action orange,
+     the selection yellow and the red playhead. */
+  --color-camera-1: #d0773e;       /* burnt orange */
+  --color-camera-2: #6e8fae;       /* steel blue */
+  --color-camera-3: #8e9e5a;       /* olive */
+  --color-camera-4: #4f958b;       /* teal */
+  --color-camera-5: #a8655b;       /* oxide red */
+  --color-camera-6: #a9925a;       /* ochre */
 
   /* Type */
   --font-ui: "Jost", "Futura", "Avenir Next", system-ui, sans-serif;
