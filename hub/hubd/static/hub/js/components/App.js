@@ -7,6 +7,8 @@
 //
 // The rig's state comes from hubd every second (/api/status), the takes every 3 s
 // (/api/ingest), the health history every 10 s. The view is kept in the URL (#monitor).
+// On a wide screen (user, 2026-11-17) deck and archive sit side by side as one "studio"
+// view; monitor and focus stay on their own (the expert views).
 import { useEffect, useState, useCallback } from "preact/hooks";
 import { html } from "shared/html.js";
 import { Icon } from "shared/icons.js";
@@ -32,6 +34,21 @@ const VIEWS = [
 function viewFromHash() {
   const id = location.hash.slice(1) || (location.pathname === "/snap" ? "focus" : "");     // /snap: the old address
   return VIEWS.some(view => view.id === id) ? id : "deck";
+}
+
+const SIDE_BY_SIDE = "(min-width: 1280px)";
+const PAIRED = ["deck", "archive"];
+
+/** True while the window is wide enough for deck and archive side by side. */
+function useWideScreen() {
+  const [wide, setWide] = useState(() => window.matchMedia(SIDE_BY_SIDE).matches);
+  useEffect(() => {
+    const query = window.matchMedia(SIDE_BY_SIDE);
+    const onChange = () => setWide(query.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return wide;
 }
 
 /** Poll `load` every `ms` while mounted; returns the latest result (or null) and a refresh. */
@@ -61,6 +78,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState(null);             // { kind: "qr" | "audio" | "player", ... }
   const [unreachable, setUnreachable] = useState(false);
+  const wide = useWideScreen();
 
   const fetchStatus = useCallback(() => loadStatus(!document.hidden).then(status => { setUnreachable(false); return status; }), []);
   const [status, refreshStatus] = usePolling(fetchStatus, 1000, () => setUnreachable(true));
@@ -100,9 +118,11 @@ export function App() {
 
   const shown = message || (status && status.message && !busy ? { text: status.message } : null);
   const recording = status && status.state === "recording";
+  const sideBySide = wide && PAIRED.includes(view);
+  const isCurrent = id => (sideBySide ? PAIRED.includes(id) : view === id);
   const context = { status, ingest, history, busy, act, say, refreshIngest, openDialog: setDialog, go };
   return html`
-    <div class=${"hub" + (recording ? " is-recording" : "")}>
+    <div class=${"hub" + (recording ? " is-recording" : "") + (sideBySide ? " side-by-side" : "")}>
       <header class="topbar">
         <div class="brand">
           <span class="grille" aria-hidden="true"></span>
@@ -112,7 +132,7 @@ export function App() {
         <${SegmentDisplay} text=${unreachable ? "NO HUB" : rigLabel(status)} state=${unreachable ? "error" : status && status.state} />
         <nav class="views" aria-label="Views">
           ${VIEWS.map(item => html`
-            <button class="view-key" aria-current=${view === item.id ? "page" : null} onClick=${() => go(item.id)}>
+            <button class="view-key" aria-current=${isCurrent(item.id) ? "page" : null} onClick=${() => go(item.id)}>
               <${Icon} name=${item.icon} size=${20} /><span>${item.label}</span>
               <i class=${"view-led " + viewLed(item.id, status, ingest)} aria-hidden="true"></i>
             </button>`)}
@@ -121,10 +141,11 @@ export function App() {
       ${unreachable && html`<p class="banner error" role="alert">Can't reach the hub. Unplugged? Rebooting? Sulking? Trying again every second.</p>`}
       ${shown && html`<p class=${"banner" + (shown.error ? " error" : "")} role="status">${shown.text}</p>`}
       <main class="view">
-        ${view === "deck" && html`<${Deck} ...${context} />`}
+        ${sideBySide && html`<div class="studio"><${Deck} ...${context} /><${Archive} ...${context} /></div>`}
+        ${!sideBySide && view === "deck" && html`<${Deck} ...${context} />`}
         ${view === "monitor" && html`<${Monitor} ...${context} />`}
         ${view === "focus" && html`<${Focus} ...${context} />`}
-        ${view === "archive" && html`<${Archive} ...${context} />`}
+        ${!sideBySide && view === "archive" && html`<${Archive} ...${context} />`}
       </main>
       <footer class="plate-row">
         <span class="model-plate"><span class="grille" aria-hidden="true"></span>SM-1 <small>no cloud · no subscription · no mercy</small></span>

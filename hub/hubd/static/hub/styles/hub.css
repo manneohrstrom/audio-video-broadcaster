@@ -255,3 +255,12 @@ code { font-size: 13px; color: var(--color-text-muted); }
   .views { grid-template-columns: repeat(4, 1fr); }
   .focus-tools { grid-template-columns: 1fr; }
 }
+
+/* -- wide screens: deck and archive side by side (user, 2026-11-17). The deck keeps its
+   keys within reach on the left and stays put while the archive scrolls on the right. */
+.hub.side-by-side { max-width: 1640px; }
+.studio { display: grid; grid-template-columns: minmax(420px, 520px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.studio .deck { position: sticky; top: 14px; }
+.studio .big-key { min-height: 150px; padding: 16px 14px 14px; }
+.studio .big-key .key-name { font-size: 24px; }
+.studio .archive { max-width: none; }
