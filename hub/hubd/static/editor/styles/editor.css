@@ -79,6 +79,8 @@ a.button { text-decoration: none; color: var(--color-text); }
   box-shadow: 0 0 0 2px var(--frame-colour, transparent), 0 0 0 7px var(--color-well), 0 0 0 8px #000, 0 14px 40px rgba(0, 0, 0, 0.55);
 }
 .video-window canvas { display: block; width: 100%; height: 100%; }
+/* The border and logo: the same 1920x1080 image the render puts on top, over the whole picture */
+.brand-frame { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .video-badge, .video-note, .video-hold {
   position: absolute; padding: 3px 10px; border-radius: var(--radius-key); background: rgba(17, 16, 15, 0.78);
   font-size: var(--font-size-small); pointer-events: none;
@@ -166,6 +168,7 @@ input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px va
 .editor-footer { display: flex; gap: var(--space-4); align-items: center; padding-block: 7px 9px; border-top: 1px solid var(--color-line); color: var(--color-text-muted); font-size: var(--font-size-small); flex-wrap: wrap; }
 .editor-footer label { display: flex; align-items: center; gap: var(--space-2); }
 .editor-footer input[type=range] { width: 110px; }
+.editor-footer input[type=checkbox] { accent-color: var(--color-accent); margin: 0; }
 .editor-footer output { font: 500 12px var(--font-numbers); color: var(--color-text); }
 .shortcuts { margin-left: auto; color: var(--color-text-dim); }
 .shortcuts kbd {

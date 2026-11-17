@@ -482,7 +482,10 @@ class EditorProjects:
         dissolve_s = edit.get("dissolve_s", 0.3)
         if not isinstance(dissolve_s, (int, float)) or not 0 <= dissolve_s <= 2:
             raise ProjectError("dissolve_s must be 0-2 seconds")
+        branding = edit.get("branding", False)     # the border and logo on top (brand-frame.png)
+        if not isinstance(branding, bool):
+            raise ProjectError("branding must be true or false")
         saved = self._new_edit(take_id, song_id, version, range_ns, cuts, "user")
-        saved.update(look=edit.get("look"), dissolve_s=dissolve_s, saved_at=self.clock())
+        saved.update(look=edit.get("look"), dissolve_s=dissolve_s, branding=branding, saved_at=self.clock())
         self._write_working_copy(take_id, song_id, version, saved)
         return saved

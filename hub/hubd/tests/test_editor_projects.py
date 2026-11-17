@@ -179,6 +179,14 @@ class ProjectTest(unittest.TestCase):
         self.assertEqual([c["camera"] for c in p["edit"]["cuts"]], ["cam2", "pixel-9a"])
         self.assertEqual(p["edit"]["dissolve_s"], 0.25)
 
+    def test_branding_is_saved_and_off_by_default(self):
+        cut = {"cuts": [{"at_ns": 0, "camera": "cam2"}]}
+        self.assertFalse(self.projects.save_edit(TAKE, "track-1", 1, cut)["branding"])
+        self.projects.save_edit(TAKE, "track-1", 1, dict(cut, branding=True))
+        self.assertTrue(self.projects.project(TAKE, "track-1", 1)["edit"]["branding"])
+        with self.assertRaises(ep.ProjectError):
+            self.projects.save_edit(TAKE, "track-1", 1, dict(cut, branding="yes"))
+
     def test_bad_requests(self):
         with self.assertRaises(ep.ProjectError):
             self.projects.project("../etc", "track-1", 1)

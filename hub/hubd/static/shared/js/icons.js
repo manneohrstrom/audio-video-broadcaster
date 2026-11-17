@@ -37,6 +37,11 @@ const PATHS = {
   stopSquare: () => html`<rect x="6.5" y="6.5" width="11" height="11" rx="1.5" fill="currentColor" stroke="none" />`,
   antenna: () => html`<circle cx="12" cy="12" r="1.8" fill="currentColor" /><path d="M8.5 15.5a5 5 0 0 1 0-7M15.5 8.5a5 5 0 0 1 0 7" />
     <path d="M5.7 18.3a9 9 0 0 1 0-12.6M18.3 5.7a9 9 0 0 1 0 12.6" />`,
+  // The hub page's emblem: an old movie camera, two reels on top, the lens in a matte box
+  filmCamera: () => html`<circle cx="7" cy="6.2" r="3.6" /><circle cx="15.2" cy="6.8" r="3" />
+    <circle cx="7" cy="6.2" r="0.9" fill="currentColor" stroke="none" /><circle cx="15.2" cy="6.8" r="0.8" fill="currentColor" stroke="none" />
+    <rect x="2.5" y="10.6" width="13" height="8.9" rx="1.8" /><path d="M15.5 13.4 21.5 10.8v9.4l-6-2.6" />
+    <circle cx="6" cy="15" r="0.9" fill="currentColor" stroke="none" />`,
   camera: () => html`<path d="M4 8h3l1.5-2h7L17 8h3v11H4z" /><circle cx="12" cy="13" r="3.5" /><circle cx="17.5" cy="10.5" r="0.6" fill="currentColor" />`,
   phone: () => html`<rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M10.5 18.5h3" /><circle cx="12" cy="6" r="0.7" fill="currentColor" />`,
   ingest: () => html`<path d="M12 3v11m-4-4 4 4 4-4" /><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />`,

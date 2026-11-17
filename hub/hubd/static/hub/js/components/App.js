@@ -133,8 +133,8 @@ export function App() {
     <div class=${"hub" + (recording ? " is-recording" : "") + (sideBySide ? " side-by-side" : "")}>
       <header class="topbar">
         <div class="brand">
-          <span class="grille" aria-hidden="true"></span>
-          <span class="brand-name">studio multicam</span>
+          <span class="brand-icon"><${Icon} name="filmCamera" size=${28} /></span>
+          <span class="brand-name">Brockley Live</span>
           <small class="version">${status ? "hubd " + status.hub_version : ""}</small>
         </div>
         <${SegmentDisplay} text=${unreachable ? "NO HUB" : rigLabel(status)} state=${unreachable ? "error" : status && status.state} />
@@ -156,7 +156,7 @@ export function App() {
         ${!sideBySide && view === "archive" && html`<${Archive} ...${context} />`}
       </main>
       <footer class="plate-row">
-        <span class="model-plate"><span class="grille" aria-hidden="true"></span>SM-1 <small>no cloud · no subscription · no mercy</small></span>
+        <span class="model-plate"><span class="grille" aria-hidden="true"></span>SM-1 <small>Jazz – Funk – Dub</small></span>
       </footer>
       ${dialog && dialog.kind === "qr" && html`<${QrDialog} onClose=${() => setDialog(null)} />`}
       ${dialog && dialog.kind === "audio" && html`<${AudioDialog} take=${dialog.take} onClose=${() => { setDialog(null); refreshIngest(); }} onChange=${refreshIngest} />`}

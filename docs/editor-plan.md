@@ -186,6 +186,13 @@ A second step (a tab, after the cut is done): **what's the vibe of this video?**
 - **Take card layout** (user, 2026-11-16: the hub mic line sits with the bounces and makes no sense there): top section = the recording (cameras and their ingest steps, the hub mic's scratch recording); a divider; bottom section = the music: one group per song (Track 1, Track 2, …) with its bounce versions (upload a new one there), sync state, "✎ Edit" and its video versions ("video v3 · bounce v2", "▶ Watch").
 - **No "Make video" / "Make again" on the hub page** (user, 2026-11-16: confusing; you always look at it in the editor first). The quick mix's automatic cut becomes only the editor's starting point; the take card shows "✎ Edit" and the song's video versions with "▶ Watch". Videos are made from the editor only.
 
+## 6c. Border and logo (user, 2026-11-17; built)
+
+Every video on the channel has a white border and the Brockley Live logo in the bottom right. The editor's footer has a **Border & logo** switch (off by default, saved with the edit as `branding`). It is the topmost layer: on top of the look, its effects, the film overlays, the grain and the dissolves, and nothing changes it.
+
+- Sizes (user, option A of three mock-ups): border 24 px on every side, covering the picture's edges; logo 345 px wide (18 % of the width, its empty margin trimmed); 32 px in from the border's inner edge, right and below; no shadow.
+- One image does both: `hub/hubd/static/editor/brand/brand-frame.png` (1920x1080, transparent except border and logo), made by `hub/tools/make_brand_frame.py` from `hub/brand/brockley-live-logo.png`. The editor lays it over the video window; the render overlays it last in the encoder's ffmpeg graph (`edit_render.brand_overlay`). Change the numbers in the script and rerun it to restyle.
+
 ## 7. Vertical story version (a maybe, not decided)
 
 A 9:16 version for Instagram stories, rendered from the same edit, is **a possible addition, not part of v1.** The user will decide later whether it's worth doing.

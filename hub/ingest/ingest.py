@@ -42,7 +42,7 @@ import edit_render  # noqa: E402
 import drive_records  # noqa: E402
 import motion  # noqa: E402
 
-VERSION = "0.16.0"
+VERSION = "0.17.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -106,6 +106,8 @@ DEFAULT_CONFIG = {
     "working_edit_delay_s": 120,
     # The editor's looks (filters, effects, adjustments), shared with the editor's preview.
     "looks_path": "/opt/hubd/static/editor/looks.json",
+    # The border and logo the editor's "Border & logo" switch puts on top (hub/tools/make_brand_frame.py).
+    "brand_frame_path": "/opt/hubd/static/editor/brand/brand-frame.png",
 }
 TAKE_RE = re.compile(r"^\d{8}-\d{6}$")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1510,8 +1512,12 @@ class Ingest:
                     job["status"] = "paused" if is_busy else "rendering"
                     self.save(status="paused: rig busy" if is_busy else "ingesting")
                 return is_busy
+            brand_frame = self.cfg["brand_frame_path"] if edit.get("branding") else None
+            if brand_frame and not os.path.exists(brand_frame):
+                raise RuntimeError("the border and logo image is missing: %s" % brand_frame)
             renderer = edit_render.EditRenderer(edit, take_doc, folder, bounce, edit.get("look"), looks, out_dir,
-                                                busy=busy, should_abort=self.eject_requested, progress=progress)
+                                                busy=busy, should_abort=self.eject_requested, progress=progress,
+                                                brand_frame=brand_frame)
             job.update(frames=renderer.total_frames, shots=len(renderer.shots),
                        length_s=round(renderer.total_frames / render.FPS, 1))
             renderer.run(tmp)

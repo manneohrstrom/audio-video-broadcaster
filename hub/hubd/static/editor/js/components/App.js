@@ -138,6 +138,11 @@ function Editor({ project }) {
                  onInput=${event => store.setDissolve(Number(event.target.value))} />
           <output>${store.dissolveSeconds.toFixed(2)} s</output>
         </label>
+        <label for="branding" title="The white border and the Brockley Live logo, on top of everything">
+          <input id="branding" type="checkbox" checked=${store.branding}
+                 onChange=${event => store.setBranding(event.target.checked)} />
+          Border & logo
+        </label>
         <span class="shortcuts">
           drag on a camera to use it there · drag a shot to slide it · <kbd>space</kbd> play ·
           <kbd>1</kbd>–<kbd>${store.cameras.length}</kbd> camera from the playhead · <kbd>←</kbd><kbd>→</kbd> frame ·
