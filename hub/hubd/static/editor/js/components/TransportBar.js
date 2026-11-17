@@ -5,7 +5,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { html } from "./html.js";
 import { everyFrame } from "../frame-loop.js";
 import { formatSeconds } from "../time-format.js";
-import { Icon } from "./icons.js";
+import { Icon } from "shared/icons.js";
 
 /** The LCD's unlit segments behind a reading: every digit as an 8. */
 const unlitSegments = text => text.replace(/\d/g, "8");

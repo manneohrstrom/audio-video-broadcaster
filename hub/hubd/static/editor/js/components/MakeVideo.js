@@ -5,7 +5,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { html } from "./html.js";
 import { requestRender, renderStatus } from "../api.js";
-import { Icon } from "./icons.js";
+import { Icon } from "shared/icons.js";
 
 const POLL_MS = 3000;
 const RUNNING = ["queued", "rendering", "paused", "checking", "writing"];

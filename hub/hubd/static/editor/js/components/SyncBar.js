@@ -6,7 +6,7 @@
 import { html } from "./html.js";
 import { FRAME_SECONDS } from "../editor-store.js";
 import { NS_PER_SECOND } from "../time-format.js";
-import { Icon } from "./icons.js";
+import { Icon } from "shared/icons.js";
 
 const NUDGES = [
   { seconds: -FRAME_SECONDS, label: "1 frame", key: "⇧,", icon: "nudgeEarlier" },

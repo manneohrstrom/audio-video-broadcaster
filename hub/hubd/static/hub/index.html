@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1e1c1a">
+<title>Studio Multicam</title>
+<link rel="stylesheet" href="/shared/styles/tokens.css">
+<link rel="stylesheet" href="/uPlot.min.css">
+<link rel="stylesheet" href="/hub/styles/hub.css">
+<!-- Classic scripts that set globals: uPlot (charts) and qrcode (the phone page's QR code), both vendored and pinned. -->
+<script src="/uPlot.iife.min.js"></script>
+<script src="/qrcode.js"></script>
+<!-- Preact and htm from static/shared/vendor, pinned (docs/versions.md); no build step. -->
+<script type="importmap">
+{ "imports": {
+    "preact": "/shared/vendor/preact.module.js",
+    "preact/hooks": "/shared/vendor/hooks.module.js",
+    "htm": "/shared/vendor/htm.module.js",
+    "shared/": "/shared/js/"
+} }
+</script>
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="/hub/js/main.js"></script>
+</body>
+</html>

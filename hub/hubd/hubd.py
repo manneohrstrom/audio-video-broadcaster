@@ -1326,8 +1326,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, h.editor.project(m.group(1), m.group(2), int(m.group(3)), mode))
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
-        if self.path.split("?")[0] in ("/editor", "/editor/") or self.path.startswith("/editor/"):
-            return self._editor_static()
+        for app in self.STATIC_APPS:              # the hub page, the editor and what they share
+            if self.path.split("?")[0] in ("/" + app, "/" + app + "/") or self.path.startswith("/" + app + "/"):
+                return self._app_static(app)
         if self.path.split("?")[0] == "/api/status":
             if "watch=1" in self.path:
                 h.calibrator.page_open()      # a page is open: watch for the card
@@ -1374,8 +1375,10 @@ class Handler(BaseHTTPRequestHandler):
             if not got:
                 return self._send(404, {"error": "no picture from this phone yet"})
             return self._send(200, got[0], "image/jpeg", {"X-Snap-Info": json.dumps({"age_s": round(time.time() - got[1], 1)})})
-        name = {"/": "index.html", "/index.html": "index.html", "/phone": "phone.html",
-                "/snap": "snap.html"}.get(path, path.lstrip("/"))
+        if path in ("/", "/index.html"):          # the hub page (static/hub, Preact like the editor)
+            return self._app_static("hub", "index.html")
+        name = {"/classic": "index.html", "/phone": "phone.html",       # /classic: the plain-JS page, kept
+                "/snap": "snap.html"}.get(path, path.lstrip("/"))        # while the new one proves itself
         if "/" in name or name.startswith("."):
             return self._send(404, {"error": "not found"})
         p = os.path.join(h.cfg["static_dir"], name)
@@ -1385,10 +1388,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, f.read(), STATIC_TYPES[ext])
         self._send(404, {"error": "not found"})
 
-    def _editor_static(self):
-        """The editor page and its modules: static/editor/<path>, nothing outside it."""
-        relative = self.path.split("?")[0][len("/editor"):].lstrip("/") or "index.html"
-        root = os.path.realpath(os.path.join(self.hub.cfg["static_dir"], "editor"))
+    # Folders under static/ served as apps at /<name>/: their pages, modules, styles and fonts.
+    STATIC_APPS = ("hub", "editor", "shared")
+
+    def _app_static(self, app, relative=None):
+        """A file of an app folder (static/<app>/<path>), nothing outside it."""
+        if relative is None:
+            relative = self.path.split("?")[0][len("/" + app):].lstrip("/") or "index.html"
+        root = os.path.realpath(os.path.join(self.hub.cfg["static_dir"], app))
         path = os.path.realpath(os.path.join(root, relative))
         content_type = STATIC_TYPES.get(os.path.splitext(path)[1])
         if not path.startswith(root + os.sep) or not content_type or not os.path.isfile(path):

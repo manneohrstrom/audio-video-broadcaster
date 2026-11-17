@@ -4,16 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Editor · Studio Multicam</title>
-<link rel="stylesheet" href="/editor/styles/tokens.css">
+<link rel="stylesheet" href="/shared/styles/tokens.css">
 <link rel="stylesheet" href="/editor/styles/editor.css">
 <!-- mp4box.js reads the camera files' index for the WebCodecs player (a classic script: it sets MP4Box). -->
 <script src="/editor/vendor/mp4box.all.min.js"></script>
-<!-- Preact and htm are copied into vendor/ and pinned (docs/versions.md); no build step. -->
+<!-- Preact and htm are copied into static/shared/vendor and pinned (docs/versions.md); no build step.
+     "shared/" holds what the hub page and the editor share (html``, icons). -->
 <script type="importmap">
 { "imports": {
-    "preact": "/editor/vendor/preact.module.js",
-    "preact/hooks": "/editor/vendor/hooks.module.js",
-    "htm": "/editor/vendor/htm.module.js"
+    "preact": "/shared/vendor/preact.module.js",
+    "preact/hooks": "/shared/vendor/hooks.module.js",
+    "htm": "/shared/vendor/htm.module.js",
+    "shared/": "/shared/js/"
 } }
 </script>
 </head>

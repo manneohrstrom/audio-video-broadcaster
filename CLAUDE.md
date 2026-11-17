@@ -53,7 +53,7 @@ Start by writing a Phase 3 plan in `docs/phase3-plan.md` and get my OK before bu
 
 Python 3 from Raspberry Pi OS, a lightweight HTTP service for the node agent and hub API, plain HTML and JS for the hub UI (no build step), systemd for services, Ansible for provisioning.
 
-The editor (user decision 2026-11-16, `docs/editor-plan.md`) uses Preact with `htm`: copied into the repo and pinned like mp4box.js, still no build step. It gets its own design system (CSS tokens plus a few components of our own) and type checking with JSDoc and `tsc --checkJs` on the Mac. The hub's other pages stay plain JS.
+The editor (user decision 2026-11-16, `docs/editor-plan.md`) and, since 2026-11-17, the hub page (user decision: "production grade", same stack as the editor) use Preact with `htm`: copied into the repo and pinned like mp4box.js, still no build step. Both share one design system in `hub/hubd/static/shared/` (tokens, fonts, Preact/htm, `html`, icons; imported as `shared/…` through the import map), and type checking with JSDoc and `tsc --checkJs` on the Mac. The hub page is `static/hub/` (served at `/`); the old plain-JS page stays at `/classic` until the new one has proved itself. The phone and snapshot pages are still plain JS.
 
 ## Working rules
 

@@ -16,7 +16,7 @@ import { Timeline } from "./Timeline.js";
 import { LookPanel } from "./LookPanel.js";
 import { MakeVideo } from "./MakeVideo.js";
 import { SyncBar } from "./SyncBar.js";
-import { Icon } from "./icons.js";
+import { Icon } from "shared/icons.js";
 import { formatSeconds } from "../time-format.js";
 
 export function App({ takeId, songId, version, mode = "edit" }) {

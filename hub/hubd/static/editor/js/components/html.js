@@ -1,5 +1,2 @@
-// htm bound to Preact: html`<div>...</div>` instead of JSX (no build step).
-import { h } from "preact";
-import htm from "htm";
-
-export const html = htm.bind(h);
+// The editor's components use the shared html`` (htm bound to Preact, static/shared/js/html.js).
+export { html } from "shared/html.js";
