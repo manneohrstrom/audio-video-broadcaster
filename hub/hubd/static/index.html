@@ -55,6 +55,9 @@
   .take { background:var(--card); border-radius:10px; padding:10px 12px; margin-bottom:8px; max-width:720px; border-left:5px solid #333; }
   .take.active { border-color:var(--live); } .take.done { border-color:var(--ok); } .take.error { border-color:var(--bad); }
   .take.waiting { border-color:var(--warn); }
+  /* An ingested take whose drive is out (it's on the Mac): listed, but nothing to play or edit. */
+  .take.absent { opacity:.55; border-color:#333; }
+  .take.absent button, .take.absent .edit-button { pointer-events:none; }
   .take h4 { margin:0 0 6px; font-size:14px; display:flex; justify-content:space-between; gap:4px 12px; flex-wrap:wrap; }
   .take h4 small { color:var(--dim); font-weight:normal; }
   .camrow { display:grid; grid-template-columns:minmax(44px, max-content) 1fr; gap:6px; align-items:start; margin:6px 0 2px; }
@@ -513,6 +516,11 @@ function ingestView(st) {
   if (total) s += ` · ${doneN} of ${total} takes ingested` + (waitingN ? `, <b style="color:var(--warn)">${waitingN} only on the cameras</b>` : "");
   if ((running || paused) && st.eta_s != null) s += ` · ${fmtEta(st.eta_s)} left`;
   if (st.drive_free_gb != null) s += ` · drive ${st.drive_free_gb} GB free`;
+  // The list follows the STUDIO drive (docs/stick-db-plan.md): takes on another drive are
+  // only counted; while the drive is out, its takes stay listed, greyed.
+  const dv = st.drive_view || {};
+  if (dv.present === false && !ejected) s += ` · <b>drive not plugged in</b>: its takes are greyed`;
+  if (dv.other_drive_takes) s += ` · ${dv.other_drive_takes} ${dv.other_drive_takes === 1 ? "take" : "takes"} on another drive`;
   $("#ingest-status").innerHTML = s;
 
   const driveOk = !/^no .* drive|needs repair/.test(st.status || "") && st.drive !== "ejected";
@@ -552,7 +560,7 @@ function ingestView(st) {
     const size = [onDrive ? fmtBytes(onDrive) + " on drive" : "", toPull ? fmtBytes(toPull) + " from cameras" : ""]
       .filter(Boolean).join(" + ");
     let head = `${esc(id)} <small>${[takeStart(id), dur ? fmtDur(dur) + " of video" : "", size].filter(Boolean).join(" · ")}</small>`;
-    let right = allDone ? '<span class="good">✓ done</span>' : err ? '<span class="bad">needs attention</span>' :
+    let right = cams.drive_absent ? '<small>drive not plugged in</small>' : allDone ? '<span class="good">✓ done</span>' : err ? '<span class="bad">needs attention</span>' :
       active ? `<span>${etas.length ? fmtEta(Math.max(...etas)) + " left" : "working"}</span>` : '<small>queued</small>';
     let body;
     if (allDone) {
@@ -562,7 +570,7 @@ function ingestView(st) {
       body = cs.map(([c, v]) => `<div class="camrow"><span class="camname" title="${L(c)}">${L(c)}</span><div class="steps">${camSteps(v, paused)}${roughTxt(v) ? `<span class="st">${roughTxt(v)}</span>` : ""}</div></div>` +
         (v.error ? `<div class="camerr">${esc(v.error)}</div>` : "")).join("");
     }
-    const cls = allDone ? "done" : err ? "error" : active ? "active" : "";
+    const cls = cams.drive_absent ? "absent" : allDone ? "done" : err ? "error" : active ? "active" : "";
     return `<div class="take ${cls}"><h4><span>${head}</span>${right}</h4>${body}${probs(rec)}${playBtns(id, cs)}${micTxt(cams)}${songsTxt(id, cams)}</div>`;
   }).join("");
 }

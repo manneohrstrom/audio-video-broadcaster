@@ -39,8 +39,9 @@ import render  # noqa: E402
 import thumbnails  # noqa: E402
 import proxies  # noqa: E402
 import edit_render  # noqa: E402
+import drive_records  # noqa: E402
 
-VERSION = "0.13.0"
+VERSION = "0.14.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -99,7 +100,9 @@ DEFAULT_CONFIG = {
     "proxies_dir": "/var/lib/hubd/proxies",
     # hubd's own state folder: the editor's waveforms and edits of a removed take go too.
     "hubd_state_dir": "/var/lib/hubd",
-    "removed_check_s": 600,     # how often to look for takes deleted from the drive
+    "removed_check_s": 600,     # how often to look at the drive: takes deleted, added (index)
+    # The editor's working cut goes to the drive this long after its last change (stick-db-plan S4).
+    "working_edit_delay_s": 120,
     # The editor's looks (filters, effects, adjustments), shared with the editor's preview.
     "looks_path": "/opt/hubd/static/editor/looks.json",
 }
@@ -610,6 +613,9 @@ class Ingest:
                 self.queue_sync(doc)
             elif c == "thumbs":              # the editor opened a take without thumbnails: don't wait 30 min
                 self.manual = True
+                take = (self.state.get("takes") or {}).get(doc.get("take") or "")
+                if take is not None and take.get("adopted"):
+                    take["caches_wanted"] = True     # a take that came in on the drive: make its caches now
             elif c == "start":
                 self.manual = True
             elif c == "eject":
@@ -934,6 +940,8 @@ class Ingest:
             for key in [k for k in jobs if k.startswith(take_id + "/")]:
                 del jobs[key]
         (self.state.get("audio") or {}).pop(take_id, None)
+        (self.state.get("videos") or {}).pop(take_id, None)
+        ((self.state.get("drive_index") or {}).get("takes") or {}).pop(take_id, None)
         hubd_state = self.cfg["hubd_state_dir"]
         for folder in (os.path.join(self.cfg["thumbs_dir"], take_id), os.path.join(self.cfg["proxies_dir"], take_id),
                        os.path.join(hubd_state, "waveforms", take_id), os.path.join(hubd_state, "edits", take_id),
@@ -941,18 +949,166 @@ class Ingest:
             shutil.rmtree(folder, ignore_errors=True)
         sys.stderr.write("take %s removed: %s\n" % (take_id, why))
 
-    def check_for_removed_takes(self):
-        """Every removed_check_s while the rig is idle: mount read-only if needed and look."""
-        if self.clock() - self.last_removed_check < self.cfg["removed_check_s"]:
+    def look_at_drive(self):
+        """While the rig is idle, every removed_check_s and whenever a different drive is
+        plugged in: mount read-only if needed, forget takes deleted from the drive, index
+        what's on it and adopt takes this hub doesn't know (stick-db-plan S2, S5)."""
+        index = self.state.get("drive_index") or {}
+        present = self.drive.present() and self.state.get("drive") != "ejected"
+        if index and index.get("present") != present:
+            index["present"] = present              # the page greys the takes out while it's away
+            self.save()
+        if self.rig_busy() or not present:
+            return
+        drive_id = self.drive.filesystem_id()
+        due = self.clock() - self.last_removed_check >= self.cfg["removed_check_s"]
+        if not due and drive_id and drive_id == index.get("drive_id"):
             return
         self.last_removed_check = self.clock()
-        if self.rig_busy() or not self.drive.present() or self.state.get("drive") == "ejected":
-            return
         try:
             with self.reading_drive():
                 self.forget_removed_takes()
+                self.index_drive(drive_id)
+                self.adopt_drive_takes()
         except RuntimeError:
             pass
+
+    def index_drive(self, drive_id):
+        if not drive_id or not self.drive.mounted():
+            return
+        index = drive_records.index_drive(self.drive.mp, drive_id, self.clock())
+        index["present"] = True
+        self.state["drive_index"] = index
+        self.save()
+
+    def adopt_drive_takes(self):
+        """Takes on the drive this hub doesn't know (the drive comes from another hub, or the
+        SD card was set up again) join the list as ingested. Their bounces and syncs are
+        copied back to the SD staging area, so sync and render work as for any take; their
+        thumbnails and proxies wait until the editor opens them (wants_caches)."""
+        index = self.state.get("drive_index") or {}
+        takes = self.state.setdefault("takes", {})
+        adopted = []
+        for take_id, described in sorted((index.get("takes") or {}).items()):
+            if take_id in takes or not TAKE_RE.match(take_id):
+                continue
+            takes[take_id] = drive_records.adopted_take_state(described, index["drive_id"])
+            (self.state.get("removed_takes") or {}).pop(take_id, None)     # it's back
+            if described["videos"]:
+                self.state.setdefault("videos", {})[take_id] = described["videos"]
+            self.restore_audio(take_id)
+            adopted.append(take_id)
+        if adopted:
+            sys.stderr.write("adopted from the drive: %s\n" % ", ".join(adopted))
+            self.save()
+        return adopted
+
+    def restore_audio(self, take_id):
+        """Copy the take's audio/ from the drive to the SD staging area, unless the hub has it.
+        Recorded as already on the drive, so audio_pending doesn't copy it back."""
+        source = os.path.join(self.take_folder(take_id), "audio")
+        staged = os.path.join(self.cfg["audio_dir"], take_id)
+        if not os.path.isdir(source) or os.path.exists(staged):
+            return
+        shutil.copytree(source, staged + ".part", copy_function=shutil.copy2)
+        os.replace(staged + ".part", staged)
+        copied = self.state.setdefault("audio", {}).setdefault(take_id, {})
+        for folder, _, files in os.walk(staged):
+            for name in files:
+                path = os.path.join(folder, name)
+                info = os.stat(path)
+                rel = os.path.relpath(path, staged)
+                copied[rel] = {"size": info.st_size, "mtime_ns": info.st_mtime_ns,
+                               "path": os.path.join(source, rel)}
+
+    def reindex_take(self, take_id):
+        """Bring one take's index entry up to date (just written), if the index is this drive's."""
+        index = self.state.get("drive_index") or {}
+        if index.get("drive_id") and index.get("drive_id") == self.drive.filesystem_id():
+            described = drive_records.describe_take(self.take_folder(take_id))
+            if described:
+                index.setdefault("takes", {})[take_id] = described
+
+    @staticmethod
+    def wants_caches(take):
+        """Thumbnails and proxies: for every take ingested here; for a take adopted from the
+        drive only once the editor has opened it (an old drive may hold many takes)."""
+        return not take.get("adopted") or take.get("caches_wanted")
+
+    # -- the take's lasting records on the drive (stick-db-plan S1, S4)
+    def take_log(self):
+        return drive_records.read_take_log(os.path.join(self.cfg["hubd_state_dir"], "takes.json"))
+
+    def drive_records_pending(self):
+        """What to write to the drive's take folders: ([take_id] whose take.json lacks the
+        current take-log record, [(take_id, song, path)] working cuts newer than the drive's).
+        Only takes in the index of the drive that's plugged in."""
+        index = self.state.get("drive_index") or {}
+        if not index.get("present") or index.get("drive_id") != self.drive.filesystem_id():
+            return [], []
+        indexed = index.get("takes") or {}
+        log = self.take_log()
+        records = [take_id for take_id, described in sorted(indexed.items())
+                   if (recording := drive_records.recording_for(log, take_id))
+                   and drive_records.digest(recording) != drive_records.digest(described.get("recording"))]
+        edits = []
+        edits_root = os.path.join(self.cfg["hubd_state_dir"], "edits")
+        for take_id, described in sorted(indexed.items()):
+            folder = os.path.join(edits_root, take_id)
+            try:
+                names = sorted(os.listdir(folder))
+            except OSError:
+                continue
+            for name in names:
+                if not name.endswith(".json"):
+                    continue
+                path = os.path.join(folder, name)
+                song = name[:-len(".json")]
+                if self.clock() - os.path.getmtime(path) < self.cfg["working_edit_delay_s"]:
+                    continue                     # still being edited: wait for a pause
+                edit = drive_records.read_json(path)
+                if isinstance(edit, dict) and drive_records.digest(edit) != (described.get("working_edits") or {}).get(song):
+                    edits.append((take_id, song, path))
+        return records, edits
+
+    def update_drive_records(self):
+        """Write pending records and working cuts. Small files: needs only a quiet rig and
+        the drive, not ingest's idle wait, like syncs."""
+        if self.rig_busy() or not self.drive.present() or self.state.get("drive") == "ejected" \
+                or not self.drive.check():
+            return 0
+        records, edits = self.drive_records_pending()
+        if not records and not edits:
+            return 0
+        indexed = self.state["drive_index"]["takes"]
+        log = self.take_log()
+        with self.writing():
+            for take_id in records:
+                recording = drive_records.recording_for(log, take_id)
+                path = os.path.join(self.take_folder(take_id), "take.json")
+                doc = drive_records.read_json(path)
+                if not isinstance(doc, dict):
+                    continue
+                doc["recording"] = recording
+                self.write_json_on_drive(path, doc)
+                indexed[take_id]["recording"] = recording
+            for take_id, song, source in edits:
+                edit = drive_records.read_json(source)
+                folder = os.path.join(self.take_folder(take_id), "edits", song)
+                os.makedirs(folder, exist_ok=True)
+                self.write_json_on_drive(os.path.join(folder, drive_records.WORKING_EDIT), edit)
+                indexed[take_id].setdefault("working_edits", {})[song] = drive_records.digest(edit)
+        self.save()
+        return len(records) + len(edits)
+
+    @staticmethod
+    def write_json_on_drive(path, value):
+        part = path + ".part"
+        with open(part, "w") as f:
+            json.dump(value, f, indent=1)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(part, path)
 
     # -- strip thumbnails for the editor (thumbnails.py)
     @contextlib.contextmanager
@@ -975,7 +1131,7 @@ class Ingest:
         failed = self.state.get("thumbs_failed") or {}
         out = []
         for take_id, take in sorted((self.state.get("takes") or {}).items()):
-            if not take.get("complete"):
+            if not take.get("complete") or not self.wants_caches(take):
                 continue
             for camera_id in sorted(k for k, v in take.items() if isinstance(v, dict) and "frames_cam" in v):
                 key = "%s/%s" % (take_id, camera_id)
@@ -1006,7 +1162,7 @@ class Ingest:
         # Only takes the editor can open (a synced song), newest first (user, 2026-11-16:
         # only the latest take gets edited; no proxies for old takes).
         for take_id, take in sorted((self.state.get("takes") or {}).items(), reverse=True):
-            if not take.get("complete") or not self.has_synced_song(take_id):
+            if not take.get("complete") or not self.wants_caches(take) or not self.has_synced_song(take_id):
                 continue
             for camera_id in sorted(k for k, v in take.items() if isinstance(v, dict) and "frames_cam" in v):
                 path = os.path.join(self.cfg["proxies_dir"], take_id, camera_id + ".mp4")
@@ -1404,6 +1560,9 @@ class Ingest:
         except (OSError, ValueError):
             doc = {"cameras": {}, "manifests": {}}
         doc.update(take_id=take_id, ingest_version=VERSION, fps=FPS)
+        recording = drive_records.recording_for(self.take_log(), take_id)
+        if recording:
+            doc["recording"] = recording
         for c, m in cams.items():
             doc["cameras"][c] = {k: v for k, v in self.cam_state(take_id, c).items() if k != "done"}
             doc["manifests"][c] = m
@@ -1494,6 +1653,7 @@ class Ingest:
             mans = self.manifests(take_id, cams)
             with self.writing():
                 self.write_take_json(take_id, mans)
+                self.reindex_take(take_id)
             for c in sorted(mans):
                 if "marked" not in self.cam_state(take_id, c)["done"]:
                     self.begin(take_id, c, "marked")
@@ -1511,7 +1671,11 @@ class Ingest:
         self.state["drive_free_gb"] = self.drive_free()
         if self.syncs_ready():              # needs neither the drive nor 30 min idle, only a quiet rig
             self.run_syncs()
-        self.check_for_removed_takes()
+        self.look_at_drive()
+        try:
+            self.update_drive_records()     # small files: a quiet rig and the drive are enough
+        except (RuntimeError, OSError) as e:
+            sys.stderr.write("drive records: %s\n" % e)
         ok, why = self.should_run()
         if not ok:
             self.settle_drive()

@@ -25,6 +25,7 @@ For a new camera spot, or after moving one. Everything except step 6 shows on th
 - **Eject before unplugging:** "Eject drive" on the hub page, then wait for "Drive ejected: safe to unplug". The hub only mounts the drive while it writes, plays back or renders, but Eject also flushes and powers the port down.
 - **On the Mac:** eject it in Finder before unplugging.
 - **"drive needs repair (fsck)" on the hub page** (after it was pulled out mid-write, or not ejected on the Mac): plug it into the Mac, Disk Utility → select the STUDIO volume → **First Aid**, then eject and plug it back into the hub. Ingest redoes whatever it was writing; a leftover `*.part` file is an unfinished copy and can be ignored.
+- **The drive is the record** (`docs/stick-db-plan.md`): to delete a take, delete its folder on the drive (on the Mac). Within about 10 minutes of the drive being back in the hub, the take is gone from the page and the hub's caches. The hub page lists what's on the plugged-in drive; "N takes on another drive" counts takes ingested to a different drive; with the drive on the Mac, its takes are greyed out. The editor's working cut is saved to `edits/<song>/working-edit.json` about 2 minutes after the last change.
 - The hub never deletes anything on the drive. Free space is shown on the hub page (last reading while plugged in) with how many hours of takes still fit.
 
 ## Bounces and the quick mix

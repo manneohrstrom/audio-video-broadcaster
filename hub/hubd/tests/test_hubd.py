@@ -557,9 +557,6 @@ class HubTest(unittest.TestCase):
         self.assertEqual(snap["nodes"]["cam1"]["problems"], [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class SnapshotTest(unittest.TestCase):
     def setUp(self):
@@ -645,3 +642,35 @@ class SyncRequestTest(unittest.TestCase):
         hub.audio.version_info = lambda t, s, v: {"complete": False}
         with self.assertRaises(ValueError):
             hub.request_sync("20261116-185403", "track-1", 2)
+
+
+class DriveViewTest(unittest.TestCase):
+    """The take list fitted to the STUDIO drive (docs/stick-db-plan.md, S3)."""
+
+    def takes(self):
+        return {"20261117-010000": {"complete": True, "drive_id": "STICK"},
+                "20261117-020000": {"complete": True, "drive_id": "SSD"},
+                "20261117-030000": {"cam1": {"done": ["pulled"]}}}          # in flight
+
+    def test_takes_on_another_drive_become_a_count(self):
+        takes = self.takes()
+        view = hubd.drive_view(takes, {"drive_id": "SSD", "present": True})
+        self.assertEqual(sorted(takes), ["20261117-020000", "20261117-030000"])
+        self.assertEqual(view, {"drive_id": "SSD", "present": True, "other_drive_takes": 1})
+        self.assertNotIn("drive_absent", takes["20261117-020000"])
+
+    def test_with_the_drive_out_its_takes_are_greyed(self):
+        takes = self.takes()
+        view = hubd.drive_view(takes, {"drive_id": "SSD", "present": False})
+        self.assertFalse(view["present"])
+        self.assertTrue(takes["20261117-020000"]["drive_absent"])
+        self.assertNotIn("drive_absent", takes["20261117-030000"])      # in flight: still on the cameras
+
+    def test_no_index_yet_lists_everything(self):
+        takes = self.takes()
+        self.assertEqual(hubd.drive_view(takes, {})["other_drive_takes"], 0)
+        self.assertEqual(len(takes), 3)
+
+
+if __name__ == "__main__":
+    unittest.main()

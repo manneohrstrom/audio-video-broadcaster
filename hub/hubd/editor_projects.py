@@ -171,10 +171,13 @@ class EditorProjects:
     proxies_dir: editing proxies made by hub-ingest (hub/ingest/proxies.py).
     request_thumbnails(take_id): ask hub-ingest to make missing thumbnails now.
     waveforms_dir: cached waveforms of bounces.
+    read_drive_edit(take_id, song_id): the working cut kept in the take's folder on the drive
+        (edits/<song>/working-edit.json, copied there by hub-ingest), or None.
     """
 
     def __init__(self, audio, read_take_document, find_quick_edit, edits_dir, thumbs_dir=None,
-                 request_thumbnails=None, waveforms_dir=None, proxies_dir=None, clock=time.time, ffmpeg="ffmpeg"):
+                 request_thumbnails=None, waveforms_dir=None, proxies_dir=None, clock=time.time, ffmpeg="ffmpeg",
+                 read_drive_edit=None):
         self.audio = audio
         self.read_take_document = read_take_document
         self.find_quick_edit = find_quick_edit
@@ -185,6 +188,7 @@ class EditorProjects:
         self.proxies_dir = proxies_dir or os.path.join(edits_dir, "..", "proxies")
         self.clock = clock
         self.ffmpeg = ffmpeg
+        self.read_drive_edit = read_drive_edit or (lambda take_id, song_id: None)
 
     # -- paths
     def _check_ids(self, take_id, song_id, version):
@@ -279,12 +283,8 @@ class EditorProjects:
         """(edit, where it came from): the working copy, else the quick mix's cut, else one shot."""
         camera_ids = {camera["id"] for camera in cameras}
         length_ns = range_ns[1] - range_ns[0]
-        path = self.working_copy_path(take_id, song_id, version)
-        if not os.path.exists(path):
-            path = self._older_per_version_copy(take_id, song_id) or path
+        saved = self._newest_working_copy(take_id, song_id, version)
         try:
-            with open(path) as f:
-                saved = json.load(f)
             cuts = rebase_cuts(saved["cuts"], saved["range_ns"], range_ns)
             if cuts:
                 saved.update(cuts=validate_cuts(cuts, camera_ids, length_ns), range_ns=range_ns)
@@ -302,6 +302,34 @@ class EditorProjects:
                 pass
         cuts = automatic_cut(cameras, range_ns)
         return self._new_edit(take_id, song_id, version, range_ns, cuts, "auto-v1"), "automatic cut"
+
+    def _newest_working_copy(self, take_id, song_id, version):
+        """The newer (by saved_at) of the hub's working copy and the drive's, or None.
+        A drive copy that wins is saved on the hub too: the render reads the hub's copy."""
+        path = self.working_copy_path(take_id, song_id, version)
+        if not os.path.exists(path):
+            path = self._older_per_version_copy(take_id, song_id) or path
+        try:
+            with open(path) as f:
+                on_hub = json.load(f)
+        except (OSError, ValueError):
+            on_hub = None
+        on_drive = self.read_drive_edit(take_id, song_id)
+        if not isinstance(on_drive, dict) or (
+                isinstance(on_hub, dict) and (on_hub.get("saved_at") or 0) >= (on_drive.get("saved_at") or 0)):
+            return on_hub
+        self._write_working_copy(take_id, song_id, version, on_drive)
+        return on_drive
+
+    def _write_working_copy(self, take_id, song_id, version, edit):
+        path = self.working_copy_path(take_id, song_id, version)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        temporary = path + ".tmp"
+        with open(temporary, "w") as f:
+            json.dump(edit, f, indent=1)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, path)
 
     def _new_edit(self, take_id, song_id, version, range_ns, cuts, made_by):
         return {"version": EDIT_FORMAT_VERSION, "take": take_id, "song": song_id, "song_version": version,
@@ -353,12 +381,5 @@ class EditorProjects:
             raise ProjectError("dissolve_s must be 0-2 seconds")
         saved = self._new_edit(take_id, song_id, version, range_ns, cuts, "user")
         saved.update(look=edit.get("look"), dissolve_s=dissolve_s, saved_at=self.clock())
-        path = self.working_copy_path(take_id, song_id, version)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        temporary = path + ".tmp"
-        with open(temporary, "w") as f:
-            json.dump(saved, f, indent=1)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(temporary, path)
+        self._write_working_copy(take_id, song_id, version, saved)
         return saved

@@ -55,6 +55,13 @@
   loop: [edit_render.py, look_render.py, grade.py]
   notify: Restart hub-ingest
 
+- name: hub-ingest drive records (the STUDIO drive as the record of every take, docs/stick-db-plan.md)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/ingest/drive_records.py"
+    dest: /opt/hub-ingest/drive_records.py
+    mode: "0644"
+  notify: Restart hub-ingest
+
 - name: hub-ingest config
   ansible.builtin.copy:
     dest: /etc/hubd/ingest.json

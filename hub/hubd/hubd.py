@@ -32,7 +32,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.20.0"
+VERSION = "0.21.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -250,6 +250,26 @@ def exit_ok(c):
     return c.get("exit_code") in (0, None) or (c.get("exit_code") in (-6, 134) and c.get("pts_source") == "save-pts")
 
 
+def drive_view(takes, index):
+    """Fit the take list to the STUDIO drive (stick-db-plan S3, user decisions 2026-11-17).
+    Takes ingested to another drive are taken out and counted ("3 takes on another
+    drive"). While the indexed drive is out, its takes stay listed, marked drive_absent
+    (greyed: no playback, no editing). Takes still in flight are always listed."""
+    drive_id = index.get("drive_id")
+    if not drive_id:
+        return {"drive_id": None, "present": None, "other_drive_takes": 0}
+    elsewhere = [take_id for take_id, take in takes.items()
+                 if take.get("complete") and take.get("drive_id") and take["drive_id"] != drive_id]
+    for take_id in elsewhere:
+        del takes[take_id]
+    present = bool(index.get("present"))
+    if not present:
+        for take in takes.values():
+            if take.get("complete"):
+                take["drive_absent"] = True
+    return {"drive_id": drive_id, "present": present, "other_drive_takes": len(elsewhere)}
+
+
 def take_summary(take_id, manifests, errors, limit_us=1000):
     cams = {}
     wcs = []
@@ -319,7 +339,8 @@ class Hub:
             thumbs_dir=os.path.join(cfg["state_dir"], "thumbs"),
             waveforms_dir=os.path.join(cfg["state_dir"], "waveforms"),
             proxies_dir=os.path.join(cfg["state_dir"], "proxies"),
-            request_thumbnails=lambda take_id: self.ingest_command("thumbs", take=take_id))
+            request_thumbnails=lambda take_id: self.ingest_command("thumbs", take=take_id),
+            read_drive_edit=self.read_drive_edit)
         self.scratch = scratch.Scratch(cfg.get("scratch"), adir, log)
 
     @property
@@ -395,7 +416,16 @@ class Hub:
             self.scratch.start(take_id)         # late: from now on only
 
     def take_ids(self):
-        return {e.get("take_id") for e in self.read_log() if e.get("take_id") and not e.get("aborted")}
+        """Takes recorded here, plus takes that came in on the drive (adopted by hub-ingest)."""
+        recorded = {e.get("take_id") for e in self.read_log() if e.get("take_id") and not e.get("aborted")}
+        return recorded | set(self.read_ingest_file().get("takes") or {})
+
+    def read_ingest_file(self):
+        try:
+            with open(os.path.join(self.cfg["ingest_dir"], "state.json")) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
 
     def rig_busy(self):
         """A take or live session is running (uploads wait, like ingest)."""
@@ -878,14 +908,14 @@ class Hub:
     def ingest_state(self, limit=50):
         """hub-ingest's state, merged with the take log so that takes still only on
         the cameras are listed too (with recorded=..., and no ingest steps yet)."""
-        try:
-            with open(os.path.join(self.cfg["ingest_dir"], "state.json")) as f:
-                st = json.load(f)
-        except (OSError, ValueError):
-            st = {"status": "ingest service not running", "takes": {}}
+        st = self.read_ingest_file() or {"status": "ingest service not running", "takes": {}}
         takes = st.setdefault("takes", {})
         removed = st.get("removed_takes") or {}     # deleted from the drive by the user: not listed
-        for e in self.read_log():                   # later entries win (adopted duplicates)
+        index = st.pop("drive_index", None) or {}   # what's on the drive (stick-db-plan S2)
+        # Takes that came in on the drive have their take-log record in take.json; the hub's
+        # own log comes after, so it wins for takes recorded here.
+        from_drive = [t["recording"] for t in (index.get("takes") or {}).values() if t.get("recording")]
+        for e in from_drive + self.read_log():      # later entries win (adopted duplicates)
             tid = e.get("take_id")
             if not tid or e.get("aborted") or tid in removed:
                 continue
@@ -912,6 +942,7 @@ class Hub:
                     "phone": True, "uploading": not done}
                 if done:
                     takes[tid]["recorded"]["length_s"] = max(takes[tid]["recorded"]["length_s"], m.get("duration_s") or 0)
+        st["drive_view"] = drive_view(takes, index)
         st["takes"] = dict(sorted(takes.items())[-limit:])
         copied = st.get("audio") or {}
         jobs = st.get("renders") or {}
@@ -965,6 +996,18 @@ class Hub:
                 return json.load(f)
         except (OSError, ValueError):
             raise editor_projects.ProjectError("take %s isn't on the drive yet (ingest)" % take_id) from None
+
+    def read_drive_edit(self, take_id, song_id):
+        """The working cut in the take's folder on the drive (copied there by hub-ingest), or None."""
+        if not self.drive_mounted():
+            return None                              # read_take_document has just waited for it
+        path = os.path.join(self.take_folder(take_id), "edits", song_id, "working-edit.json")
+        try:
+            with open(path) as f:
+                edit = json.load(f)
+        except (OSError, ValueError):
+            return None
+        return edit if isinstance(edit, dict) else None
 
     def find_quick_edit(self, take_id, song_id, version):
         """The newest quick-mix edit (render.py) of this song version on the drive, or None."""

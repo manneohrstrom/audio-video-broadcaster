@@ -163,8 +163,39 @@ class ProjectTest(unittest.TestCase):
             projects.project(TAKE, "track-1", 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class DriveEditTest(unittest.TestCase):
+    """The working cut kept on the drive (docs/stick-db-plan.md, S4)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.on_drive = None
+        self.projects = ep.EditorProjects(FakeAudio(os.path.join(self.tmp, "audio")),
+                                          read_take_document=lambda take: take_document(),
+                                          find_quick_edit=lambda *a: None,
+                                          edits_dir=os.path.join(self.tmp, "edits"), clock=lambda: 100.0,
+                                          read_drive_edit=lambda take, song: self.on_drive)
+        self.range_ns = self.projects.project(TAKE, "track-1", 1)["range_ns"]
+
+    def drive_copy(self, camera, saved_at):
+        return {"range_ns": self.range_ns, "cuts": [{"at_ns": 0, "camera": camera}], "saved_at": saved_at}
+
+    def first_camera(self):
+        return self.projects.project(TAKE, "track-1", 1)["edit"]["cuts"][0]["camera"]
+
+    def test_a_hub_without_its_own_copy_opens_the_drives(self):
+        self.on_drive = self.drive_copy("cam2", saved_at=50.0)
+        self.assertEqual(self.first_camera(), "cam2")
+        hub_copy = os.path.join(self.tmp, "edits", TAKE, "track-1.json")
+        with open(hub_copy) as f:
+            self.assertEqual(json.load(f)["cuts"][0]["camera"], "cam2")   # the render reads this one
+
+    def test_the_newer_copy_wins(self):
+        self.projects.save_edit(TAKE, "track-1", 1, {"cuts": [{"at_ns": 0, "camera": "cam1"}]})   # saved_at 100
+        self.on_drive = self.drive_copy("cam2", saved_at=50.0)
+        self.assertEqual(self.first_camera(), "cam1")
+        self.on_drive = self.drive_copy("cam2", saved_at=150.0)
+        self.assertEqual(self.first_camera(), "cam2")
+
 
 
 class WaveformTest(unittest.TestCase):
@@ -191,3 +222,7 @@ class WaveformTest(unittest.TestCase):
         self.assertGreater(min(wf["peaks"][110:190]), 100)
         os.remove(path)                                       # cached: no need for the file now
         self.assertEqual(projects.waveform(TAKE, "track-1", 1), wf)
+
+
+if __name__ == "__main__":
+    unittest.main()
