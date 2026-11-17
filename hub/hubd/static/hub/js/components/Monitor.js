@@ -70,7 +70,7 @@ function CameraPanel({ name, node, calibration, history }) {
   const take = st.take;
   const dropped = take ? take.dropped_so_far || 0 : 0;
   const syncUs = take && take.sync_difference_us;
-  return html`<${Panel} tone=${tone} name=${name} shooting=${st.mode === "snapshot"}
+  return html`<${Panel} tone=${tone} name=${name} shooting=${!!node.shooting || st.mode === "snapshot"}
                        mode=${(mode === "recording" ? "● rec" : mode) + (take ? " · " + take.role : "")}>
     <${Rows} rows=${[
       take && ["take", `${take.take_id} · ${hms(take.elapsed_s)} · ${take.frames ?? take.frames_est} fr`],

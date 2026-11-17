@@ -4,6 +4,7 @@
 Polls every camnode, runs REC/STOP/LIVE across the rig, serves the web UI.
 Standard library only. Config: /etc/hubd/config.json (rendered by Ansible).
 """
+import contextlib
 import json
 import os
 import glob
@@ -32,7 +33,8 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.25.1"
+VERSION = "0.26.1"
+SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -320,6 +322,11 @@ class Hub:
         self.budget = budget.limits(None, 0, {}, {})
         self.card, self.calib_lock = None, threading.Lock()
         self.snaps_in_flight = 0            # camera snapshots running (REC waits for them)
+        # The camera icon on the page: the hub starts every still itself, so it says when a
+        # camera is taking one. The camera's own "snapshot" mode is over too quickly for the
+        # 2 s node poll to catch (user 2026-11-17: the icon never showed).
+        self.shooting = {n: 0 for n in cfg["nodes"]}       # stills/frame grabs in flight
+        self.shot_at = {n: 0.0 for n in cfg["nodes"]}      # when the last one ended
         self.hold = 0                       # >0 while REC/LIVE takes the cameras: no new stills
         self.cam_locks = {n: threading.Lock() for n in cfg["nodes"]}   # one still per camera at a time
         self.cam_settings_path = os.path.join(cfg["state_dir"], "camera_settings.json")
@@ -461,7 +468,7 @@ class Hub:
             return {"hub_version": VERSION, "state": self.state, "take": self.take, "hub": self.health,
                     "message": self.message, "sync_server": self.cfg["sync_server"],
                     "nodes": {n: {"online": self.status[n] is not None, "status": self.status[n],
-                                  "last_seen": self.seen[n],
+                                  "last_seen": self.seen[n], "shooting": self.is_shooting(n),
                                   "slow": self.status[n] is not None and self.misses[n] > 0,
                                   "problems": arm_problems(n, self.status[n], self.cfg["checks"],
                                                            still_is_idle=True)}
@@ -693,17 +700,33 @@ class Hub:
             self.snaps_in_flight += 1
             body = {"settings": dict(self.cam_settings.get(cam, {}), **(settings or {})), "auto": auto}
         try:
-            with self.cam_locks[cam]:
+            with self.cam_locks[cam], self.taking_still(cam):
                 return self.nodes.still(cam, body)
         finally:
             with self.lock:
                 self.snaps_in_flight -= 1
 
+    @contextlib.contextmanager
+    def taking_still(self, cam):
+        with self.lock:
+            self.shooting[cam] += 1
+        try:
+            yield
+        finally:
+            with self.lock:
+                self.shooting[cam] -= 1
+                self.shot_at[cam] = self.clock()
+
+    def is_shooting(self, cam):
+        """Taking a still now, or just did (kept SHOT_LINGER_S so a 1 s page poll sees it)."""
+        return self.shooting[cam] > 0 or self.clock() - self.shot_at[cam] < SHOT_LINGER_S
+
     def grab_live(self, cam):
         url = "rtsp://%s.local:8554/cam" % cam
-        r = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-rtsp_transport", "tcp", "-i", url,
-                            "-frames:v", "1", "-q:v", "3", "-f", "image2", "-c:v", "mjpeg", "-"],
-                           capture_output=True, timeout=15)
+        with self.taking_still(cam):
+            r = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-rtsp_transport", "tcp", "-i", url,
+                                "-frames:v", "1", "-q:v", "3", "-f", "image2", "-c:v", "mjpeg", "-"],
+                               capture_output=True, timeout=15)
         if r.returncode != 0 or not r.stdout:
             raise NodeError("%s: no frame from the live stream (%s)" % (cam, r.stderr.decode(errors="replace")[-200:]))
         return r.stdout

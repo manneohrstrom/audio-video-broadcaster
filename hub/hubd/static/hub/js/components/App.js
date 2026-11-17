@@ -63,11 +63,19 @@ function usePolling(load, ms, onError) {
   return [value, refresh];
 }
 
-/** What the segment display says: IDLE, LIVE, REC 00:12:03, STARTING, … */
+/** True while a Pi camera or phone is calibrating from the card (between the start blip and the chime). */
+function anyCalibrating(calibration) {
+  if (!calibration) return false;
+  const entries = [...Object.values(calibration.devices || {}), ...Object.values(calibration.phones || {})];
+  return entries.some(entry => entry && entry.status === "calibrating");
+}
+
+/** What the segment display says: IDLE, LIVE, CALIBRATING, REC 00:12:03, STARTING, … */
 function rigLabel(status) {
   if (!status) return "HELLO";
   const live = Object.values(status.nodes || {}).some(node => node.status && node.status.mode === "live");
   if (status.state === "recording" && status.take) return "REC " + hms(Date.now() / 1000 - status.take.recording_at);
+  if (status.state === "idle" && anyCalibrating(status.calibration)) return "CALIBRATING";
   if (status.state === "idle" && live) return "LIVE";
   return String(status.state || "?").toUpperCase();
 }

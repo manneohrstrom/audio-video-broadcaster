@@ -62,7 +62,7 @@ function CameraFocus({ id, node, savedLens, rigIdle, shotRequest, say, onSaved }
 
   const cameraMode = (node.status || {}).mode;
   const mode = !node.online ? "offline" : shownMode(cameraMode) || "?";
-  const shooting = busy || cameraMode === "snapshot";        // this view's still, or the calibration watcher's
+  const shooting = busy || !!node.shooting || cameraMode === "snapshot";   // this view's still, the calibration watcher's (hub-reported)
   const canShoot = rigIdle && node.online;
 
   /** Take one still at `at`; remembers the sharpest seen. Returns its info or null. */

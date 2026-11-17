@@ -169,6 +169,39 @@ class CalibratorTest(unittest.TestCase):
         cal.tick()
         self.assertEqual(looks(), n + 3)
 
+    def test_status_says_when_a_camera_takes_a_still(self):
+        shooting = lambda: self.hub.snapshot()["nodes"]["cam1"]["shooting"]
+        self.assertFalse(shooting())
+        with self.hub.taking_still("cam1"):
+            self.assertTrue(shooting())
+        self.assertTrue(shooting())                 # lingers so the page's 1 s poll sees it
+        self.now[0] += hubd.SHOT_LINGER_S
+        self.assertFalse(shooting())
+
+    def test_looks_often_after_a_calibration_so_the_card_can_come_back(self):
+        cal = self.hub.calibrator
+        looks = lambda: len([b for b in self.rig.bodies if b[0] == "cam1" and b[1] == "/snapshot"])
+        cal.page_open()
+        cal.watch_until = 1e12
+        self.now[0] += calibrate.SETUP_S + 1        # setup over: a calibrated camera would settle
+        cal.tick()
+        self.assertEqual(cal.status()["seq"], 1)
+        self.card_visible = set()                   # card lowered for one look
+        self.now[0] += calibrate.EVERY_S
+        n = looks()
+        cal.tick()
+        self.assertEqual(looks(), n + 1)            # still looking every EVERY_S
+        self.card_visible = {"cam1"}                # and shown again
+        self.now[0] += calibrate.EVERY_S
+        cal.tick()
+        self.assertEqual(cal.status()["seq"], 2)
+        self.now[0] += calibrate.AGAIN_S            # then it settles to EVERY_SETTLED_S
+        cal.tick()
+        n = looks()
+        self.now[0] += calibrate.EVERY_S
+        cal.tick()
+        self.assertEqual(looks(), n)
+
     def test_nothing_during_a_take(self):
         cal = self.hub.calibrator
         self.hub.rec()

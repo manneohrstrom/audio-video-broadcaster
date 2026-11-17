@@ -42,6 +42,10 @@ WATCH_S = 20            # watching stays on this long after a page last asked fo
 EVERY_S = 3.0
 EVERY_SETTLED_S = 15.0
 SETUP_S = 300
+# Looking often again for a while after a calibration and after the card leaves the
+# picture, so the card can be shown again straight away to recalibrate (user 2026-11-17:
+# at every 15 s the card had to be away ~15 s and back ~15 s before it was picked up).
+AGAIN_S = 120
 
 
 def lin(v):
@@ -147,6 +151,7 @@ class Calibrator:
         self.watch_until = 0.0
         self.watch_since = 0.0
         self.last_look = {}         # cam -> time of its last look for the card
+        self.often_until = {}       # cam -> look every EVERY_S until then (see AGAIN_S)
         self.seq = 0                # bumped on every new calibration (the page chimes)
         self.card = None
 
@@ -159,7 +164,8 @@ class Calibrator:
 
     def due(self, cam):
         now = self.clock()
-        settled = cam in self.records and now - self.watch_since > SETUP_S
+        settled = (cam in self.records and now - self.watch_since > SETUP_S
+                   and now >= self.often_until.get(cam, 0))
         return now - self.last_look.get(cam, 0) >= (EVERY_SETTLED_S if settled else EVERY_S)
 
     def watching(self):
@@ -256,6 +262,12 @@ class Calibrator:
             release_freed_memory()
             return result
 
+    def card_gone(self, cam):
+        if self.in_view.get(cam):
+            self.often_until[cam] = self.clock() + AGAIN_S     # ready for the card again
+        self.in_view[cam] = False
+        self._set(cam)
+
     def step(self, cam):
         with self.hub.lock:
             st = self.hub.status.get(cam) or {}
@@ -264,8 +276,7 @@ class Calibrator:
         jpg, meta = self.hub.still(cam, auto=True)
         m = self._measure(jpg)
         if not m.get("grey"):
-            self.in_view[cam] = False
-            self._set(cam)
+            self.card_gone(cam)
             return
         if self.in_view.get(cam):
             return                      # still in view since it was calibrated: wait for it to leave
@@ -300,8 +311,7 @@ class Calibrator:
         from the settings the stream runs with now."""
         m = self._measure(self.hub.grab_live(cam))
         if not m.get("grey"):
-            self.in_view[cam] = False
-            self._set(cam)
+            self.card_gone(cam)
             return
         if self.in_view.get(cam):
             return
@@ -340,6 +350,7 @@ class Calibrator:
             self.records[cam] = rec
             self._write()
             self.seq += 1
+            self.often_until[cam] = self.clock() + AGAIN_S     # watch for the card leaving
             msg = None if light_ok else "not enough light: at maximum gain"
             if not converged and light_ok:
                 msg = "close, not exact: show the card again to retry"

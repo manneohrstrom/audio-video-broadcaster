@@ -11,7 +11,7 @@ For a new camera spot, or after moving one. Everything except step 6 shows on th
 4. **Temperature:** under 70 °C at rest. Throttling starts at 80 °C.
 5. **Nothing in front of the lens:** check the picture on the snapshot page (`/snap`). A mic or stand at the edge of the wide lens is easy to miss (cam2 and cam4 had one).
 6. **Focus:** on `/snap`, "Find sharpest" on the spot where the players will be, then "Save focus". The Pis have one fixed focus each.
-7. **Colour:** show the calibration card (`hub/calib/calibration-card.pdf`, printed A4 landscape at 100%) to the camera while a hub page is open; it locks on its own ("✓ calibrated"). The hub page sounds it out (click the page once first so the browser allows sound): a short blip when the card is found (hold still), a rising chime when done, a low falling buzz on a problem (the reason shows on the camera's card). Hold the card where the performers will be, in the session's light.
+7. **Colour:** show the calibration card (`hub/calib/calibration-card.pdf`, printed A4 landscape at 100%) to the camera while a hub page is open; it locks on its own ("✓ calibrated"). The hub page sounds it out (click the page once first so the browser allows sound): a short blip when the card is found (hold still), a rising chime when done, a low falling buzz on a problem (the reason shows on the camera's card). To calibrate again (other light, other spot), lower the card for a few seconds and show it again: a camera recalibrates only after it has seen the card leave. Hold the card where the performers will be, in the session's light.
 8. A short test take: no dropped frames on the card, and the take ingests.
 
 ## OBS (LIVE)
