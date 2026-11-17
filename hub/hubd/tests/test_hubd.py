@@ -556,6 +556,11 @@ class HubTest(unittest.TestCase):
         self.assertEqual(snap["nodes"]["cam4"]["problems"], ["cam4 offline"])
         self.assertEqual(snap["nodes"]["cam1"]["problems"], [])
 
+    def test_a_still_being_taken_is_no_problem_on_the_page_but_rec_stays_strict(self):
+        status = dict(self.rig.st["cam2"], mode="snapshot")
+        self.assertEqual([p for p in hubd.arm_problems("cam2", status, self.hub.cfg["checks"], still_is_idle=True)
+                          if "snapshot" in p], [])
+        self.assertIn("cam2 is snapshot", hubd.arm_problems("cam2", status, self.hub.cfg["checks"]))
 
 
 class SnapshotTest(unittest.TestCase):

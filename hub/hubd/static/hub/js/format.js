@@ -49,3 +49,11 @@ export function takeStart(id) {
 export function when(unixSeconds) {
   return new Date(unixSeconds * 1000).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
+
+/** A camera's mode as the page shows it. "snapshot" is a still being taken (the calibration
+ * watcher takes one every 15 s while a hub page is open): the camera is idle, and the page
+ * shows a small camera icon by its name instead of changing the text (user, 2026-11-17:
+ * the text flickering in and out looked odd). */
+export function shownMode(mode) {
+  return mode === "snapshot" ? "idle" : mode;
+}

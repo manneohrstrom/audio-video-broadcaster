@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { html } from "shared/html.js";
 import { Icon } from "shared/icons.js";
+import { shownMode } from "../format.js";
 
 const LENS_HINT = "0 = far away, 0.5 ≈ 2 m, 1 ≈ 1 m";
 const AUTO_REFRESH_MS = 5000;
@@ -51,7 +52,9 @@ function CameraFocus({ id, node, savedLens, rigIdle, shotRequest, say, onSaved }
   const lensRef = useRef(lens);
   lensRef.current = lens;
 
-  const mode = !node.online ? "offline" : (node.status || {}).mode || "?";
+  const cameraMode = (node.status || {}).mode;
+  const mode = !node.online ? "offline" : shownMode(cameraMode) || "?";
+  const shooting = busy || cameraMode === "snapshot";        // this view's still, or the calibration watcher's
   const canShoot = rigIdle && node.online;
 
   /** Take one still at `at`; remembers the sharpest seen. Returns its info or null. */
@@ -117,7 +120,9 @@ function CameraFocus({ id, node, savedLens, rigIdle, shotRequest, say, onSaved }
   return html`
     <article class="panel focus-panel">
       <header><i class=${"led " + (!node.online ? "off" : mode === "recording" ? "red" : mode.startsWith("live") ? "blue" : "green")} aria-hidden="true"></i>
-        <h2>${id}</h2><span class="mode">${sweeping ? "hunting for focus…" : busy ? "taking a still…" : mode}</span></header>
+        <h2>${id}</h2>
+        <span class=${"shooting" + (shooting ? " on" : "")} title=${shooting ? "taking a still" : ""}><${Icon} name="camera" size=${16} /></span>
+        <span class="mode">${sweeping ? "hunting for focus…" : mode}</span></header>
       <${Picture} still=${still} onLoad=${event => drawLoupe(loupeRef.current, event.currentTarget)} />
       <p class="note">${problem ? html`<span class="bad">${problem}</span>`
         : still ? `${still.info.source === "live" ? "from the live stream" : "still"} · ${(still.info.ms / 1000).toFixed(1)} s` : ""}</p>

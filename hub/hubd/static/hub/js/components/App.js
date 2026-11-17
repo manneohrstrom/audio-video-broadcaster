@@ -170,13 +170,32 @@ function viewLed(id, status, ingest) {
   return takes.some(take => take.recorded && notIngested(take)) ? "amber" : "";
 }
 
-/** The 14-segment display: unlit segments faintly behind the lit ones. */
+const SEGMENT_CELLS = 12;                 // full-width characters the display holds
+const NARROW = new Set([":", "."]);       // narrow glyphs in DSEG: they take no cell
+
+/** The 14-segment display: unlit segments faintly behind the lit ones.
+ * Colons are narrow in the segment font, so the unlit layer copies the lit text's colons
+ * (otherwise its full-width cells stick out past the box: "REC 00:12:03", user 2026-11-17),
+ * and an invisible sizer holds the widest possible text so the box never changes size. */
 function SegmentDisplay({ text, state }) {
-  const width = 12;
-  const shown = text.length > width ? text.slice(0, width) : text.padStart(width, "!");
+  const lit = fitCells(text.replace(/ /g, "!"));               // "!" is DSEG's full-width blank
+  const unlit = [...lit].map(c => (NARROW.has(c) ? c : "~")).join("");
   return html`
     <div class=${"segments " + (state || "")} role="status" aria-label=${"Rig: " + text}>
-      <span class="segments-unlit" aria-hidden="true">${"~".repeat(width)}</span>
-      <span class="segments-lit" aria-hidden="true">${shown}</span>
+      <span class="segments-sizer" aria-hidden="true">${"~".repeat(SEGMENT_CELLS)}::</span>
+      <span class="segments-unlit" aria-hidden="true">${unlit}</span>
+      <span class="segments-lit" aria-hidden="true">${lit}</span>
     </div>`;
+}
+
+/** The text cut or padded (blanks on the left) to exactly SEGMENT_CELLS full-width cells. */
+function fitCells(text) {
+  let cells = 0, out = "";
+  for (const c of text) {
+    const wide = !NARROW.has(c);
+    if (wide && cells === SEGMENT_CELLS) break;
+    out += c;
+    if (wide) cells += 1;
+  }
+  return "!".repeat(SEGMENT_CELLS - cells) + out;
 }

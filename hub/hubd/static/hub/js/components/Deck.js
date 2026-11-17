@@ -2,7 +2,7 @@
 // one per camera and phone (tap it to see that device on the monitor), and how much fits.
 import { html } from "shared/html.js";
 import { Icon } from "shared/icons.js";
-import { hms, hoursMinutes } from "../format.js";
+import { hms, hoursMinutes, shownMode } from "../format.js";
 
 const LIMIT_NAMES = { hub: "hub SD card" };
 
@@ -39,7 +39,7 @@ function micText(scratch) {
 /** One LED per device: red recording, blue live, green fine, amber needs a look, dark offline. */
 function deviceLeds(status) {
   const nodes = Object.entries(status.nodes || {}).map(([id, node]) => {
-    const mode = node.online ? (node.status || {}).mode : "offline";
+    const mode = node.online ? shownMode((node.status || {}).mode) : "offline";
     const colour = !node.online ? "off" : mode === "recording" ? "red" : mode === "live" ? "blue"
       : (node.problems || []).length || node.slow ? "amber" : "green";
     return { id, label: id, colour, says: node.online ? mode : "offline" };

@@ -32,7 +32,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.23.0"
+VERSION = "0.24.1"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -209,12 +209,16 @@ def log(msg):
     sys.stderr.write(msg + "\n")
 
 
-def arm_problems(name, st, checks):
-    """Reasons a node may not start a take. st is its last /status or None."""
+def arm_problems(name, st, checks, still_is_idle=False):
+    """Reasons a node may not start a take. st is its last /status or None.
+    still_is_idle: a still being taken ("snapshot": the calibration watcher, every 15 s
+    while a hub page is open) is no problem. True for the status the page shows (it made
+    the cards grow and shrink); REC itself stays strict, after waiting for stills to end."""
     if st is None:
         return ["%s offline" % name]
     p = []
-    if st.get("mode") not in ("idle", "live"):   # switching/armed/recording/stopping
+    ready = ("idle", "live", "snapshot") if still_is_idle else ("idle", "live")
+    if st.get("mode") not in ready:              # switching/armed/recording/stopping
         p.append("%s is %s" % (name, st.get("mode")))
     if not st.get("clock_synced"):
         p.append("%s clock not synced to hub" % name)
@@ -459,7 +463,8 @@ class Hub:
                     "nodes": {n: {"online": self.status[n] is not None, "status": self.status[n],
                                   "last_seen": self.seen[n],
                                   "slow": self.status[n] is not None and self.misses[n] > 0,
-                                  "problems": arm_problems(n, self.status[n], self.cfg["checks"])}
+                                  "problems": arm_problems(n, self.status[n], self.cfg["checks"],
+                                                           still_is_idle=True)}
                               for n in self.cfg["nodes"]},
                     "phones": self.phones.snapshot(self.health.get("free_gb")),
                     "budget": self.budget, "camera_settings": self.cam_settings,

@@ -22,12 +22,16 @@ code { font-size: 13px; color: var(--color-text-muted); }
 }
 
 .segments {
-  position: relative; padding: 7px 14px 6px; border-radius: var(--radius-small);
+  display: inline-grid; padding: 7px 14px 6px; border-radius: var(--radius-small);
   background: linear-gradient(#0f140a, #151c0d); box-shadow: var(--well-depth);
   font: 700 20px var(--font-segments); letter-spacing: 2px; color: var(--color-lcd); white-space: pre;
 }
-.segments-unlit { position: absolute; inset: 7px 14px 6px; color: var(--color-lcd-off); }
-.segments-lit { position: relative; text-shadow: 0 0 8px rgba(201, 226, 122, 0.35); }
+/* Three layers in one grid cell, right-aligned: the sizer sets the width, unlit and lit
+   segments line up glyph for glyph. */
+.segments > span { grid-area: 1 / 1; justify-self: end; }
+.segments-sizer { visibility: hidden; }
+.segments-unlit { color: var(--color-lcd-off); }
+.segments-lit { text-shadow: 0 0 8px rgba(201, 226, 122, 0.35); }
 .segments.recording { background: linear-gradient(#1a0a08, #22100c); }
 .segments.recording .segments-unlit { color: #3a1410; }
 .segments.recording .segments-lit { color: #ff5a45; text-shadow: 0 0 10px rgba(255, 90, 69, 0.55); }
@@ -213,7 +217,6 @@ code { font-size: 13px; color: var(--color-text-muted); }
   .version { display: none; }
   .brand-name { font-size: 16px; }
   .segments { font-size: 15px; padding: 6px 10px 5px; letter-spacing: 1px; }
-  .segments-unlit { inset: 6px 10px 5px; }
   .views {
     position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 10;
     justify-self: stretch; display: grid; grid-template-columns: repeat(3, 1fr); padding: 6px; border-radius: 20px;
@@ -240,6 +243,11 @@ code { font-size: 13px; color: var(--color-text-muted); }
 .still { position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius); overflow: hidden; background: #000; box-shadow: 0 0 0 5px var(--color-well), 0 0 0 6px #000; margin: 5px; }
 .still img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .still-none { position: absolute; inset: 0; display: grid; place-items: center; color: var(--color-text-dim); font-size: 14px; }
+/* A camera icon beside the name while a still is taken: always there, only its opacity
+   changes, so the header never changes size. The note under the picture keeps one line. */
+.shooting { display: inline-flex; color: var(--color-text-muted); opacity: 0; transition: opacity 0.25s; }
+.shooting.on { opacity: 1; }
+.focus-panel .note { min-height: 1lh; }
 .still-middle { position: absolute; left: 33.33%; top: 33.33%; width: 33.33%; height: 33.33%; border: 1px dashed rgba(236, 229, 214, 0.55); border-radius: 3px; pointer-events: none; }
 .focus-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: start; }
 .loupe { width: 100%; aspect-ratio: 16 / 9; border-radius: var(--radius-small); background: #000; image-rendering: pixelated; box-shadow: var(--well-depth); }

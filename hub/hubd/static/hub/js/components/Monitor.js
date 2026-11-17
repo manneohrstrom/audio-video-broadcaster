@@ -1,7 +1,8 @@
 // The monitor: one panel per device (the hub, each Pi camera, each phone) with its health,
 // calibration, and small charts of the last 30 minutes (Trend.js).
 import { html } from "shared/html.js";
-import { fmt, hms, when } from "../format.js";
+import { Icon } from "shared/icons.js";
+import { fmt, hms, shownMode, when } from "../format.js";
 import { setPhoneMount } from "../api.js";
 import { Trends } from "./Trend.js";
 
@@ -20,11 +21,15 @@ function CalibrationLine({ entry, watching, phone }) {
   return html`<p class=${"calibration " + tone}>${text}${entry.message && html` <span class="warn">${entry.message}</span>`}</p>`;
 }
 
-/** A panel: a status LED, the name, what it's doing, then rows of name / value. */
-function Panel({ tone, name, mode, children }) {
+/** A panel: a status LED, the name, what it's doing, then rows of name / value.
+ * shooting (cameras only): true while the camera takes a still; false keeps the icon's
+ * place, so the header doesn't move when it appears. */
+function Panel({ tone, name, mode, shooting, children }) {
   return html`
     <article class=${"panel " + tone}>
-      <header><i class=${"led " + LED_FOR[tone]} aria-hidden="true"></i><h2>${name}</h2><span class="mode">${mode}</span></header>
+      <header><i class=${"led " + LED_FOR[tone]} aria-hidden="true"></i><h2>${name}</h2>
+        ${shooting != null && html`<span class=${"shooting" + (shooting ? " on" : "")} title=${shooting ? `${name} is taking a still (the calibration check)` : ""}><${Icon} name="camera" size=${16} /></span>`}
+        <span class="mode">${mode}</span></header>
       ${children}
     </article>`;
 }
@@ -60,12 +65,13 @@ function CameraPanel({ name, node, calibration, history }) {
       <p class="note">Asleep, unplugged or off the Wi-Fi. REC goes on without it.</p><//>`;
   }
   const st = node.status || {};
-  const mode = st.mode;
+  const mode = shownMode(st.mode);
   const tone = mode === "recording" ? "recording" : mode === "live" ? "live" : (node.problems || []).length || node.slow ? "warn" : "ok";
   const take = st.take;
   const dropped = take ? take.dropped_so_far || 0 : 0;
   const syncUs = take && take.sync_difference_us;
-  return html`<${Panel} tone=${tone} name=${name} mode=${(mode === "recording" ? "● rec" : mode) + (take ? " · " + take.role : "")}>
+  return html`<${Panel} tone=${tone} name=${name} shooting=${st.mode === "snapshot"}
+                       mode=${(mode === "recording" ? "● rec" : mode) + (take ? " · " + take.role : "")}>
     <${Rows} rows=${[
       take && ["take", `${take.take_id} · ${hms(take.elapsed_s)} · ${take.frames ?? take.frames_est} fr`],
       take && ["dropped", dropped ? `${dropped} frames (${take.gaps_so_far} gaps)` : "0", dropped ? "bad" : "good"],
