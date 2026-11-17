@@ -86,11 +86,23 @@ export class TimelineDrawing {
       else if (lane.type === "camera") this.drawCamera(context, lane, width);
       else this.drawWaveform(context, lane, width);
     }
+    this.drawLaneSeparators(context, lanes, width);
     this.drawHoverLine(context, lanes, width, height);
     this.drawPlayhead(context, height);
   }
 
   // -- pieces
+  /** A faint hairline in the gap between neighbouring camera strips, so each reads as its own track. */
+  drawLaneSeparators(context, lanes, width) {
+    context.fillStyle = this.colours.separator;
+    for (let i = 1; i < lanes.length; i++) {
+      const above = lanes[i - 1];
+      if (above.type !== "camera" || lanes[i].type !== "camera") continue;
+      const y = this.snap((above.top + above.height + lanes[i].top) / 2);
+      context.fillRect(0, y, width, 1 / this.pixelRatio * Math.max(1, Math.round(this.pixelRatio / 2)));
+    }
+  }
+
   laneBackground(context, lane, width) {
     context.fillStyle = this.colours.lane;
     context.beginPath();
@@ -426,6 +438,7 @@ export function readColours(element) {
     dimmed: "rgba(17,16,15,0.72)",
     dimmedLight: "rgba(17,16,15,0.45)",
     lift: "rgba(236,229,214,0.10)",
+    separator: "rgba(236,229,214,0.16)",
     notRecording: "rgba(236,229,214,0.07)",
     rough: "rgba(236,229,214,0.4)",
     autoCut: "rgba(228,220,203,0.5)",
