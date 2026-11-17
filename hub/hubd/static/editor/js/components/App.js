@@ -1,5 +1,6 @@
 // The editor page, step 1 (the cut): header, video, transport, splitter, timeline, footer.
 // Loads the project from the hub, then hands one EditorStore to everything below.
+// In Sync mode (sync by hand) the header is the SyncBar and there are no steps.
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { html } from "./html.js";
 import { loadProject } from "../api.js";
@@ -14,19 +15,28 @@ import { Splitter, savedVideoHeight } from "./Splitter.js";
 import { Timeline } from "./Timeline.js";
 import { LookPanel } from "./LookPanel.js";
 import { MakeVideo } from "./MakeVideo.js";
+import { SyncBar } from "./SyncBar.js";
 import { formatSeconds } from "../time-format.js";
 
-export function App({ takeId, songId, version }) {
+export function App({ takeId, songId, version, mode = "edit" }) {
   const [project, setProject] = useState(null);
   const [problem, setProblem] = useState(null);
 
   useEffect(() => {
-    loadProject(takeId, songId, version).then(setProject, error => setProblem(error.message));
-  }, [takeId, songId, version]);
+    loadProject(takeId, songId, version, mode).then(setProject, error => setProblem(error.message));
+  }, [takeId, songId, version, mode]);
 
   if (problem) return html`<p class="message problem">Can't open this song: ${problem}</p>`;
   if (!project) return html`<p class="message">Opening the song…</p>`;
   return html`<${Editor} project=${project} />`;
+}
+
+/** Sync mode for this bounce version: check or fix where the bounce sits, by hand. */
+async function openSyncMode(store) {
+  if (store.saveState !== "saved") await store.saveNow();
+  const query = new URLSearchParams(location.search);
+  query.set("mode", "sync");
+  location.search = query.toString();
 }
 
 /** Open the song with another bounce version: the edit belongs to the song, so it comes along. */
@@ -58,15 +68,25 @@ function Editor({ project }) {
     transport.player.load().catch(error => store.showToast(`The bounce didn't load: ${error.message}`));
   }, [project]);
   useEffect(() => {                                   // don't lose an edit when the tab closes
-    const flush = () => { if (store.saveState === "unsaved") store.saveNow(); };
+    const flush = event => {
+      if (store.saveState === "unsaved") store.saveNow();
+      if (store.syncMode && store.bounceMovedSeconds) {      // ask before losing a placement
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
     window.addEventListener("beforeunload", flush);
     return () => window.removeEventListener("beforeunload", flush);
   }, [store]);
 
+  const timeline = store.step === "cut" || store.syncMode
+    ? html`<${Timeline} key="cut" store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`
+    : html`<${Timeline} key="look" compact store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`;
   const saveLabel = { saved: "Saved", unsaved: "Not saved yet", saving: "Saving…", error: "Not saved" }[store.saveState];
   return html`
     <div class=${"editor" + (store.step === "look" ? " look-step" : "")}
          style=${videoHeight ? { "--video-area-height": `${videoHeight}px` } : null}>
+      ${store.syncMode ? html`<${SyncBar} store=${store} />` : html`
       <header class="editor-header">
         <div class="song-title">
           <strong>${project.song.name}</strong>
@@ -87,22 +107,29 @@ function Editor({ project }) {
           <span class=${"save-state " + store.saveState} title=${store.saveProblem || ""}>${saveLabel}</span>
           <button class="button" disabled=${!store.history.canUndo} onClick=${() => store.undo()} title="Undo (⌘Z)">Undo</button>
           <button class="button" disabled=${!store.history.canRedo} onClick=${() => store.redo()} title="Redo (⇧⌘Z)">Redo</button>
+          <button class="button" onClick=${() => openSyncMode(store)}
+                  title=${`Check or fix where the bounce sits (sync: ${project.bounce.sync.anchor || "by hand"}${project.bounce.sync.confidence ? ", confidence " + project.bounce.sync.confidence : ""})`}>Sync</button>
           <${MakeVideo} store=${store} />
         </div>
-      </header>
+      </header>`}
       <div class="video-area">
         <div class="video-column">
           <${VideoWindow} store=${store} thumbnailsByCamera=${thumbnailsByCamera} player=${player} />
           <${TransportBar} store=${store} transport=${transport} />
         </div>
-        ${store.step === "look" && html`<${LookPanel} store=${store} />`}
+        ${store.step === "look" && !store.syncMode && html`<${LookPanel} store=${store} />`}
       </div>
-      ${store.step === "cut" && html`<${Splitter} onResize=${setVideoHeight} />`}
-      <div class="below-splitter">
-        ${store.step === "cut"
-          ? html`<${Timeline} key="cut" store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`
-          : html`<${Timeline} key="look" compact store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`}
-      </div>
+      ${(store.step === "cut" || store.syncMode) && html`<${Splitter} onResize=${setVideoHeight} />`}
+      <div class="below-splitter">${timeline}</div>
+      ${store.syncMode ? html`
+      <footer class="editor-footer">
+        <span class="shortcuts">
+          Pick a camera that shows a hit (a drum stroke, a clap) and find it with <kbd>←</kbd><kbd>→</kbd>;
+          then move the bounce until the sound lands on it: drag the waveform ·
+          <kbd>,</kbd><kbd>.</kbd> 10 ms · <kbd>⇧</kbd><kbd>,</kbd><kbd>.</kbd> 1 frame ·
+          <kbd>1</kbd>–<kbd>${store.cameras.length}</kbd> camera · <kbd>space</kbd> play
+        </span>
+      </footer>` : html`
       <footer class="editor-footer">
         <label for="dissolve">Dissolve
           <input id="dissolve" type="range" min="0" max="0.8" step="0.05" value=${store.dissolveSeconds}
@@ -114,7 +141,7 @@ function Editor({ project }) {
           <kbd>1</kbd>–<kbd>${store.cameras.length}</kbd> camera from the playhead · <kbd>←</kbd><kbd>→</kbd> frame ·
           <kbd>⌫</kbd> remove cut · <kbd>⌘Z</kbd> undo
         </span>
-      </footer>
+      </footer>`}
       ${store.toast && html`<div class="toast" role="status">${store.toast}</div>`}
     </div>`;
 }

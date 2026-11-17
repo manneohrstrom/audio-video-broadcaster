@@ -6,11 +6,16 @@
 //
 // Time in the store is "song seconds": seconds from the start of the song's range, the part
 // of the take where the bounce and the cameras overlap (hub/hubd/editor_projects.py).
+//
+// Sync mode (docs/editor-plan.md section 4b, project.mode "sync"): the range is the whole
+// take, one camera shows at a time, and the bounce can be moved against the video by hand.
+// The cut isn't edited or saved there; Save writes where the bounce starts (sync.json).
 import * as EditModel from "./edit-model.js";
 import { cutsFromFile, cutsToFile, NS_PER_SECOND } from "./time-format.js";
-import { saveEdit } from "./api.js";
+import { saveEdit, saveSync } from "./api.js";
 
 const SAVE_DELAY_MS = 800;
+export const FRAME_SECONDS = 1 / 30;
 export const MAX_PIXELS_PER_SECOND = 320;
 
 export class EditorStore {
@@ -20,6 +25,12 @@ export class EditorStore {
     this.songSeconds = (project.range_ns[1] - project.range_ns[0]) / NS_PER_SECOND;
     this.cameras = project.cameras.map((camera, index) => ({ ...camera, index, number: index + 1 }));
     this.camerasById = new Map(this.cameras.map(camera => [camera.id, camera]));
+
+    // Where the bounce's t=0 sits on the hub clock. Fixed in the edit; moved by hand in Sync mode.
+    this.syncMode = project.mode === "sync";
+    this.bounceStartNs = project.bounce.start_ns;
+    this.syncStartNs = project.bounce.start_ns;       // where Sync mode opened (to go back to)
+    this.syncSaveState = "idle";                       // "idle" | "saving" | "error"
 
     this.cuts = cutsFromFile(project.edit.cuts);
     this.dissolveSeconds = project.edit.dissolve_s ?? 0.3;
@@ -68,6 +79,11 @@ export class EditorStore {
   }
 
   // -- time on the hub clock, and the cameras
+  /** Bounce seconds at song time 0 (positive: the bounce started before the song's range). */
+  get bounceOffsetSeconds() {
+    return (this.rangeStartNs - this.bounceStartNs) / NS_PER_SECOND;
+  }
+
   hubNsAt(songSeconds) {
     return this.rangeStartNs + songSeconds * NS_PER_SECOND;
   }
@@ -134,6 +150,10 @@ export class EditorStore {
   }
 
   cutToCameraAtPlayhead(camera) {
+    if (this.syncMode) {
+      this.showCamera(camera);
+      return;
+    }
     const at = this.playheadSeconds;
     if (!this.isRecording(camera, at)) {
       this.showToast(`${camera.label} wasn't recording here`);
@@ -152,6 +172,7 @@ export class EditorStore {
   }
 
   undo() {
+    if (this.syncMode) return;
     this.cuts = this.history.undo(this.cuts);
     this.selectedCutIndex = -1;
     this.scheduleSave();
@@ -159,6 +180,7 @@ export class EditorStore {
   }
 
   redo() {
+    if (this.syncMode) return;
     this.cuts = this.history.redo(this.cuts);
     this.selectedCutIndex = -1;
     this.scheduleSave();
@@ -243,8 +265,50 @@ export class EditorStore {
     this.notify();
   }
 
+  // -- Sync mode: move the bounce against the video
+  /** Show this camera in the video window (Sync mode shows one camera, no cut). */
+  showCamera(camera) {
+    this.cuts = [{ atSeconds: 0, cameraId: camera.id, by: "user" }];
+    this.notify();
+  }
+
+  /** Where the bounce starts on the hub clock, in nanoseconds (a JS number: ~256 ns steps). */
+  setBounceStartNs(startNs) {
+    this.bounceStartNs = startNs;
+    this.notify();
+  }
+
+  /** Move the bounce later (positive) or earlier (negative) by `seconds`. */
+  moveBounceBy(seconds) {
+    this.setBounceStartNs(this.bounceStartNs + seconds * NS_PER_SECOND);
+  }
+
+  /** How far the bounce has moved since Sync mode opened, in seconds. */
+  get bounceMovedSeconds() {
+    return (this.bounceStartNs - this.syncStartNs) / NS_PER_SECOND;
+  }
+
+  /** Save the placement as the bounce's sync (by hand). Resolves when the hub has it. */
+  async saveBouncePlacement() {
+    const { take_id: takeId, song, version } = this.project;
+    this.syncSaveState = "saving";
+    this.notify();
+    try {
+      await saveSync(takeId, song.id, version, this.bounceStartNs);
+      this.syncStartNs = this.bounceStartNs;
+      this.syncSaveState = "idle";
+      this.notify();
+      return true;
+    } catch (error) {
+      this.syncSaveState = "error";
+      this.showToast(`The sync wasn't saved: ${error.message}`);
+      return false;
+    }
+  }
+
   // -- saving: the working copy on the hub, shortly after each change
   scheduleSave() {
+    if (this.syncMode) return;                 // Sync mode doesn't change the edit
     this.saveState = "unsaved";
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => this.saveNow(), SAVE_DELAY_MS);

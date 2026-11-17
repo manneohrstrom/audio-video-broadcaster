@@ -32,7 +32,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.22.0"
+VERSION = "0.23.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -340,7 +340,7 @@ class Hub:
             waveforms_dir=os.path.join(cfg["state_dir"], "waveforms"),
             proxies_dir=os.path.join(cfg["state_dir"], "proxies"),
             request_thumbnails=lambda take_id: self.ingest_command("thumbs", take=take_id),
-            read_drive_edit=self.read_drive_edit)
+            read_drive_edit=self.read_drive_edit, sync_job=self.sync_job)
         self.scratch = scratch.Scratch(cfg.get("scratch"), adir, log)
 
     @property
@@ -1087,6 +1087,10 @@ class Hub:
         return {k: job.get(k) for k in ("status", "progress", "eta_s", "error", "file", "status_note", "length_s",
                                         "render_s", "version", "video_number")}
 
+    def sync_job(self, take, song, version):
+        """hub-ingest's automatic sync job for this bounce version, or None."""
+        return ((self.read_ingest_file() or {}).get("syncs") or {}).get("%s/%s/v%d" % (take, song, version))
+
     def request_sync(self, take, song, version):
         """hub-ingest syncs the bounce to the take from the hub mic (audiosync.py)."""
         v = self.audio.version_info(take, song, int(version))
@@ -1172,6 +1176,7 @@ class Handler(BaseHTTPRequestHandler):
     P_AUDIO = re.compile(r"^/api/audio/(\d{8}-\d{6})$")
     P_EDITOR = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})$")
     P_EDITOR_RENDER = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/render$")
+    P_EDITOR_SYNC = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/sync$")
     P_EDITOR_WAVEFORM = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/waveform$")
     # Strip thumbnails (hub-ingest's thumbnails.py): index.json and sheet-NNN.jpg per camera.
     # Film overlays (hub/tools/add_overlay.py): /media-overlay/<id>/clip.mp4 or preview.mp4
@@ -1316,7 +1321,8 @@ class Handler(BaseHTTPRequestHandler):
         m = self.P_EDITOR.match(self.path.split("?")[0])
         if m:
             try:
-                return self._send(200, h.editor.project(m.group(1), m.group(2), int(m.group(3))))
+                mode = "sync" if "mode=sync" in self.path else "edit"         # Sync mode: place the bounce by hand
+                return self._send(200, h.editor.project(m.group(1), m.group(2), int(m.group(3)), mode))
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
         if self.path.split("?")[0] in ("/editor", "/editor/") or self.path.startswith("/editor/"):
@@ -1390,6 +1396,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, f.read(), content_type)
 
     def do_PUT(self):
+        m = self.P_EDITOR_SYNC.match(self.path)
+        if m:                                      # Sync mode's Save: {"bounce_start_ns"} (by hand)
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                return self._send(200, self.hub.editor.save_sync(m.group(1), m.group(2), int(m.group(3)),
+                                                                 body.get("bounce_start_ns")))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
         m = self.P_EDITOR.match(self.path)
         if m:
             try:

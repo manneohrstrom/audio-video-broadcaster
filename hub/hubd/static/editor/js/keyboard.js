@@ -3,11 +3,22 @@
 //   left / right: one frame        shift + left / right: one second
 //   delete / backspace: remove the selected cut
 //   cmd/ctrl + Z: undo, + shift: redo       + / -: zoom in / out
+// Sync mode (sync by hand):
+//   , / . : the bounce 10 ms earlier / later    shift + , / . : one frame earlier / later
+//   1-9: show that camera
+import { FRAME_SECONDS } from "./editor-store.js";
+
+const NUDGE_SECONDS = 0.01;
+
 export function attachKeyboard(store, transport) {
   function onKey(event) {
     const typing = event.target.tagName === "INPUT" && event.target.type !== "range";
     if (typing) return;
-    if (event.code === "Space") {
+    if (store.syncMode && (event.code === "Comma" || event.code === "Period") && !event.metaKey && !event.ctrlKey) {
+      event.preventDefault();
+      const direction = event.code === "Comma" ? -1 : 1;
+      store.moveBounceBy(direction * (event.shiftKey ? FRAME_SECONDS : NUDGE_SECONDS));
+    } else if (event.code === "Space") {
       event.preventDefault();
       transport.toggle();
     } else if (/^Digit[1-9]$/.test(event.code) && !event.metaKey && !event.ctrlKey) {

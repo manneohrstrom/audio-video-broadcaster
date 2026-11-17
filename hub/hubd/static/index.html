@@ -106,6 +106,8 @@
   .edit-button { display: inline-block; padding: 6px 14px; border-radius: 8px; background: var(--accent, #4a9eff); color: #fff; font-weight: 600; font-size: 14px; text-decoration: none; }
   .edit-button:hover { filter: brightness(1.1); }
   .edit-button.off { background: #333; color: #888; cursor: default; }
+  a.synclink { font-size:12px; padding:3px 9px; border-radius:6px; background:#33402b; color:inherit; text-decoration:none; white-space:nowrap; }
+  .take.absent a.synclink { pointer-events:none; }
   .song-head { margin-bottom: 4px; }
   .trends { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); }
   .trends-title { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin-bottom: 6px; }
@@ -637,16 +639,26 @@ function videoSteps(r) {
     return `<span class="st">○ ${name}</span>`;
   }).join("") + (r.status === "queued" ? `<span class="st">queued${r.status_note ? ": " + esc(r.status_note) : ""}</span>` : "");
 }
+// Sync by hand (the editor's Sync mode, docs/editor-plan.md section 4b): place the bounce yourself.
+function syncByHandLink(take, song, v, label, tip) {
+  const href = `/editor/?take=${encodeURIComponent(take)}&song=${encodeURIComponent(song)}&v=${v.version}&mode=sync`;
+  return `<a class="synclink" href="${href}" target="_blank" rel="noopener" title="${esc(tip)}">${label}</a>`;
+}
 function syncTxt(take, song, v) {
   const s = v.sync || {}, d = `data-take="${esc(take)}" data-song="${esc(song)}" data-v="${v.version}"`;
   if (s.state === "syncing") return `<small>· <span class="spin"></span> syncing to the video${s.note ? " (" + esc(s.note) + ")" : ""}</small>`;
-  if (s.state === "needs sync") return `<small class="bad" title="${esc(s.reason || "")}">· needs sync: ${esc(s.reason || "")}</small> <button class="addaudio" data-sync="1" ${d}>Sync again</button>`;
+  if (s.state === "needs sync") return `<small class="bad" title="${esc(s.reason || "")}">· needs sync: ${esc(s.reason || "")}</small> <button class="addaudio" data-sync="1" ${d}>Sync again</button> `
+    + syncByHandLink(take, song, v, "Sync by hand", "Line the bounce up with the video yourself, in the editor");
   if (s.state === "synced") {
-    const check = s.confidence && s.confidence !== "high";
+    const byHand = s.anchor === "by hand";
+    const check = !byHand && s.confidence && s.confidence !== "high";
     const tip = `${s.anchor || "by hand"}${s.confidence ? ", confidence " + s.confidence : ""}${(s.notes || []).length ? " · " + s.notes.join("; ") : ""}`;
-    return `<small title="${esc(tip)}" ${check ? 'style="color:var(--warn)"' : 'class="good"'}>· ${check ? "synced, check it" : "✓ synced"}</small>`;
+    const label = byHand ? "✓ synced by hand" : check ? "synced, check it" : "✓ synced";
+    return `<small title="${esc(tip)}" ${check ? 'style="color:var(--warn)"' : 'class="good"'}>· ${label}</small>`
+      + (check ? " " + syncByHandLink(take, song, v, "Check sync", "Watch the bounce against the video and move it if it's off") : "");
   }
-  return v.complete ? `<small>· not synced</small> <button class="addaudio" data-sync="1" ${d}>Sync</button>` : "";
+  return v.complete ? `<small>· not synced</small> <button class="addaudio" data-sync="1" ${d}>Sync</button> `
+    + syncByHandLink(take, song, v, "Sync by hand", "Line the bounce up with the video yourself, in the editor") : "";
 }
 const AUP = { take: null, running: false };
 async function jpost(path, body) {

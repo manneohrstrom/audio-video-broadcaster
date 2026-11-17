@@ -7,8 +7,14 @@
 //   anywhere else (ruler, program, waveform)             -> { kind: "scrub" }   moves the playhead
 //   a plain click on a camera strip just moves the playhead.
 //   wheel: scroll sideways; pinch or Ctrl/Cmd + wheel: zoom around the mouse.
+//
+// Sync mode (sync by hand) has its own, simpler set:
+//   on the waveform: drag                -> { kind: "moveBounce" }  the bounce moves with the mouse
+//   on a camera strip: press             -> that camera shows, then a scrub
+//   anywhere else                        -> { kind: "scrub" }
 import * as EditModel from "../edit-model.js";
 import { laneAt, cutHandleAt, shotPartAt } from "./timeline-drawing.js";
+import { NS_PER_SECOND } from "../time-format.js";
 
 const DRAG_THRESHOLD_PIXELS = 4;
 
@@ -36,7 +42,14 @@ export function attachTimelinePointer(canvas, store, getLanes, transport) {
         if (!store.isPlaying) store.playheadSeconds = store.cuts[gesture.cutIndex].atSeconds + 0.001;
       } else if (gesture.kind === "scrub") {
         store.playheadSeconds = seconds;
+      } else if (gesture.kind === "moveBounce") {
+        store.setBounceStartNs(gesture.originalStartNs + (x - gesture.startX) / store.pixelsPerSecond * NS_PER_SECOND);
       }
+      return;
+    }
+    if (store.syncMode) {
+      store.hover = { seconds, x, lane, skimCamera: lane?.type === "camera" ? lane.camera : null };
+      canvas.style.cursor = lane?.type === "waveform" ? "grab" : lane?.type === "camera" ? "pointer" : "default";
       return;
     }
     const cutHandle = lane?.type === "program" ? cutHandleAt(store, x) : -1;
@@ -54,6 +67,7 @@ export function attachTimelinePointer(canvas, store, getLanes, transport) {
     const lane = laneAt(getLanes(), y);
     const base = { startX: x, startSeconds: seconds, moved: false, lane };
     store.selectedCutIndex = -1;
+    if (store.syncMode && startSyncGesture(base, lane)) return;
 
     const cutHandle = lane?.type === "program" ? cutHandleAt(store, x) : -1;
     if (cutHandle > 0) {
@@ -62,7 +76,7 @@ export function attachTimelinePointer(canvas, store, getLanes, transport) {
       store.notify();
       return;
     }
-    if (lane?.type === "camera") {
+    if (lane?.type === "camera" && !store.syncMode) {
       const part = shotPartAt(store, lane.camera, x);
       if (part?.kind === "edge") {
         store.gesture = { ...base, kind: "moveCut", cutIndex: part.cutIndex, originalCuts: store.cuts };
@@ -80,6 +94,18 @@ export function attachTimelinePointer(canvas, store, getLanes, transport) {
     if (store.isPlaying) transport.pause();
     store.playheadSeconds = seconds;
     store.notify();
+  }
+
+  /** Sync mode: true when the press started one of its own gestures. */
+  function startSyncGesture(base, lane) {
+    if (lane?.type === "waveform") {
+      store.gesture = { ...base, kind: "moveBounce", originalStartNs: store.bounceStartNs };
+      canvas.style.cursor = "grabbing";
+      store.notify();
+      return true;
+    }
+    if (lane?.type === "camera") store.showCamera(lane.camera);
+    return false;                                       // then a scrub, as anywhere else
   }
 
   function onUp() {

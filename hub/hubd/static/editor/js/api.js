@@ -12,9 +12,15 @@ async function request(method, url, body) {
   return payload;
 }
 
-/** Everything the editor needs for one song version (hub/hubd/editor_projects.py). */
-export function loadProject(takeId, songId, version) {
-  return request("GET", `/api/editor/${takeId}/${songId}/v${version}`);
+/** Everything the editor needs for one song version (hub/hubd/editor_projects.py).
+ *  mode "sync": Sync mode, for placing the bounce by hand (any uploaded version). */
+export function loadProject(takeId, songId, version, mode = "edit") {
+  return request("GET", `/api/editor/${takeId}/${songId}/v${version}${mode === "sync" ? "?mode=sync" : ""}`);
+}
+
+/** Sync by hand: the bounce's t=0 is at bounceStartNs on the hub clock (writes sync.json). */
+export function saveSync(takeId, songId, version, bounceStartNs) {
+  return request("PUT", `/api/editor/${takeId}/${songId}/v${version}/sync`, { bounce_start_ns: Math.round(bounceStartNs) });
 }
 
 /** Ask the hub to render the finished video of this edit (runs when the rig is idle). */

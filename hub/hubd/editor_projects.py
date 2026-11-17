@@ -18,6 +18,11 @@ edits (so the STUDIO drive doesn't have to be mounted read-write); a copy goes t
 drive with every rendered video. Its times are on the hub clock, so it fits any synced
 bounce of the song (rebased when the song's range moves). When there is no working copy
 yet, the editor starts from the automatic cut (a new camera every 10 s, as the quick mix).
+
+Sync mode (section 4b, hand_sync.py): the editor can also open any uploaded bounce version,
+synced or not, to place the bounce by hand. Its project spans the whole take (the Pi
+cameras' recording), shows one camera at a time and starts the bounce where the sync put it
+(or its best guess, or the take's start); saving writes sync.json "by hand".
 """
 import array
 import json
@@ -25,6 +30,8 @@ import os
 import re
 import subprocess
 import time
+
+import hand_sync
 
 NS_PER_SECOND = 1_000_000_000
 FRAME_RATE = 30
@@ -88,6 +95,15 @@ def song_range_ns(bounce_start_ns, bounce_duration_s, cameras):
     if end - start < NS_PER_SECOND:
         raise ProjectError("the bounce and the video overlap by less than a second")
     return [start, end]
+
+
+def take_span_ns(cameras):
+    """From the first Pi camera's first frame to the last one's last frame (Sync mode's range)."""
+    pi_cameras = [camera for camera in cameras if camera["kind"] == "pi"] or cameras
+    if not pi_cameras:
+        raise ProjectError("this take has no camera files")
+    return [min(camera["first_frame_ns"] for camera in pi_cameras),
+            max(camera["last_frame_ns"] for camera in pi_cameras)]
 
 
 def validate_cuts(cuts, camera_ids, range_length_ns):
@@ -173,11 +189,12 @@ class EditorProjects:
     waveforms_dir: cached waveforms of bounces.
     read_drive_edit(take_id, song_id): the working cut kept in the take's folder on the drive
         (edits/<song>/working-edit.json, copied there by hub-ingest), or None.
+    sync_job(take_id, song_id, version): hub-ingest's automatic sync job for it, or None.
     """
 
     def __init__(self, audio, read_take_document, find_quick_edit, edits_dir, thumbs_dir=None,
                  request_thumbnails=None, waveforms_dir=None, proxies_dir=None, clock=time.time, ffmpeg="ffmpeg",
-                 read_drive_edit=None):
+                 read_drive_edit=None, sync_job=None):
         self.audio = audio
         self.read_take_document = read_take_document
         self.find_quick_edit = find_quick_edit
@@ -189,6 +206,7 @@ class EditorProjects:
         self.clock = clock
         self.ffmpeg = ffmpeg
         self.read_drive_edit = read_drive_edit or (lambda take_id, song_id: None)
+        self.sync_job = sync_job or (lambda take_id, song_id, version: None)
 
     # -- paths
     def _check_ids(self, take_id, song_id, version):
@@ -224,7 +242,11 @@ class EditorProjects:
         return out
 
     # -- the project
-    def _song_and_version(self, take_id, song_id, version):
+    def _version_dir(self, take_id, song_id, version):
+        return os.path.join(self.audio.take_dir(take_id), song_id, "v%d" % version)
+
+    def _uploaded_version(self, take_id, song_id, version):
+        """(song, version info) of an uploaded bounce version, synced or not."""
         songs = self.audio.list(take_id)["songs"]
         song = next((s for s in songs if s["id"] == song_id), None)
         if song is None:
@@ -232,7 +254,11 @@ class EditorProjects:
         version_info = next((v for v in song["versions"] if v["version"] == version), None)
         if version_info is None or not version_info.get("complete"):
             raise ProjectError("version %d isn't uploaded" % version)
-        sync_path = os.path.join(self.audio.take_dir(take_id), song_id, "v%d" % version, "sync.json")
+        return song, version_info
+
+    def _song_and_version(self, take_id, song_id, version):
+        song, version_info = self._uploaded_version(take_id, song_id, version)
+        sync_path = os.path.join(self._version_dir(take_id, song_id, version), "sync.json")
         try:
             with open(sync_path) as f:
                 sync = json.load(f)
@@ -240,14 +266,42 @@ class EditorProjects:
             raise ProjectError("this song isn't synced to the take yet") from None
         return song, version_info, sync
 
-    def project(self, take_id, song_id, version):
-        """Everything the editor page needs for one song version."""
+    def project(self, take_id, song_id, version, mode="edit"):
+        """Everything the editor page needs for one song version. mode "sync": Sync mode
+        (place the bounce by hand), for any uploaded version, synced or not."""
         self._check_ids(take_id, song_id, version)
+        if mode == "sync":
+            return self._sync_project(take_id, song_id, version)
         song, version_info, sync = self._song_and_version(take_id, song_id, version)
         cameras = describe_cameras(self.read_take_document(take_id))
         bounce_start_ns = int(sync["bounce_start_ns"])
         range_ns = song_range_ns(bounce_start_ns, version_info["duration_s"], cameras)
         edit, source = self._load_edit(take_id, song_id, version, cameras, range_ns)
+        return self._project_document(take_id, song, version, version_info, cameras, range_ns, bounce_start_ns,
+                                      {key: sync.get(key) for key in ("anchor", "confidence", "drift_ppm")},
+                                      edit, source)
+
+    def _sync_project(self, take_id, song_id, version):
+        """Sync mode's project: the whole take, one camera showing, the bounce at its starting point."""
+        song, version_info = self._uploaded_version(take_id, song_id, version)
+        cameras = describe_cameras(self.read_take_document(take_id))
+        range_ns = take_span_ns(cameras)
+        start = hand_sync.starting_point(self._version_dir(take_id, song_id, version),
+                                         self.audio.take_dir(take_id), range_ns[0])
+        server = next((camera for camera in cameras if camera["is_sync_server"]), cameras[0])
+        edit = self._new_edit(take_id, song_id, version, range_ns,
+                              [{"at_ns": 0, "camera": server["id"], "by": "user"}], "sync")
+        document = self._project_document(take_id, song, version, version_info, cameras, range_ns,
+                                          start["bounce_start_ns"], {"anchor": start["anchor"],
+                                                                     "confidence": start["confidence"]},
+                                          edit, "sync")
+        document["mode"] = "sync"
+        document["sync_start"] = start
+        return document
+
+    def _project_document(self, take_id, song, version, version_info, cameras, range_ns, bounce_start_ns,
+                          sync_summary, edit, source):
+        song_id = song["id"]
         missing_thumbnails = False
         for camera in cameras:
             camera["file_url"] = "/media/%s/%s.mov" % (take_id, camera["id"])
@@ -272,8 +326,9 @@ class EditorProjects:
                 "start_ns": bounce_start_ns,
                 "duration_s": version_info["duration_s"],
                 "file_name": version_info["filename"],
-                "sync": {key: sync.get(key) for key in ("anchor", "confidence", "drift_ppm")},
+                "sync": sync_summary,
             },
+            "mode": "edit",
             "edit": edit,
             "edit_source": source,
             "bounce_versions": self.synced_versions(take_id, song),
@@ -350,8 +405,8 @@ class EditorProjects:
                 return json.load(f)
         except (OSError, ValueError):
             pass
-        _, version_info, _ = self._song_and_version(take_id, song_id, version)
-        source = os.path.join(self.audio.take_dir(take_id), song_id, "v%d" % version, version_info["filename"])
+        _, version_info = self._uploaded_version(take_id, song_id, version)     # synced or not (Sync mode)
+        source = os.path.join(self._version_dir(take_id, song_id, version), version_info["filename"])
         raw = subprocess.run([self.ffmpeg, "-nostdin", "-v", "error", "-i", source, "-ac", "1",
                               "-ar", str(self.DECODE_RATE), "-f", "s16le", "-"], capture_output=True, check=True).stdout
         samples = array.array("h")
@@ -368,6 +423,20 @@ class EditorProjects:
             json.dump(result, f, separators=(",", ":"))
         os.replace(cache + ".tmp", cache)
         return result
+
+    # -- sync by hand
+    def save_sync(self, take_id, song_id, version, bounce_start_ns):
+        """Sync mode's Save: the bounce starts at bounce_start_ns on the hub clock (by hand)."""
+        self._check_ids(take_id, song_id, version)
+        _, version_info = self._uploaded_version(take_id, song_id, version)
+        if not isinstance(bounce_start_ns, int) or isinstance(bounce_start_ns, bool):
+            raise ProjectError("bounce_start_ns must be an integer (nanoseconds on the hub clock)")
+        job = self.sync_job(take_id, song_id, version) or {}
+        if job.get("status") in ("queued", "syncing"):
+            raise ProjectError("the automatic sync is running for this bounce: wait for it, then sync by hand")
+        cameras = describe_cameras(self.read_take_document(take_id))
+        song_range_ns(bounce_start_ns, version_info["duration_s"], cameras)    # refuses: no overlap with the video
+        return hand_sync.save(self._version_dir(take_id, song_id, version), bounce_start_ns, self.clock)
 
     # -- saving
     def save_edit(self, take_id, song_id, version, edit):

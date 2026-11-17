@@ -157,3 +157,11 @@ a.button { text-decoration: none; color: var(--color-text); }
 .bounce-choice { color: var(--color-text-muted); display: flex; align-items: center; gap: 6px; }
 .bounce-choice select { background: var(--color-panel); color: var(--color-text); border: 1px solid var(--color-line); border-radius: var(--radius-small); padding: 2px 6px; font: inherit; }
 .filter-group { font-size: 11px; color: var(--color-text-dim); margin-top: 2px; }
+
+/* -- Sync mode (sync by hand): the header holds the nudges and the readout */
+.sync-nudges { display: flex; align-items: center; gap: var(--space-2); }
+.sync-readout { display: flex; flex-direction: column; align-items: center; min-width: 13em; text-align: center; }
+.sync-readout strong { font: 600 var(--font-size-title) var(--font-numbers); color: var(--color-text-muted); }
+.sync-readout strong.moved { color: var(--color-warning); }
+.sync-readout small { color: var(--color-text-muted); font-size: var(--font-size-small); }
+.sync-start { color: var(--color-text-muted); font-size: var(--font-size-small); white-space: normal; text-align: right; max-width: 18em; }

@@ -163,6 +163,82 @@ class ProjectTest(unittest.TestCase):
             projects.project(TAKE, "track-1", 1)
 
 
+class SyncByHandTest(unittest.TestCase):
+    """Sync mode (docs/editor-plan.md section 4b): place the bounce by hand, synced or not."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.job = None
+        self.make(synced=True)
+
+    def make(self, synced):
+        root = os.path.join(self.tmp, "audio-%s" % synced)
+        self.projects = ep.EditorProjects(FakeAudio(root, synced=synced),
+                                          read_take_document=lambda take: take_document(),
+                                          find_quick_edit=lambda *a: None, edits_dir=os.path.join(self.tmp, "edits"),
+                                          clock=lambda: 200.0, sync_job=lambda *a: self.job)
+        self.version_dir = os.path.join(root, TAKE, "track-1", "v1")
+
+    def read(self, name):
+        with open(os.path.join(self.version_dir, name)) as f:
+            return json.load(f)
+
+    def test_sync_mode_spans_the_take_and_starts_from_the_automatic_sync(self):
+        p = self.projects.project(TAKE, "track-1", 1, mode="sync")
+        self.assertEqual(p["mode"], "sync")
+        self.assertEqual(p["range_ns"], [FIRST_FRAME, FIRST_FRAME + 35_000 + 76 * SECOND])     # the Pi cameras
+        self.assertEqual(p["bounce"]["start_ns"], FIRST_FRAME - 5 * SECOND)
+        self.assertEqual(p["sync_start"]["source"], "automatic")
+        self.assertEqual(p["edit"]["cuts"], [{"at_ns": 0, "camera": "cam1", "by": "user"}])   # the sync server
+
+    def test_save_keeps_the_automatic_result_and_its_drift(self):
+        saved = self.projects.save_sync(TAKE, "track-1", 1, FIRST_FRAME - 4 * SECOND)
+        self.assertEqual(saved["anchor"], "by hand")
+        self.assertEqual(saved["drift_ppm"], 20)
+        self.assertEqual(saved["moved_from_automatic_s"], 1.0)
+        self.assertEqual(self.read("sync-auto.json")["anchor"], "hub mic: music")
+        # Saved again: the automatic result stays the one kept, not the first hand placement.
+        self.projects.save_sync(TAKE, "track-1", 1, FIRST_FRAME - 3 * SECOND)
+        self.assertEqual(self.read("sync-auto.json")["bounce_start_ns"], FIRST_FRAME - 5 * SECOND)
+        p = self.projects.project(TAKE, "track-1", 1, mode="sync")
+        self.assertEqual(p["sync_start"]["source"], "by hand")
+        self.assertEqual(p["sync_start"]["automatic_start_ns"], FIRST_FRAME - 5 * SECOND)
+        # The editor opens the song with the new placement.
+        edit = self.projects.project(TAKE, "track-1", 1)
+        self.assertEqual(edit["bounce"]["start_ns"], FIRST_FRAME - 3 * SECOND)
+        self.assertEqual(edit["bounce"]["sync"]["anchor"], "by hand")
+
+    def test_an_unsynced_bounce_starts_from_the_failed_syncs_best_guess(self):
+        self.make(synced=False)
+        os.makedirs(os.path.join(self.version_dir, "..", "..", "scratch"))
+        with open(os.path.join(self.version_dir, "..", "..", "scratch", "scratch.times.tsv"), "w") as f:
+            f.write("0 %d\n4800 %d\n" % (FIRST_FRAME - 10 * SECOND, FIRST_FRAME - 9 * SECOND))
+        with open(os.path.join(self.version_dir, "sync_failed.json"), "w") as f:
+            json.dump({"reason": "the match isn't clear enough", "details": {"whole": {"offset_s": 3.074}}}, f)
+        p = self.projects.project(TAKE, "track-1", 1, mode="sync")
+        self.assertEqual(p["sync_start"]["source"], "best guess")
+        self.assertEqual(p["bounce"]["start_ns"], FIRST_FRAME - 7 * SECOND)
+        self.projects.save_sync(TAKE, "track-1", 1, FIRST_FRAME - 7 * SECOND)
+        self.assertEqual(self.read("sync.json")["drift_ppm"], 0)
+        self.assertFalse(os.path.exists(os.path.join(self.version_dir, "sync-auto.json")))
+
+    def test_without_any_sync_it_starts_at_the_take(self):
+        self.make(synced=False)
+        p = self.projects.project(TAKE, "track-1", 1, mode="sync")
+        self.assertEqual((p["sync_start"]["source"], p["bounce"]["start_ns"]), ("take start", FIRST_FRAME))
+
+    def test_refused_while_syncing_or_off_the_video(self):
+        self.job = {"status": "syncing"}
+        with self.assertRaises(ep.ProjectError):
+            self.projects.save_sync(TAKE, "track-1", 1, FIRST_FRAME)
+        self.job = {"status": "needs sync"}
+        with self.assertRaises(ep.ProjectError):
+            self.projects.save_sync(TAKE, "track-1", 1, FIRST_FRAME + 500 * SECOND)        # after the take
+        with self.assertRaises(ep.ProjectError):
+            self.projects.save_sync(TAKE, "track-1", 1, "soon")
+        self.assertEqual(self.read("sync.json")["anchor"], "hub mic: music")              # untouched
+
+
 class DriveEditTest(unittest.TestCase):
     """The working cut kept on the drive (docs/stick-db-plan.md, S4)."""
 

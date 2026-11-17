@@ -9,7 +9,7 @@ import { everyFrame } from "../frame-loop.js";
 export function Timeline({ store, transport, thumbnailsByCamera, waveform, compact = false }) {
   const canvasRef = useRef(null);
   const wrapperRef = useRef(null);
-  const { lanes, height } = layoutLanes(store.cameras, { compact });
+  const { lanes, height } = layoutLanes(store.cameras, { compact, sync: store.syncMode });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -43,13 +43,13 @@ export function Timeline({ store, transport, thumbnailsByCamera, waveform, compa
         ${lanes.map(lane => {
           const style = { top: `${lane.top}px`, height: `${lane.height}px` };
           if (lane.type === "program") return html`<div class="lane-label" style=${style}><div><strong>Video</strong><small>what's showing</small></div></div>`;
-          if (lane.type === "waveform") return html`<div class="lane-label" style=${style}><div><strong>Bounce</strong><small>${store.project.bounce.file_name}</small></div></div>`;
+          if (lane.type === "waveform") return html`<div class="lane-label" style=${style}><div><strong>Bounce</strong><small>${store.syncMode ? "drag to move it" : store.project.bounce.file_name}</small></div></div>`;
           if (lane.type !== "camera") return null;
           const camera = lane.camera;
           return html`
             <button class=${"lane-label camera" + (onAir === camera ? " on-air" : "")}
                     style=${{ ...style, "--camera-colour": `var(--color-camera-${(camera.index % 6) + 1})` }}
-                    title=${`Show ${camera.label} from the playhead (key ${camera.number})`}
+                    title=${store.syncMode ? `Show ${camera.label} (key ${camera.number})` : `Show ${camera.label} from the playhead (key ${camera.number})`}
                     onClick=${() => store.cutToCameraAtPlayhead(camera)}>
               <span class="camera-key">${camera.number}</span>
               <span class="camera-name"><strong>${camera.label}</strong>

@@ -110,6 +110,8 @@ It runs right after a bounce is synced, so the cut is ready the first time the u
 
 ## 4b. Sync by hand (user, 2026-11-17)
 
+*Built 2026-11-17 (hubd 0.23.0): `hub/hubd/hand_sync.py`, the editor's Sync mode (`?mode=sync`, `SyncBar.js`), "Sync by hand" / "Check sync" on the take card.*
+
 For a bounce the automatic sync (Phase 4 Track A) can't place ("needs sync") or is unsure of ("synced, check it"), or one that's simply wrong: move the bounce against the video by hand.
 
 - **Where:** in the editor, a "Sync" mode on the song, reachable from the take card's "needs sync" and "synced, check it" lines as well as for a synced bounce.

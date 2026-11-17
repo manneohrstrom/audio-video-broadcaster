@@ -1,15 +1,14 @@
 // Play, pause and seek: keeps the store's playhead and the bounce player in step.
 // While playing, the bounce is the clock and the playhead follows it every frame (tick).
+// In Sync mode the bounce can move under the video; the player follows (see followBounce).
 import { BouncePlayer } from "./media/bounce-player.js";
-import { NS_PER_SECOND } from "./time-format.js";
 
 const FRAME_SECONDS = 1 / 30;
 
 export class Transport {
   constructor(store) {
     this.store = store;
-    const bounce = store.project.bounce;
-    this.player = new BouncePlayer(bounce.url, (store.rangeStartNs - bounce.start_ns) / NS_PER_SECOND);
+    this.player = new BouncePlayer(store.project.bounce.url, store.bounceOffsetSeconds);
   }
 
   async play() {
@@ -54,6 +53,7 @@ export class Transport {
   /** Called every animation frame: follow the bounce, stop at the end, keep the playhead in view. */
   tick() {
     const store = this.store;
+    this.followBounce();
     if (!store.isPlaying || !this.player.isPlaying) return;
     store.playheadSeconds = this.player.currentSongSeconds(store.playheadSeconds);
     if (store.playheadSeconds >= store.songSeconds) {
@@ -65,5 +65,20 @@ export class Transport {
       store.viewStartSeconds = store.playheadSeconds - visibleSeconds * 0.1;
       store.clampView();
     }
+  }
+
+  /** Sync mode: the bounce was moved. Play it from its new place, at the same song time;
+   *  while it's being dragged, wait for the release (restarting every frame would stutter). */
+  followBounce() {
+    const store = this.store;
+    const offset = store.bounceOffsetSeconds;
+    if (this.player.offsetSeconds === offset || store.gesture?.kind === "moveBounce") return;
+    if (!this.player.isPlaying) {
+      this.player.offsetSeconds = offset;
+      return;
+    }
+    const at = this.player.pause(store.playheadSeconds);
+    this.player.offsetSeconds = offset;
+    this.player.play(at);
   }
 }

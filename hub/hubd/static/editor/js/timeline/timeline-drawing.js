@@ -1,24 +1,33 @@
 // Drawing the timeline: one canvas with a ruler, the program strip (the cut as it is),
 // one strip per camera (filmstrip thumbnails over the whole song), and the bounce's
 // waveform. Redrawn every animation frame from the store; nothing here changes state.
+// Sync mode (sync by hand): no program strip, the cameras as they are, and a taller
+// waveform that moves with the bounce, over a faint copy of where it was when Sync opened.
 
 export const RULER_HEIGHT = 18;
 export const PROGRAM_HEIGHT = 58;
 export const CAMERA_HEIGHT = 44;
 export const CAMERA_GAP = 6;
 export const WAVEFORM_HEIGHT = 50;
+export const SYNC_WAVEFORM_HEIGHT = 84;
 const GROUP_GAP = 12;
 const HANDLE_GRAB_PIXELS = 7;
 
 /**
  * Lanes top to bottom: [{ type, top, height, camera? }], plus the total height.
  * compact (step 2, the look): only the ruler, the program strip and the waveform.
+ * sync (Sync mode): the ruler, the cameras and a tall waveform.
  */
-export function layoutLanes(cameras, { compact = false } = {}) {
+export function layoutLanes(cameras, { compact = false, sync = false } = {}) {
   const lanes = [];
   let top = 0;
   const add = (lane, height, gapAfter) => { lanes.push({ ...lane, top, height }); top += height + gapAfter; };
   add({ type: "ruler" }, RULER_HEIGHT, 4);
+  if (sync) {
+    cameras.forEach((camera, i) => add({ type: "camera", camera }, CAMERA_HEIGHT, i < cameras.length - 1 ? CAMERA_GAP : GROUP_GAP));
+    add({ type: "waveform" }, SYNC_WAVEFORM_HEIGHT, 0);
+    return { lanes, height: top };
+  }
   if (compact) {
     add({ type: "program" }, 46, 8);
     add({ type: "waveform" }, 40, 0);
@@ -227,6 +236,16 @@ export class TimelineDrawing {
     context.rect(0, lane.top, width, lane.height);
     context.clip();
     this.drawFilmstrip(context, camera, lane.top, lane.height, 0, width);
+    if (store.syncMode) {                     // Sync mode: outline the camera that's showing
+      this.drawRecordingMarks(context, lane, camera);
+      if (store.cameraAt(0) === camera) {
+        context.strokeStyle = colour;
+        context.lineWidth = 2;
+        context.strokeRect(1, lane.top + 1, width - 2, lane.height - 2);
+      }
+      context.restore();
+      return;
+    }
     const shots = store.shots();
     // Dim what isn't in the cut, so the shots that are stand out.
     for (const shot of shots) {
@@ -234,18 +253,7 @@ export class TimelineDrawing {
       context.fillStyle = this.colours.dimmed;
       context.fillRect(store.xOf(shot.start), lane.top, store.xOf(shot.end) - store.xOf(shot.start), lane.height);
     }
-    // Not recording: dark and striped. Rough sections: striped.
-    const [recordStart, recordEnd] = store.recordedSpan(camera);
-    for (const [a, b] of [[0, recordStart], [recordEnd, store.songSeconds]]) {
-      if (b <= a) continue;
-      const x0 = store.xOf(a);
-      context.fillStyle = this.colours.noPicture;
-      context.fillRect(x0, lane.top, store.xOf(b) - x0, lane.height);
-      this.hatch(context, x0, lane.top, store.xOf(b) - x0, lane.height, this.colours.notRecording);
-    }
-    for (const [a, b] of store.roughSections(camera)) {
-      this.hatch(context, store.xOf(a), lane.top, store.xOf(b) - store.xOf(a), lane.height, this.colours.rough, 5);
-    }
+    this.drawRecordingMarks(context, lane, camera);
     // This camera's shots in the cut: outlined in its colour, with a bar along the bottom.
     for (const shot of shots) {
       if (shot.cameraId !== camera.id) continue;
@@ -274,15 +282,59 @@ export class TimelineDrawing {
     context.restore();
   }
 
+  /** Not recording: dark and striped. Rough sections (dropped frames): striped. */
+  drawRecordingMarks(context, lane, camera) {
+    const store = this.store;
+    const [recordStart, recordEnd] = store.recordedSpan(camera);
+    for (const [a, b] of [[0, recordStart], [recordEnd, store.songSeconds]]) {
+      if (b <= a) continue;
+      const x0 = store.xOf(a);
+      context.fillStyle = this.colours.noPicture;
+      context.fillRect(x0, lane.top, store.xOf(b) - x0, lane.height);
+      this.hatch(context, x0, lane.top, store.xOf(b) - x0, lane.height, this.colours.notRecording);
+    }
+    for (const [a, b] of store.roughSections(camera)) {
+      this.hatch(context, store.xOf(a), lane.top, store.xOf(b) - store.xOf(a), lane.height, this.colours.rough, 5);
+    }
+  }
+
   drawWaveform(context, lane, width) {
     const store = this.store;
-    for (const shot of store.shots()) {                      // the cut, faintly, behind the music
-      context.fillStyle = this.colours.cameras[shot.camera.index % this.colours.cameras.length] + "1c";
-      context.fillRect(store.xOf(shot.start), lane.top, store.xOf(shot.end) - store.xOf(shot.start), lane.height);
+    if (store.syncMode) {
+      this.laneBackground(context, lane, width);
+    } else {
+      for (const shot of store.shots()) {                    // the cut, faintly, behind the music
+        context.fillStyle = this.colours.cameras[shot.camera.index % this.colours.cameras.length] + "1c";
+        context.fillRect(store.xOf(shot.start), lane.top, store.xOf(shot.end) - store.xOf(shot.start), lane.height);
+      }
     }
     if (!this.waveform) return;
+    if (store.syncMode && store.bounceMovedSeconds !== 0) {  // where the bounce was when Sync opened
+      const startOffset = (store.rangeStartNs - store.syncStartNs) / 1e9;
+      this.drawPeaks(context, lane, width, startOffset, this.colours.waveformGhost, this.colours.waveformGhost);
+    }
+    const dragging = store.gesture?.kind === "moveBounce";
+    this.drawPeaks(context, lane, width, store.bounceOffsetSeconds,
+                   dragging ? this.colours.accent : this.colours.waveformPlayed, dragging ? this.colours.accent : this.colours.waveform);
+    if (store.syncMode) this.drawBounceEdges(context, lane, width);
+  }
+
+  /** The bounce's start and end as lines, so it's clear where the music begins. */
+  drawBounceEdges(context, lane, width) {
+    const store = this.store;
+    const start = -store.bounceOffsetSeconds;
+    const end = start + store.project.bounce.duration_s;
+    context.fillStyle = this.colours.accent;
+    for (const seconds of [start, end]) {
+      const x = Math.round(store.xOf(seconds));
+      if (x >= 0 && x <= width) context.fillRect(x, lane.top, 1, lane.height);
+    }
+  }
+
+  /** The waveform with the bounce's t=0 at song time -offset: lighter left of the playhead. */
+  drawPeaks(context, lane, width, bounceOffset, playedColour, colour) {
+    const store = this.store;
     const { rate, peaks } = this.waveform;
-    const bounceOffset = (store.rangeStartNs - store.project.bounce.start_ns) / 1e9;
     const middle = lane.top + lane.height / 2;
     const playheadX = store.xOf(store.playheadSeconds);
     for (let x = 0; x < width; x += 2) {
@@ -291,7 +343,7 @@ export class TimelineDrawing {
       let loudest = 0;
       for (let i = Math.max(0, from); i <= Math.min(peaks.length - 1, to); i++) loudest = Math.max(loudest, peaks[i]);
       const half = Math.max(0.5, loudest / 255 * lane.height * 0.48);
-      context.fillStyle = x < playheadX ? this.colours.waveformPlayed : this.colours.waveform;
+      context.fillStyle = x < playheadX ? playedColour : colour;
       context.fillRect(x, middle - half, 1.5, half * 2);
     }
   }
@@ -349,6 +401,7 @@ export function readColours(element) {
     hoverLine: "rgba(244,239,230,0.5)",
     waveform: "#5f5a69",
     waveformPlayed: "#b3acbd",
+    waveformGhost: "rgba(179,172,189,0.38)",
     uiFont: token("--font-ui"),
     numberFont: token("--font-numbers"),
   };
