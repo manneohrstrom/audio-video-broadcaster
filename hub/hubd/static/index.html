@@ -176,7 +176,7 @@ async function loadHistory() {
 }
 loadHistory();
 setInterval(loadHistory, 10000);
-// Small charts (uPlot, vendored and pinned: /uPlot.iife.min.js 1.6.30). Each metric gets a
+// Small charts (uPlot, vendored and pinned: /uPlot.iife.min.js 1.6.30), the last 30 minutes. Each metric gets a
 // tile: its name, the current value, a thin line with a soft fill on a FIXED scale (so
 // normal wiggles stay small), a dot on the latest point, and on hover the value and how
 // long ago. Quiet blue; the warning colour only when the latest value is out of range.
@@ -196,7 +196,7 @@ const TREND_COLOURS = { normal: ["#7fa6d6", "rgba(127,166,214,0.16)"], warn: ["#
 const trendCharts = new Map();       // "hub::temp_c" -> { chart, warn }
 function trendBlock(scope, id, h) {
   const defs = TREND_DEFS[scope];
-  return `<div class="trends"><div class="trends-title">Last hour</div><div class="trend-grid">` + defs.map(d =>
+  return `<div class="trends"><div class="trends-title">Last 30 minutes</div><div class="trend-grid">` + defs.map(d =>
     `<div class="trend"><div class="trend-head"><span>${d.label}</span><span class="trend-value" data-trend-value="${scope}:${id}:${d.key}"></span></div>` +
     `<div class="trend-chart" data-trend="${scope}:${id}:${d.key}"></div></div>`).join("") + `</div></div>`;
 }
@@ -229,7 +229,9 @@ function attachTrends() {
         width: Math.max(80, place.clientWidth || 110), height: 34, legend: { show: false },
         cursor: { y: false, drag: { x: false, y: false }, points: { size: 6, fill: stroke } },
         select: { show: false },
-        scales: { x: { time: false }, y: { range: [d.min, max] } },
+        // A fixed time axis: the right edge is now, the left edge 30 minutes ago, so a
+        // short history (after a restart) draws on the right instead of stretching.
+        scales: { x: { time: false, range: [-(history.points || 180) * (history.interval_s || 10), 0] }, y: { range: [d.min, max] } },
         axes: [{ show: false }, { show: false }],
         series: [{}, { stroke, fill, width: 1.5, spanGaps: false,
                        points: { show: true, size: 5, fill: stroke, filter: u => {
