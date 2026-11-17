@@ -45,6 +45,7 @@ Three things the rig can't do yet:
 3. **A focus check before REC:** compare each Pi's sharpness with the value saved with its focus and warn on the deck when a camera has been bumped or someone moved it.
 4. **Soft stretches as data for the editor:** sharpness per second per camera (from the thumbnails or proxies, after ingest), marked like rough sections, so the cut avoids them (automatic cut v2, `docs/editor-plan.md` section 3b, already treats focus as a hard limit).
 5. **Focus changes mid-take by hand** (a focus pull from the hub) are not planned: a Pi's settings are fixed when `rpicam-vid` starts, and changing them would need a restart.
+6. **Phone focus from the hub's focus view** (nudges, find sharpest, save, like the Pis): proposed 2026-11-17, **declined by the user** ("not the right solution"). Phones keep focusing by card calibration, the focus switch, or a single autofocus at REC.
 
 ### Polish backlog: sparklines of health metrics (user, 2026-11-16)
 
