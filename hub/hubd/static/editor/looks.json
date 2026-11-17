@@ -1,5 +1,5 @@
 {
- "about": "The editor's Filters and Effects (docs/editor-plan.md section 5). Read by the editor (preview, WebGL) and by the render (hub/ingest/grade.py, ffmpeg), so the preview matches the finished video. A filter is a set of grade settings (see grade.js / grade.py); its strength blends between the original colour (0) and the full filter (1). Effects have a default strength. Adjustments are the primary correction applied before the filter: each slider value v (-1..1, 0 = off) becomes grade setting = base + v * scale (fade only uses v > 0).",
+ "about": "The editor's Filters and Effects (docs/editor-plan.md section 5). Read by the editor (preview, WebGL) and by the render (hub/ingest/grade.py, ffmpeg), so the preview matches the finished video. A filter is a set of grade settings (see grade.js / grade.py); its strength blends between the original colour (0) and the full filter (1). Effects have a default strength. Adjustments are the primary correction applied before the filter: each slider value v (-1..1, 0 = off) becomes grade setting = base + v * scale (fade only uses v > 0). Filters marked \"instagram\" follow CSSgram's recreations of Instagram's filters (MIT, Una Kravets): CSS filter functions (\"css\") and colour layers blended on top (\"layers\": colour 0..1, blend mode, alpha, opacity), computed with the W3C formulas; radial/linear gradients in those recipes are reduced to their main colour (use Vignette for the edges). Approximations, not Instagram's own filters.",
  "filters": [
   {
    "id": "normal",
@@ -119,6 +119,668 @@
     "mono": true,
     "contrast": 1.6,
     "exposure": -0.15
+   }
+  },
+  {
+   "id": "aden",
+   "name": "Aden",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "hue-rotate",
+      -20
+     ],
+     [
+      "contrast",
+      0.9
+     ],
+     [
+      "saturate",
+      0.85
+     ],
+     [
+      "brightness",
+      1.2
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.2588,
+       0.0392,
+       0.0549
+      ],
+      "mode": "darken",
+      "alpha": 0.2,
+      "opacity": 0.5
+     }
+    ]
+   }
+  },
+  {
+   "id": "clarendon",
+   "name": "Clarendon",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "contrast",
+      1.2
+     ],
+     [
+      "saturate",
+      1.35
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.498,
+       0.7333,
+       0.8902
+      ],
+      "mode": "overlay",
+      "alpha": 0.2,
+      "opacity": 1.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "gingham",
+   "name": "Gingham",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "brightness",
+      1.05
+     ],
+     [
+      "hue-rotate",
+      -10
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.902,
+       0.902,
+       0.9804
+      ],
+      "mode": "soft-light",
+      "alpha": 1.0,
+      "opacity": 1.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "lark",
+   "name": "Lark",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "contrast",
+      0.9
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.1333,
+       0.1451,
+       0.2471
+      ],
+      "mode": "color-dodge",
+      "alpha": 1.0,
+      "opacity": 1.0
+     },
+     {
+      "color": [
+       0.949,
+       0.949,
+       0.949
+      ],
+      "mode": "darken",
+      "alpha": 0.8,
+      "opacity": 1.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "moon",
+   "name": "Moon",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "grayscale",
+      1
+     ],
+     [
+      "contrast",
+      1.1
+     ],
+     [
+      "brightness",
+      1.1
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.6275,
+       0.6275,
+       0.6275
+      ],
+      "mode": "soft-light",
+      "alpha": 1.0,
+      "opacity": 1.0
+     },
+     {
+      "color": [
+       0.2196,
+       0.2196,
+       0.2196
+      ],
+      "mode": "lighten",
+      "alpha": 1.0,
+      "opacity": 1.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "reyes",
+   "name": "Reyes",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "sepia",
+      0.22
+     ],
+     [
+      "brightness",
+      1.1
+     ],
+     [
+      "contrast",
+      0.85
+     ],
+     [
+      "saturate",
+      0.75
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.9373,
+       0.8039,
+       0.6784
+      ],
+      "mode": "soft-light",
+      "alpha": 1,
+      "opacity": 0.5
+     }
+    ]
+   }
+  },
+  {
+   "id": "valencia",
+   "name": "Valencia",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "contrast",
+      1.08
+     ],
+     [
+      "brightness",
+      1.08
+     ],
+     [
+      "sepia",
+      0.08
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.2275,
+       0.0118,
+       0.2235
+      ],
+      "mode": "exclusion",
+      "alpha": 1,
+      "opacity": 0.5
+     }
+    ]
+   }
+  },
+  {
+   "id": "xpro2",
+   "name": "X-Pro II",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "sepia",
+      0.3
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.902,
+       0.9059,
+       0.8784
+      ],
+      "mode": "color-burn",
+      "alpha": 1.0,
+      "opacity": 1.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "lofi",
+   "name": "Lo-Fi",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "saturate",
+      1.1
+     ],
+     [
+      "contrast",
+      1.5
+     ]
+    ]
+   }
+  },
+  {
+   "id": "hudson",
+   "name": "Hudson",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "brightness",
+      1.2
+     ],
+     [
+      "contrast",
+      0.9
+     ],
+     [
+      "saturate",
+      1.1
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.651,
+       0.6941,
+       1.0
+      ],
+      "mode": "multiply",
+      "alpha": 1,
+      "opacity": 0.5
+     }
+    ]
+   }
+  },
+  {
+   "id": "inkwell",
+   "name": "Inkwell",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "sepia",
+      0.3
+     ],
+     [
+      "contrast",
+      1.1
+     ],
+     [
+      "brightness",
+      1.1
+     ],
+     [
+      "grayscale",
+      1
+     ]
+    ]
+   }
+  },
+  {
+   "id": "mayfair",
+   "name": "Mayfair",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "contrast",
+      1.1
+     ],
+     [
+      "saturate",
+      1.1
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       1.0,
+       0.7843,
+       0.7843
+      ],
+      "mode": "overlay",
+      "alpha": 0.6,
+      "opacity": 0.4
+     }
+    ]
+   }
+  },
+  {
+   "id": "rise",
+   "name": "Rise",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "brightness",
+      1.05
+     ],
+     [
+      "sepia",
+      0.2
+     ],
+     [
+      "contrast",
+      0.9
+     ],
+     [
+      "saturate",
+      0.9
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.9255,
+       0.8039,
+       0.6627
+      ],
+      "mode": "multiply",
+      "alpha": 0.15,
+      "opacity": 1.0
+     },
+     {
+      "color": [
+       0.9098,
+       0.7725,
+       0.5961
+      ],
+      "mode": "overlay",
+      "alpha": 0.8,
+      "opacity": 0.6
+     }
+    ]
+   }
+  },
+  {
+   "id": "nashville",
+   "name": "Nashville",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "sepia",
+      0.2
+     ],
+     [
+      "contrast",
+      1.2
+     ],
+     [
+      "brightness",
+      1.05
+     ],
+     [
+      "saturate",
+      1.2
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.9686,
+       0.6902,
+       0.6
+      ],
+      "mode": "darken",
+      "alpha": 0.56,
+      "opacity": 1.0
+     },
+     {
+      "color": [
+       0.0,
+       0.2745,
+       0.5882
+      ],
+      "mode": "lighten",
+      "alpha": 0.4,
+      "opacity": 1.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "slumber",
+   "name": "Slumber",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "saturate",
+      0.66
+     ],
+     [
+      "brightness",
+      1.05
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.2706,
+       0.1608,
+       0.0471
+      ],
+      "mode": "lighten",
+      "alpha": 0.4,
+      "opacity": 1.0
+     },
+     {
+      "color": [
+       0.4902,
+       0.4118,
+       0.0941
+      ],
+      "mode": "soft-light",
+      "alpha": 0.5,
+      "opacity": 1.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "willow",
+   "name": "Willow",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "grayscale",
+      0.5
+     ],
+     [
+      "contrast",
+      0.95
+     ],
+     [
+      "brightness",
+      0.9
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.8471,
+       0.8039,
+       0.7961
+      ],
+      "mode": "color",
+      "alpha": 1.0,
+      "opacity": 1.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "walden",
+   "name": "Walden",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "brightness",
+      1.1
+     ],
+     [
+      "hue-rotate",
+      -10
+     ],
+     [
+      "sepia",
+      0.3
+     ],
+     [
+      "saturate",
+      1.6
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.0,
+       0.2667,
+       0.8
+      ],
+      "mode": "screen",
+      "alpha": 1,
+      "opacity": 0.3
+     }
+    ]
+   }
+  },
+  {
+   "id": "toaster",
+   "name": "Toaster",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "contrast",
+      1.5
+     ],
+     [
+      "brightness",
+      0.9
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.502,
+       0.3059,
+       0.0588
+      ],
+      "mode": "screen",
+      "alpha": 1.0,
+      "opacity": 1.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "earlybird",
+   "name": "Earlybird",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "contrast",
+      0.9
+     ],
+     [
+      "sepia",
+      0.2
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.8157,
+       0.7294,
+       0.5569
+      ],
+      "mode": "overlay",
+      "alpha": 1.0,
+      "opacity": 1.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "brannan",
+   "name": "Brannan",
+   "group": "instagram",
+   "grade": {
+    "css": [
+     [
+      "sepia",
+      0.5
+     ],
+     [
+      "contrast",
+      1.4
+     ]
+    ],
+    "layers": [
+     {
+      "color": [
+       0.6314,
+       0.1725,
+       0.7804
+      ],
+      "mode": "lighten",
+      "alpha": 0.31,
+      "opacity": 1.0
+     }
+    ]
    }
   }
  ],

@@ -12,6 +12,7 @@ its input (0) and the filtered colour (1): look_colour(). The render writes the 
 a .cube file for ffmpeg's lut3d filter.
 """
 import json
+import math
 import sys
 
 LUT_SIZE = 33
@@ -22,7 +23,106 @@ def clamp01(value):
     return 0.0 if value < 0 else 1.0 if value > 1 else value
 
 
+# ---- CSS filters and blended colour layers (W3C Filter Effects and Compositing specs), the
+# model of the Instagram-style filters (after CSSgram, MIT). Each filter function clamps.
+def _matrix(c, m):
+    return [clamp01(m[i][0] * c[0] + m[i][1] * c[1] + m[i][2] * c[2]) for i in range(3)]
+
+
+def css_filter(c, name, amount):
+    if name == "brightness":
+        return [clamp01(v * amount) for v in c]
+    if name == "contrast":
+        return [clamp01((v - 0.5) * amount + 0.5) for v in c]
+    if name == "saturate":
+        s = amount
+        return _matrix(c, [[0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s],
+                           [0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s],
+                           [0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s]])
+    if name == "grayscale":
+        g = 1 - min(1, amount)
+        return _matrix(c, [[0.2126 + 0.7874 * g, 0.7152 - 0.7152 * g, 0.0722 - 0.0722 * g],
+                           [0.2126 - 0.2126 * g, 0.7152 + 0.2848 * g, 0.0722 - 0.0722 * g],
+                           [0.2126 - 0.2126 * g, 0.7152 - 0.7152 * g, 0.0722 + 0.9278 * g]])
+    if name == "sepia":
+        g = 1 - min(1, amount)
+        return _matrix(c, [[0.393 + 0.607 * g, 0.769 - 0.769 * g, 0.189 - 0.189 * g],
+                           [0.349 - 0.349 * g, 0.686 + 0.314 * g, 0.168 - 0.168 * g],
+                           [0.272 - 0.272 * g, 0.534 - 0.534 * g, 0.131 + 0.869 * g]])
+    if name == "hue-rotate":
+        a = math.radians(amount)
+        cs, sn = math.cos(a), math.sin(a)
+        return _matrix(c, [[0.213 + cs * 0.787 - sn * 0.213, 0.715 - cs * 0.715 - sn * 0.715, 0.072 - cs * 0.072 + sn * 0.928],
+                           [0.213 - cs * 0.213 + sn * 0.143, 0.715 + cs * 0.285 + sn * 0.140, 0.072 - cs * 0.072 - sn * 0.283],
+                           [0.213 - cs * 0.213 - sn * 0.787, 0.715 - cs * 0.715 + sn * 0.715, 0.072 + cs * 0.928 + sn * 0.072]])
+    raise ValueError("unknown CSS filter %r" % name)
+
+
+def _soft_light(b, s):
+    if s <= 0.5:
+        return b - (1 - 2 * s) * b * (1 - b)
+    d = ((16 * b - 12) * b + 4) * b if b <= 0.25 else math.sqrt(b)
+    return b + (2 * s - 1) * (d - b)
+
+
+def _hard_light(b, s):
+    return b * 2 * s if s <= 0.5 else b + (2 * s - 1) - b * (2 * s - 1)
+
+
+SEPARABLE = {
+    "normal": lambda b, s: s,
+    "multiply": lambda b, s: b * s,
+    "screen": lambda b, s: b + s - b * s,
+    "overlay": lambda b, s: _hard_light(s, b),
+    "darken": min,
+    "lighten": max,
+    "color-dodge": lambda b, s: 0.0 if b == 0 else 1.0 if s >= 1 else min(1.0, b / (1 - s)),
+    "color-burn": lambda b, s: 1.0 if b >= 1 else 0.0 if s <= 0 else 1 - min(1.0, (1 - b) / s),
+    "soft-light": _soft_light,
+    "hard-light": _hard_light,
+    "exclusion": lambda b, s: b + s - 2 * b * s,
+    "difference": lambda b, s: abs(b - s),
+}
+
+
+def _lum(c):
+    return 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
+
+
+def _set_lum(c, l):
+    d = l - _lum(c)
+    c = [v + d for v in c]
+    lum, lo, hi = _lum(c), min(c), max(c)
+    if lo < 0:
+        c = [lum + (v - lum) * lum / (lum - lo) for v in c]
+    if hi > 1:
+        c = [lum + (v - lum) * (1 - lum) / (hi - lum) for v in c]
+    return c
+
+
+def blend_layer(backdrop, layer):
+    """A solid colour layer (CSS color + alpha x opacity) blended over the picture."""
+    colour, mode = layer["color"], layer.get("mode", "normal")
+    alpha = layer.get("alpha", 1.0) * layer.get("opacity", 1.0)
+    if mode == "color":
+        mixed = _set_lum(colour, _lum(backdrop))
+    else:
+        f = SEPARABLE[mode]
+        mixed = [f(b, s) for b, s in zip(backdrop, colour)]
+    return [clamp01((1 - alpha) * b + alpha * m) for b, m in zip(backdrop, mixed)]
+
+
+def css_look(colour, settings):
+    for name, amount in settings.get("css") or []:
+        colour = css_filter(colour, name, amount)
+    for layer in settings.get("layers") or []:
+        colour = blend_layer(colour, layer)
+    return colour
+
+
 def grade_colour(colour, settings):
+    if settings.get("css") or settings.get("layers"):
+        colour = css_look(list(colour), settings)
     r, g, b = colour
     exposure = settings.get("exposure", 0)
     temperature = settings.get("temperature", 0)

@@ -55,9 +55,12 @@ export function LookPanel({ store }) {
     <section class="look-panel" aria-label="Look">
       <div class="look-section">
         <div class="row-title">Filters</div>
-        <div class="look-row">
-          ${looks.filters.map(filter => tile(`filter:${filter.id}`, filter, store.look.filter === filter.id, false, () => store.tapFilter(filter.id)))}
-        </div>
+        ${[["studio", "Studio"], ["instagram", "Instagram"]].map(([group, title]) => html`
+          <div class="filter-group">${title}</div>
+          <div class="look-row">
+            ${looks.filters.filter(filter => (filter.group || "studio") === group).map(filter =>
+              tile(`filter:${filter.id}`, filter, store.look.filter === filter.id, false, () => store.tapFilter(filter.id)))}
+          </div>`)}
         ${store.look.filter !== "normal" && strengthRow(
           looks.filters.find(f => f.id === store.look.filter)?.name, store.look.filter_strength,
           value => store.setStrength("filter", value))}

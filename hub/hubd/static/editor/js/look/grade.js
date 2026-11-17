@@ -19,8 +19,86 @@ function clamp01(value) {
   return value < 0 ? 0 : value > 1 ? 1 : value;
 }
 
+// ---- CSS filters and blended colour layers (W3C Filter Effects and Compositing specs), the
+// model of the Instagram-style filters (after CSSgram, MIT). Each filter function clamps.
+const matrix = (c, m) => [0, 1, 2].map(i => clamp01(m[i][0] * c[0] + m[i][1] * c[1] + m[i][2] * c[2]));
+
+function cssFilter(c, name, amount) {
+  if (name === "brightness") return c.map(v => clamp01(v * amount));
+  if (name === "contrast") return c.map(v => clamp01((v - 0.5) * amount + 0.5));
+  if (name === "saturate") {
+    const s = amount;
+    return matrix(c, [[0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s],
+                      [0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s],
+                      [0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s]]);
+  }
+  if (name === "grayscale") {
+    const g = 1 - Math.min(1, amount);
+    return matrix(c, [[0.2126 + 0.7874 * g, 0.7152 - 0.7152 * g, 0.0722 - 0.0722 * g],
+                      [0.2126 - 0.2126 * g, 0.7152 + 0.2848 * g, 0.0722 - 0.0722 * g],
+                      [0.2126 - 0.2126 * g, 0.7152 - 0.7152 * g, 0.0722 + 0.9278 * g]]);
+  }
+  if (name === "sepia") {
+    const g = 1 - Math.min(1, amount);
+    return matrix(c, [[0.393 + 0.607 * g, 0.769 - 0.769 * g, 0.189 - 0.189 * g],
+                      [0.349 - 0.349 * g, 0.686 + 0.314 * g, 0.168 - 0.168 * g],
+                      [0.272 - 0.272 * g, 0.534 - 0.534 * g, 0.131 + 0.869 * g]]);
+  }
+  if (name === "hue-rotate") {
+    const a = amount * Math.PI / 180, cs = Math.cos(a), sn = Math.sin(a);
+    return matrix(c, [[0.213 + cs * 0.787 - sn * 0.213, 0.715 - cs * 0.715 - sn * 0.715, 0.072 - cs * 0.072 + sn * 0.928],
+                      [0.213 - cs * 0.213 + sn * 0.143, 0.715 + cs * 0.285 + sn * 0.140, 0.072 - cs * 0.072 - sn * 0.283],
+                      [0.213 - cs * 0.213 - sn * 0.787, 0.715 - cs * 0.715 + sn * 0.715, 0.072 + cs * 0.928 + sn * 0.072]]);
+  }
+  throw new Error(`unknown CSS filter ${name}`);
+}
+
+const hardLight = (b, s) => (s <= 0.5 ? b * 2 * s : b + (2 * s - 1) - b * (2 * s - 1));
+function softLight(b, s) {
+  if (s <= 0.5) return b - (1 - 2 * s) * b * (1 - b);
+  const d = b <= 0.25 ? ((16 * b - 12) * b + 4) * b : Math.sqrt(b);
+  return b + (2 * s - 1) * (d - b);
+}
+const SEPARABLE = {
+  normal: (b, s) => s,
+  multiply: (b, s) => b * s,
+  screen: (b, s) => b + s - b * s,
+  overlay: (b, s) => hardLight(s, b),
+  darken: Math.min,
+  lighten: Math.max,
+  "color-dodge": (b, s) => (b === 0 ? 0 : s >= 1 ? 1 : Math.min(1, b / (1 - s))),
+  "color-burn": (b, s) => (b >= 1 ? 1 : s <= 0 ? 0 : 1 - Math.min(1, (1 - b) / s)),
+  "soft-light": softLight,
+  "hard-light": hardLight,
+  exclusion: (b, s) => b + s - 2 * b * s,
+  difference: (b, s) => Math.abs(b - s),
+};
+const lum = c => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+function setLum(c, l) {
+  const d = l - lum(c);
+  c = c.map(v => v + d);
+  const L = lum(c), lo = Math.min(...c), hi = Math.max(...c);
+  if (lo < 0) c = c.map(v => L + (v - L) * L / (L - lo));
+  if (hi > 1) c = c.map(v => L + (v - L) * (1 - L) / (hi - L));
+  return c;
+}
+function blendLayer(backdrop, layer) {
+  const mode = layer.mode || "normal";
+  const alpha = (layer.alpha ?? 1) * (layer.opacity ?? 1);
+  const mixed = mode === "color" ? setLum(layer.color, lum(backdrop))
+    : backdrop.map((b, i) => SEPARABLE[mode](b, layer.color[i]));
+  return backdrop.map((b, i) => clamp01((1 - alpha) * b + alpha * mixed[i]));
+}
+function cssLook(colour, settings) {
+  for (const [name, amount] of settings.css || []) colour = cssFilter(colour, name, amount);
+  for (const layer of settings.layers || []) colour = blendLayer(colour, layer);
+  return colour;
+}
+
 /** The graded colour of [r, g, b] with these settings (see looks.json "grade"). */
-export function gradeColour([r, g, b], settings) {
+export function gradeColour(colour, settings) {
+  if (settings.css || settings.layers) colour = cssLook([...colour], settings);
+  let [r, g, b] = colour;
   const {
     exposure = 0, temperature = 0, tint = 0, contrast = 1, saturation = 1,
     mono = false, shadows = [1, 1, 1], highlights = [1, 1, 1], fade = 0,
