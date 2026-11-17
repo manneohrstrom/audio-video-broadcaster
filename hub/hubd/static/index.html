@@ -168,7 +168,7 @@ function fmt(v, unit, digits = 1) { return v == null ? "–" : (+v).toFixed(digi
 function hms(s) { s = Math.floor(s); return [s / 3600 | 0, (s / 60 | 0) % 60, s % 60].map(x => String(x).padStart(2, "0")).join(":"); }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
-// ---- sparklines (user, 2026-11-16): the last hour of each health value, one point per 10 s,
+// ---- health charts (user, 2026-11-16/17): the last 30 minutes of each value, one point per 10 s,
 // from /api/history (fetched every 10 s). Gaps (offline, unknown) break the line.
 let history = { hub: {}, cameras: {} };
 async function loadHistory() {
