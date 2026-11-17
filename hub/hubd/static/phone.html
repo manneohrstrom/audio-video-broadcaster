@@ -2,74 +2,144 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1e1c1a">
 <title>Phone camera</title>
+<!-- The same instrument as the hub page and the editor: tokens and fonts from static/shared. -->
+<link rel="stylesheet" href="/shared/styles/tokens.css">
 <style>
-  :root { --bg:#111; --fg:#eee; --dim:#999; --card:#1c1c1e; --rec:#d22; --warn:#e90; --ok:#3c3; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, sans-serif; }
-  header { display:flex; gap:8px; align-items:center; padding:8px 12px; background:var(--card); flex-wrap:wrap; }
-  #state { margin-left:auto; font-weight:700; padding:6px 12px; border-radius:6px; background:#333; }
-  #state.rec { background:var(--rec); } #state.up { background:var(--warn); color:#000; } #state.ready { background:var(--ok); color:#000; }
-  video { width:100%; max-height:55vh; background:#000; display:block; }
-  section { padding:8px 12px; }
-  button, select { font:inherit; padding:8px 12px; border-radius:6px; border:0; background:#333; color:var(--fg); }
-  button.main { background:#2b5; color:#000; font-weight:600; }
-  input { font:inherit; width:6.5em; background:#222; color:var(--fg); border:1px solid #444; border-radius:4px; padding:4px; }
-  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:6px 0; }
-  .kv { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; font-variant-numeric:tabular-nums; font-size:14px; }
-  .kv span:nth-child(odd) { color:var(--dim); }
-  #msg { color:var(--warn); min-height:1.4em; white-space:pre-line; }
-  #msg.err { color:#f66; }
-  .dim { color:var(--dim); font-size:13px; }
-  pre { white-space:pre-wrap; word-break:break-all; font-size:11px; background:#000; padding:6px; max-height:30vh; overflow:auto; }
-  details summary { cursor:pointer; color:var(--dim); }
+  /* Layout: the viewfinder and the controls. Landscape (how the phone records) puts them side
+     by side so every control is on screen without scrolling (user, 2026-11-17); portrait
+     stacks them. The script below only relies on the element ids and the mount radios. */
+  * { box-sizing: border-box; }
+  body { font-size: 15px; min-height: 100dvh; }
+  .cam { display: grid; grid-template-rows: auto 1fr; min-height: 100dvh; }
+  .viewfinder { position: relative; background: #000; display: grid; place-items: center; }
+  video { width: 100%; max-height: 52vh; display: block; background: #000; }
+  .controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); }
+
+  @media (orientation: landscape) and (min-width: 560px) {
+    .cam { grid-template-rows: none; grid-template-columns: minmax(0, 1fr) minmax(300px, 40%); height: 100dvh; }
+    video { max-height: 100dvh; height: 100%; object-fit: contain; }
+    .controls { overflow-y: auto; overflow-x: hidden; padding: 10px 12px; gap: 7px; }
+    .controls .help, .section-title small { display: none; }   /* setup help lives under "first time on this phone" */
+    button { min-height: 40px; padding: 8px 12px; }
+    #mountrow label { min-height: 34px; }
+  }
+
+  /* The state on the viewfinder: an LED and a word, like a camera's tally */
+  #state {
+    position: absolute; top: 10px; left: 10px; display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px 6px 10px; border-radius: 999px; background: rgba(17, 16, 15, 0.8);
+    font-weight: 600; letter-spacing: 0.04em;
+  }
+  #state::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #3a3631; }
+  #state.ready::before { background: var(--color-good); box-shadow: 0 0 8px var(--color-good); }
+  #state.up::before { background: var(--color-warning); box-shadow: 0 0 8px var(--color-warning); }
+  #state.rec { color: #ffd9d2; }
+  #state.rec::before { background: var(--color-playhead); box-shadow: 0 0 10px var(--color-playhead); animation: blink 1.2s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: 0.35; } }
+
+  .who { display: flex; gap: 8px; align-items: center; }
+  .grille { flex: none; width: 26px; height: 16px; border-radius: 4px; background: radial-gradient(circle, #0c0b0a 0 1px, transparent 1.4px) 0 0 / 4.5px 4.5px, #2b2824; }
+  #name { flex: 1; min-width: 0; width: auto; font-size: 16px; padding: 10px 12px; }
+
+  /* Keys */
+  button, select { font: inherit; }
+  button {
+    border: 0; border-radius: 12px; padding: 10px 16px; min-height: 44px; cursor: pointer; font-weight: 500;
+    background: var(--color-raised); color: var(--color-text); box-shadow: var(--key-depth); transition: transform 60ms, box-shadow 60ms;
+  }
+  button:active:not(:disabled) { transform: translateY(2px); box-shadow: none; }
+  button:disabled { opacity: 0.38; }
+  button.main { background: var(--color-signal); color: #1a0d05; font-weight: 600; box-shadow: 0 2px 0 #a8410a, inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+  #connect { white-space: nowrap; }
+  .keys { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+
+  /* Fields */
+  input { font: inherit; width: 6.5em; color: var(--color-text); background: var(--color-well); border: 0; border-radius: 10px; padding: 7px 9px; box-shadow: var(--well-depth); }
+  input:disabled { color: var(--color-text-muted); }
+
+  /* Tripod / handheld: the radios as a two-position switch */
+  #mountrow { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border-radius: 12px; background: var(--color-well); box-shadow: var(--well-depth); }
+  #mountrow label { display: grid; place-items: center; min-height: 38px; border-radius: 9px; color: var(--color-text-muted); font-weight: 500; cursor: pointer; }
+  #mountrow input { position: absolute; opacity: 0; pointer-events: none; }
+  #mountrow label:has(input:checked) { background: var(--color-cream); color: var(--color-well); box-shadow: var(--key-depth); }
+  #mountrow label:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+  .section-title { margin: 2px 0 0; font-weight: 600; }
+  .section-title small { font-weight: 400; color: var(--color-text-muted); }
+  #msg { margin: 0; color: var(--color-warning); white-space: pre-line; }
+  #msg:empty { display: none; }
+  #msg.err { color: var(--color-problem); }
+  .dim, #calstate { color: var(--color-text-muted); font-size: 13px; }
+  #calstate:empty { display: none; }
+
+  /* Numbers: a display set into the body, two columns of name / value */
+  .kv { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 2px 10px; padding: 9px 12px; border-radius: var(--radius); background: var(--color-well); box-shadow: var(--well-depth); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .kv:empty { display: none; }
+  .kv span:nth-child(odd) { color: var(--color-text-muted); }
+  .kv span:nth-child(even) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  details { border-radius: var(--radius); background: var(--color-panel); padding: 8px 12px; }
+  details summary { cursor: pointer; color: var(--color-text-muted); }
+  details .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+  details label { color: var(--color-text-muted); font-size: 13px; }
+  pre { white-space: pre-wrap; word-break: break-all; font-size: 11px; background: var(--color-well); padding: 6px 8px; border-radius: 6px; max-height: 30vh; overflow: auto; margin: 6px 0 0; }
+  code { font-size: 12px; color: var(--color-text); word-break: break-all; }
+
   #calflash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 0.12s; z-index: 50; }
   #calflash.on { opacity: 0.95; }
 </style>
 </head>
 <body>
-<header>
-  <input id="name" maxlength="24" placeholder="name, e.g. Paul's Pixel" style="width:13em" autocomplete="off">
-  <button id="connect" class="main">Start camera</button>
-  <span id="state">off</span>
-</header>
-<video id="preview" muted playsinline autoplay></video>
-<section>
-  <div id="msg"></div>
-  <div class="kv" id="stats"></div>
-</section>
-<section>
-  <b>Lock the picture</b> <span class="dim">before the take: point at the scene, then tap Auto, then lock (~20 s)</span>
-  <div class="row">
-    <button id="autolock" class="main">Auto, then lock</button>
-    <button id="auto">All auto</button>
+<div class="cam">
+  <div class="viewfinder">
+    <video id="preview" muted playsinline autoplay></video>
+    <span id="state">off</span>
   </div>
-  <div class="row" id="mountrow">
-    <label><input type="radio" name="mount" value="tripod"> on a tripod</label>
-    <label><input type="radio" name="mount" value="handheld"> handheld</label>
-  </div>
-  <div id="calstate" class="dim"></div>
-  <details><summary>manual values</summary>
-    <div class="dim">exposure in 100 µs units: 200 = 1/50 s (the rig's shutter)</div>
-    <div class="row">
-      <label>exp <input id="exposureTime" type="number" value="200"></label>
-      <label>ISO <input id="iso" type="number"></label>
-      <label>WB K <input id="colorTemperature" type="number"></label>
-      <label>focus m <input id="focusDistance" type="number" step="0.01"></label>
-      <button id="lock">Lock these</button>
+  <div class="controls">
+    <div class="who">
+      <span class="grille" aria-hidden="true"></span>
+      <input id="name" maxlength="24" placeholder="name, e.g. Paul's Pixel" autocomplete="off" aria-label="This phone's name">
+      <button id="connect" class="main">start camera</button>
     </div>
-    <pre id="caps"></pre>
-  </details>
-  <div id="cardtest" hidden>
-    <b>Card test (spike B-S6)</b> <span class="dim">card ~1 m in front of the phone, in the studio light, filling about a third of the picture</span>
-    <div class="row"><button id="cardgo" class="main">Run card test</button></div>
-    <pre id="cardout"></pre>
+    <p id="msg"></p>
+    <p class="section-title">Lock the picture <small>point at the scene first (~20 s)</small></p>
+    <div class="keys">
+      <button id="autolock" class="main">auto, then lock</button>
+      <button id="auto">all auto</button>
+    </div>
+    <div id="mountrow" role="radiogroup" aria-label="How the phone is held">
+      <label><input type="radio" name="mount" value="tripod"> on a tripod</label>
+      <label><input type="radio" name="mount" value="handheld"> handheld</label>
+    </div>
+    <div id="calstate"></div>
+    <div class="kv" id="stats"></div>
+    <p class="dim help">REC and STOP come from the hub. Keep this page in front, the screen on and the phone plugged in.</p>
+    <details><summary>manual values</summary>
+      <div class="dim">exposure in 100 µs units: 200 = 1/50 s (the rig's shutter)</div>
+      <div class="row">
+        <label>exp <input id="exposureTime" type="number" value="200"></label>
+        <label>ISO <input id="iso" type="number"></label>
+        <label>WB K <input id="colorTemperature" type="number"></label>
+        <label>focus m <input id="focusDistance" type="number" step="0.01"></label>
+        <button id="lock">lock these</button>
+      </div>
+      <pre id="caps"></pre>
+    </details>
+    <div id="cardtest" hidden>
+      <p class="section-title">Card test (spike B-S6) <small>card ~1 m away, in the studio light, about a third of the picture</small></p>
+      <div class="row"><button id="cardgo" class="main">run card test</button></div>
+      <pre id="cardout"></pre>
+    </div>
+    <details><summary>first time on this phone</summary>
+      <p class="dim">REC and STOP come from the hub. Keep this page in front, the screen on and the phone plugged in.</p>
+      <p class="dim">Chrome needs <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> set to
+      <code id="origin"></code>, and the local-network permission.</p>
+    </details>
   </div>
-  <p class="dim">Recording starts and stops from the hub page. Keep this page in front, the screen on and the phone plugged in.
-  First time on this phone: Chrome needs <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> set to
-  <code id="origin"></code>, and the local-network permission.</p>
-</section>
+</div>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -87,7 +157,7 @@ try { $("name").value = localStorage.getItem("phone_label") || ""; } catch (e) {
 function msg(t, err) { $("msg").textContent = t || ""; $("msg").className = err ? "err" : ""; if (t) hublog({ev: "msg", t}); }
 function setState(s) {
   S.state = s;
-  const label = {off: "off", ready: "READY", recording: "● REC", finishing: "finishing", uploading: "uploading"}[s] || s;
+  const label = {off: "off", ready: "ready", recording: "rec", finishing: "finishing", uploading: "uploading"}[s] || s;   // the pill has its own LED
   $("state").textContent = label;
   $("state").className = {recording: "rec", uploading: "up", finishing: "up", ready: "ready"}[s] || "";
 }
