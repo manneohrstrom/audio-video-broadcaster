@@ -46,7 +46,7 @@
 }
 /* The editor shows 960x540 proxies: on a big monitor a larger picture only looks pixelated
    (user, 2026-11-17). Past this width it stays put, centred in the free space. */
-.editor.look-step .video-window { max-width: min(100%, var(--look-video-max-width, 1280px)); }
+.editor.look-step .video-window { max-width: min(100%, var(--look-video-max-width, 960px)); }
 .editor.look-step .look-panel { min-height: 0; overflow-y: auto; padding: var(--space-3) var(--space-1) var(--space-3) 0; align-content: start; }
 .editor.look-step .look-row { flex-wrap: wrap; overflow: visible; }
 .editor.look-step .adjust-grid { grid-template-columns: 1fr; }
