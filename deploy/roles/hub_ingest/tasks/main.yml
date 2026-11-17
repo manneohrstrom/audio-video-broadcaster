@@ -55,6 +55,14 @@
   loop: [edit_render.py, look_render.py, grade.py]
   notify: Restart hub-ingest
 
+- name: hub-ingest analysis for the automatic cut (beats of each bounce, movement per camera)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/ingest/{{ item }}"
+    dest: "/opt/hub-ingest/{{ item }}"
+    mode: "0644"
+  loop: [beats.py, motion.py]
+  notify: Restart hub-ingest
+
 - name: hub-ingest drive records (the STUDIO drive as the record of every take, docs/stick-db-plan.md)
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../hub/ingest/drive_records.py"

@@ -40,8 +40,9 @@ import thumbnails  # noqa: E402
 import proxies  # noqa: E402
 import edit_render  # noqa: E402
 import drive_records  # noqa: E402
+import motion  # noqa: E402
 
-VERSION = "0.15.0"
+VERSION = "0.16.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -1203,6 +1204,90 @@ class Ingest:
                     self.state.setdefault("proxies_failed", {})["%s/%s" % (take_id, camera_id)] = failure(e)
                 self.save()
 
+    # -- analysis for the automatic cut (docs/editor-plan.md section 3): beats.py, motion.py
+    def beats_pending(self):
+        """(key, bounce path, beats.json path) for every staged bounce version not analysed yet.
+        Beats depend only on the bounce, so every uploaded version is analysed, synced or not."""
+        failed = self.state.get("beats_failed") or {}
+        out = []
+        audio_dir = self.cfg["audio_dir"]
+        for take_id in sorted(os.listdir(audio_dir)) if os.path.isdir(audio_dir) else []:
+            if not TAKE_RE.match(take_id):
+                continue
+            take_audio = os.path.join(audio_dir, take_id)
+            for song in sorted(os.listdir(take_audio)):
+                song_dir = os.path.join(take_audio, song)
+                if song == "scratch" or not os.path.isdir(song_dir):
+                    continue
+                for version in sorted(os.listdir(song_dir)):
+                    version_dir = os.path.join(song_dir, version)
+                    key = "%s/%s/%s" % (take_id, song, version)
+                    if os.path.exists(os.path.join(version_dir, "beats.json")) or failed_in_this_version(failed, key):
+                        continue
+                    try:
+                        with open(os.path.join(version_dir, "version.json")) as f:
+                            bounce = os.path.join(version_dir, json.load(f)["filename"])
+                    except (OSError, ValueError, KeyError, TypeError):
+                        continue                  # still uploading, or not a version folder
+                    if os.path.exists(bounce):
+                        out.append((key, bounce, os.path.join(version_dir, "beats.json")))
+        return out
+
+    def run_beat_analyses(self, pending, popen=subprocess.Popen, poll=0.5):
+        """Analyse each pending bounce, one at a time, niced, in a separate process (it holds
+        the decoded song in memory; hub-ingest itself stays small). Stops when the rig gets busy."""
+        for key, bounce, out_path in pending:
+            if self.rig_busy():
+                return
+            self.save(step="beats %s" % key)
+            command = ["nice", "-n", "19", sys.executable, os.path.join(HERE, "beats.py"), bounce, out_path]
+            process = popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            while process.poll() is None:
+                time.sleep(poll)
+                if self.rig_busy():
+                    process.kill()
+                    process.wait()
+                    return                        # tried again when the rig is quiet
+            _, error = process.communicate()
+            if process.returncode != 0:
+                self.state.setdefault("beats_failed", {})[key] = failure(error or "beats.py failed")
+            self.save(step=None)
+
+    def motion_pending(self):
+        """(take, camera) pairs with an editing proxy but no movement readings yet."""
+        failed = self.state.get("motion_failed") or {}
+        out = []
+        for take_id, camera_id in self.proxied_cameras():
+            key = "%s/%s" % (take_id, camera_id)
+            if not failed_in_this_version(failed, key) and not os.path.exists(
+                    motion.motion_path(self.cfg["proxies_dir"], take_id, camera_id)):
+                out.append((take_id, camera_id))
+        return out
+
+    def proxied_cameras(self):
+        proxies_dir = self.cfg["proxies_dir"]
+        for take_id in sorted(os.listdir(proxies_dir)) if os.path.isdir(proxies_dir) else []:
+            take_dir = os.path.join(proxies_dir, take_id)
+            if TAKE_RE.match(take_id) and os.path.isdir(take_dir):
+                for name in sorted(os.listdir(take_dir)):
+                    if name.endswith(".mp4"):
+                        yield take_id, name[:-len(".mp4")]
+
+    def measure_motion(self, pending):
+        """Movement readings from each pending proxy's keyframes (cheap: a few seconds per
+        camera-hour). Stops when the rig gets busy."""
+        for take_id, camera_id in pending:
+            if self.rig_busy():
+                raise Paused()
+            proxy = os.path.join(self.cfg["proxies_dir"], take_id, camera_id + ".mp4")
+            self.save(step="motion %s %s" % (take_id, camera_id))
+            try:
+                motion.write_json(motion.motion_path(self.cfg["proxies_dir"], take_id, camera_id),
+                                  motion.measure(proxy))
+            except (OSError, ValueError, subprocess.CalledProcessError) as e:
+                self.state.setdefault("motion_failed", {})["%s/%s" % (take_id, camera_id)] = failure(e)
+            self.save(step=None)
+
     # -- automatic bounce sync (Phase 4 Track A, audiosync.py)
     def queue_sync(self, doc):
         take, song, v = doc.get("take"), doc.get("song"), doc.get("version")
@@ -1671,6 +1756,9 @@ class Ingest:
         self.state["drive_free_gb"] = self.drive_free()
         if self.syncs_ready():              # needs neither the drive nor 30 min idle, only a quiet rig
             self.run_syncs()
+        beats_work = self.beats_pending()   # the same: the bounces are staged on the hub
+        if beats_work and not self.rig_busy():
+            self.run_beat_analyses(beats_work)
         self.look_at_drive()
         try:
             self.update_drive_records()     # small files: a quiet rig and the drive are enough
@@ -1688,7 +1776,8 @@ class Ingest:
             renders = self.renders_ready()
             thumbs = self.thumbnails_pending()
             proxy_work = self.proxies_pending()
-            if not todo and not audio and not renders and not thumbs and not proxy_work:
+            motion_work = self.motion_pending()
+            if not todo and not audio and not renders and not thumbs and not proxy_work and not motion_work:
                 self.manual = False
                 self.settle_drive()
                 self.save(status="idle: nothing to ingest")
@@ -1714,6 +1803,11 @@ class Ingest:
             if proxy_work:
                 self.save(status="ingesting", step="proxies")
                 self.make_proxies(proxy_work)
+                self.save(step=None)
+            motion_work = self.motion_pending()     # proxies made just now too
+            if motion_work:
+                self.save(status="ingesting", step="motion")
+                self.measure_motion(motion_work)
                 self.save(step=None)
             return "ingested"
         except Paused:

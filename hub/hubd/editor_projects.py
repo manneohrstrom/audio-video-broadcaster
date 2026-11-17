@@ -17,7 +17,9 @@ new mix re-renders the same cut and look), saved on the hub's SD card while the 
 edits (so the STUDIO drive doesn't have to be mounted read-write); a copy goes to the
 drive with every rendered video. Its times are on the hub clock, so it fits any synced
 bounce of the song (rebased when the song's range moves). When there is no working copy
-yet, the editor starts from the automatic cut (a new camera every 10 s, as the quick mix).
+yet, the editor starts from the automatic cut: the rules in auto_cut.py (cuts on beats,
+movement, the wide camera) once hub-ingest has analysed the bounce (beats.json); until
+then the quick mix's cut, or a new camera every 10 s.
 
 Sync mode (section 4b, hand_sync.py): the editor can also open any uploaded bounce version,
 synced or not, to place the bounce by hand. Its project spans the whole take (the Pi
@@ -31,6 +33,7 @@ import re
 import subprocess
 import time
 
+import auto_cut
 import hand_sync
 
 NS_PER_SECOND = 1_000_000_000
@@ -104,6 +107,15 @@ def take_span_ns(cameras):
         raise ProjectError("this take has no camera files")
     return [min(camera["first_frame_ns"] for camera in pi_cameras),
             max(camera["last_frame_ns"] for camera in pi_cameras)]
+
+
+def read_json(path):
+    """The file's JSON, or None if it's missing or unreadable."""
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 
 
 def validate_cuts(cuts, camera_ids, range_length_ns):
@@ -276,7 +288,7 @@ class EditorProjects:
         cameras = describe_cameras(self.read_take_document(take_id))
         bounce_start_ns = int(sync["bounce_start_ns"])
         range_ns = song_range_ns(bounce_start_ns, version_info["duration_s"], cameras)
-        edit, source = self._load_edit(take_id, song_id, version, cameras, range_ns)
+        edit, source = self._load_edit(take_id, song_id, version, cameras, range_ns, sync)
         return self._project_document(take_id, song, version, version_info, cameras, range_ns, bounce_start_ns,
                                       {key: sync.get(key) for key in ("anchor", "confidence", "drift_ppm")},
                                       edit, source)
@@ -334,8 +346,9 @@ class EditorProjects:
             "bounce_versions": self.synced_versions(take_id, song),
         }
 
-    def _load_edit(self, take_id, song_id, version, cameras, range_ns):
-        """(edit, where it came from): the working copy, else the quick mix's cut, else one shot."""
+    def _load_edit(self, take_id, song_id, version, cameras, range_ns, sync):
+        """(edit, where it came from): the working copy, else the rules' cut (beats analysed),
+        else the quick mix's cut, else a new camera every 10 s."""
         camera_ids = {camera["id"] for camera in cameras}
         length_ns = range_ns[1] - range_ns[0]
         saved = self._newest_working_copy(take_id, song_id, version)
@@ -346,6 +359,13 @@ class EditorProjects:
                 return saved, "saved"
         except (OSError, ValueError, KeyError, TypeError):
             pass
+        rules = self._rules_cut(take_id, song_id, version, cameras, range_ns, sync)
+        if rules:
+            try:
+                cuts = validate_cuts(rules, camera_ids, length_ns)
+                return self._new_edit(take_id, song_id, version, range_ns, cuts, "rules-v1"), "automatic cut"
+            except ProjectError:
+                pass
         quick = self.find_quick_edit(take_id, song_id, version)
         if quick and quick.get("range_ns") and quick.get("cuts"):
             cuts = rebase_cuts([dict(cut, by="auto") for cut in quick["cuts"]], quick["range_ns"], range_ns)
@@ -356,7 +376,21 @@ class EditorProjects:
             except ProjectError:
                 pass
         cuts = automatic_cut(cameras, range_ns)
-        return self._new_edit(take_id, song_id, version, range_ns, cuts, "auto-v1"), "automatic cut"
+        return self._new_edit(take_id, song_id, version, range_ns, cuts, "auto-v1"), "automatic cut (no beats yet)"
+
+    def _rules_cut(self, take_id, song_id, version, cameras, range_ns, sync):
+        """auto_cut's cuts from the bounce's beats and the cameras' movement, or None when the
+        bounce hasn't been analysed yet."""
+        beats = read_json(os.path.join(self._version_dir(take_id, song_id, version), "beats.json"))
+        if not isinstance(beats, dict) or not beats.get("beats_s"):
+            return None
+        motion = {}
+        for camera in cameras:
+            reading = read_json(os.path.join(self.proxies_dir, take_id, camera["id"] + ".motion.json"))
+            if isinstance(reading, dict):
+                motion[camera["id"]] = reading
+        return auto_cut.rules_cut(cameras, range_ns, beats, int(sync["bounce_start_ns"]),
+                                  drift_ppm=sync.get("drift_ppm") or 0.0, motion=motion)
 
     def _newest_working_copy(self, take_id, song_id, version):
         """The newer (by saved_at) of the hub's working copy and the drive's, or None.

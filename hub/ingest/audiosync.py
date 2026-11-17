@@ -79,6 +79,15 @@ def mic_clock(tsv_path, rate=48000, block=4800):
 def onset_env(x, sr=SR, fs=ENV_FS, piece_s=60.0):
     """Spectral-flux onset strength, three bands, normalised per band, summed. Computed in
     pieces so memory stays flat; the slow trend (1/2 s) is removed so loudness doesn't count."""
+    return band_onsets(x, sr, fs, piece_s).sum(axis=0)
+
+
+def band_onsets(x, sr=SR, fs=ENV_FS, piece_s=60.0, power=None):
+    """onset_env's three bands (BANDS: low, mid, high) before they are summed, each
+    normalised to unit standard deviation (all zero if a band is silent). Shape (3, frames).
+    power: None takes the flux of log energy, which makes loud and quiet notes look alike
+    (good for matching rhythm across mics); a power such as 0.3 keeps an accent louder than
+    a ghost note (beats.py)."""
     hop = sr // fs
     win = np.hanning(NWIN).astype(np.float32)
     f = np.fft.rfftfreq(NWIN, 1 / sr)
@@ -91,15 +100,16 @@ def onset_env(x, sr=SR, fs=ENV_FS, piece_s=60.0):
         idx = (np.arange(p0, p1) * hop)[:, None] + np.arange(NWIN)[None, :]
         spec = np.abs(np.fft.rfft(x[idx] * win, axis=1))
         for k, m in enumerate(masks):
-            bands[k, p0:p1] = np.log1p(1000 * spec[:, m].sum(axis=1))
-    out = np.zeros(nfr, np.float32)
+            energy = spec[:, m].sum(axis=1)
+            bands[k, p0:p1] = np.log1p(1000 * energy) if power is None else energy ** power
+    out = np.zeros((len(BANDS), nfr), np.float32)
     k = np.ones(fs // 2, np.float32) / (fs // 2)
-    for e in bands:
+    for i, e in enumerate(bands):
         d = np.maximum(0, np.diff(e, prepend=e[:1]))
         d = np.maximum(0, d - np.convolve(d, k, "same"))
         sd = d.std()
         if sd > 0:
-            out += d / sd
+            out[i] = d / sd
     return out
 
 

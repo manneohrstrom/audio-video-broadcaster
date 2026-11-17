@@ -17,3 +17,6 @@ deploy/.venv/
 
 # Overlay source images and clips (licences forbid redistribution; they live on the hub)
 overlays/
+
+# The user's studio mixes for testing the automatic cut (private; never committed or copied off the Mac)
+testdata/

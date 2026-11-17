@@ -69,6 +69,12 @@ Per synced song segment (from Track A), using the rules already in `docs/design.
 
 It runs right after a bounce is synced, so the cut is ready the first time the user opens the song.
 
+**Built 2026-11-17 (hub-ingest 0.16.0, hubd 0.24.0; not yet deployed: the hub was down).** As built, with the user's ear checks on their own studio tracks (mostly jazz improvisation: the tempo shifts quickly on purpose):
+- Beats (`hub/ingest/beats.py`, `beats.json` next to each bounce version): tempo per 20 s chunk, re-measured every 2 s (user: "20 s chunks"); beats that float with the band from beat to beat; bar lines; per beat a confidence (pulse × how busy the music is) and a hit strength. Six of eight ear-checked passages had the right tempo; the two wrong ones are not in the onsets (one 4:3, the band pulses at 120 where the user feels 90; one at half the felt 155). Accepted for v1: cuts prefer beats with a real hit, so they land on the music either way.
+- Movement (`hub/ingest/motion.py`): from the proxies' keyframes (every 0.5 s), 64×36 grey, the camera's noise floor removed.
+- Rules (`hub/hubd/auto_cut.py`): shots 4–10 s, longer in calm music and shorter in busy; cut on the best beat in reach (the one of a bar, a strong hit, trusted beats); start on the wide camera and back about every 30 s; else the camera moving most among those not just shown. The editor starts from it once `beats.json` exists (`made_by: "rules-v1"`), ahead of the quick mix's cut. Pi cameras only.
+- Not built: choosing the wide camera per take on the hub page (it is the sync server for now).
+
 ## 3b. Automatic cut, version 2: music-aware, with AI listening and watching (backlog, user 2026-11-17)
 
 **When:** after a few real sessions recorded the way they're meant to sound (full band, real mixes), not before: it has to be judged on real music. Version 1 (section 3, rules) comes first and is the baseline to beat. Today the editor still starts from the quick mix's 10 s rotation; neither version is built.

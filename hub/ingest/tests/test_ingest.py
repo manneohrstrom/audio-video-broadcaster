@@ -1015,6 +1015,87 @@ class ProxyStepTest(Base):
             ingest.proxies.make_proxy, ingest.thumbnails.make_thumbnails = orig_proxy, orig_thumbs
 
 
+class AnalysisStepTest(Base):
+    """beats.json per bounce version and motion.json per proxied camera, for the automatic cut."""
+
+    def add_version(self, song="song", version="v1", filename="bounce.wav", file_too=True):
+        version_dir = os.path.join(self.tmp, "audio", TAKE, song, version)
+        os.makedirs(version_dir)
+        with open(os.path.join(version_dir, "version.json"), "w") as f:
+            json.dump({"filename": filename}, f)
+        if file_too:
+            open(os.path.join(version_dir, filename), "w").close()
+        return version_dir
+
+    def test_every_staged_version_is_analysed_once(self):
+        self.ing.cfg["audio_dir"] = os.path.join(self.tmp, "audio")
+        done = self.add_version(version="v1")
+        open(os.path.join(done, "beats.json"), "w").close()
+        waiting = self.add_version(version="v2")
+        self.add_version(version="v3", file_too=False)          # still uploading
+        os.makedirs(os.path.join(self.tmp, "audio", TAKE, "scratch"))
+        pending = self.ing.beats_pending()
+        self.assertEqual([key for key, _, _ in pending], ["%s/song/v2" % TAKE])
+        self.assertEqual(pending[0][2], os.path.join(waiting, "beats.json"))
+
+    def test_analysis_runs_niced_and_a_failure_is_not_retried(self):
+        self.ing.cfg["audio_dir"] = os.path.join(self.tmp, "audio")
+        self.add_version()
+        commands = []
+
+        def popen(command, **kw):
+            commands.append(command)
+            process = FakeSyncProc("")
+            process.returncode = 1
+            process.communicate = lambda: ("", "too short to find a tempo")
+            return process
+        self.ing.run_beat_analyses(self.ing.beats_pending(), popen=popen, poll=0)
+        self.assertEqual(commands[0][:3], ["nice", "-n", "19"])
+        self.assertTrue(commands[0][4].endswith("beats.py"))
+        self.assertIn("too short", self.ing.state["beats_failed"]["%s/song/v1" % TAKE]["error"])
+        self.assertEqual(self.ing.beats_pending(), [])
+
+    def test_rec_stops_the_analysis(self):
+        self.ing.cfg["audio_dir"] = os.path.join(self.tmp, "audio")
+        self.add_version()
+        processes = []
+
+        def popen(command, **kw):
+            processes.append(FakeSyncProc("", polls=5))
+            return processes[-1]
+        calls = [0]
+
+        def busy():
+            calls[0] += 1
+            return calls[0] > 1
+        self.ing.rig_busy = busy
+        self.ing.run_beat_analyses(self.ing.beats_pending(), popen=popen, poll=0)
+        self.assertTrue(processes[0].killed)
+        self.assertNotIn("beats_failed", self.ing.state)          # not a failure: tried again later
+
+    def test_proxied_cameras_get_motion_readings(self):
+        proxies_dir = os.path.join(self.tmp, "proxies")
+        self.ing.cfg["proxies_dir"] = proxies_dir
+        os.makedirs(os.path.join(proxies_dir, TAKE))
+        for camera in ("cam1", "cam2"):
+            open(os.path.join(proxies_dir, TAKE, camera + ".mp4"), "w").close()
+        self.assertEqual(self.ing.motion_pending(), [(TAKE, "cam1"), (TAKE, "cam2")])
+        original = ingest.motion.measure
+
+        def fake_measure(path):
+            if "cam2" in path:
+                raise ValueError("too few keyframes")
+            return {"version": 1, "times_s": [0.5], "motion": [1.0], "noise_floor": 0.0}
+        ingest.motion.measure = fake_measure
+        try:
+            self.ing.measure_motion(self.ing.motion_pending())
+        finally:
+            ingest.motion.measure = original
+        self.assertTrue(os.path.exists(os.path.join(proxies_dir, TAKE, "cam1.motion.json")))
+        self.assertIn("%s/cam2" % TAKE, self.ing.state["motion_failed"])
+        self.assertEqual(self.ing.motion_pending(), [])
+
+
 class RemovedTakesTest(Base):
     def ingest_one(self):
         self.ing.cfg.update(thumbs_dir=os.path.join(self.tmp, "thumbs"), proxies_dir=os.path.join(self.tmp, "proxies"),

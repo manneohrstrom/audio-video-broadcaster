@@ -35,10 +35,10 @@ def take_document():
 
 
 class FakeAudio:
-    def __init__(self, root, synced=True):
+    def __init__(self, root, synced=True, existing=False):
         self.root = root
         d = os.path.join(root, TAKE, "track-1", "v1")
-        os.makedirs(d)
+        os.makedirs(d, exist_ok=existing)
         if synced:
             with open(os.path.join(d, "sync.json"), "w") as f:
                 json.dump({"bounce_start_ns": FIRST_FRAME - 5 * SECOND, "anchor": "hub mic: music",
@@ -107,9 +107,10 @@ class ProjectTest(unittest.TestCase):
                                           find_quick_edit=lambda take, song, v: self.quick,
                                           edits_dir=os.path.join(self.tmp, "edits"), clock=lambda: 123.0)
 
-    def test_new_project_starts_from_the_automatic_cut(self):
+    def test_new_project_starts_from_the_rotation_until_beats_are_analysed(self):
         p = self.projects.project(TAKE, "track-1", 1)
-        self.assertEqual(p["edit_source"], "automatic cut")
+        self.assertEqual(p["edit_source"], "automatic cut (no beats yet)")
+        self.assertEqual(p["edit"]["made_by"], "auto-v1")
         cuts = p["edit"]["cuts"]
         self.assertEqual(cuts[0], {"at_ns": 0, "camera": "cam1", "by": "auto"})     # starts on the sync server
         self.assertEqual(cuts[1]["camera"], "cam2")
@@ -118,6 +119,37 @@ class ProjectTest(unittest.TestCase):
         self.assertEqual(p["bounce"]["url"], "/media-audio/%s/track-1/v1" % TAKE)
         self.assertEqual(p["cameras"][0]["file_url"], "/media/%s/cam1.mov" % TAKE)
         self.assertEqual(p["bounce"]["sync"]["confidence"], "high")
+
+    def test_starts_from_the_rules_once_beats_are_analysed(self):
+        version_dir = os.path.join(self.tmp, "audio", TAKE, "track-1", "v1")
+        step = 0.6                                                    # 100 BPM from the bounce's start
+        times = [round(i * step, 3) for i in range(200)]
+        with open(os.path.join(version_dir, "beats.json"), "w") as f:
+            json.dump({"beats_s": times, "downbeats_s": times[::4], "confidence": [1.0] * 200,
+                       "hit": [1.0] * 200}, f)
+        os.makedirs(os.path.join(self.tmp, "proxies", TAKE))
+        with open(os.path.join(self.tmp, "proxies", TAKE, "cam2.motion.json"), "w") as f:
+            json.dump({"times_s": [i * 0.5 for i in range(1, 160)], "motion": [3.0] * 159}, f)
+        self.quick = {"range_ns": [0, 10 ** 12], "cuts": [{"at_ns": 0, "camera": "cam2"}]}   # the rules win
+        projects = ep.EditorProjects(FakeAudio(os.path.join(self.tmp, "audio"), existing=True),
+                                     read_take_document=lambda take: take_document(),
+                                     find_quick_edit=lambda take, song, v: self.quick,
+                                     edits_dir=os.path.join(self.tmp, "edits"),
+                                     proxies_dir=os.path.join(self.tmp, "proxies"), clock=lambda: 123.0)
+        p = projects.project(TAKE, "track-1", 1)
+        self.assertEqual((p["edit_source"], p["edit"]["made_by"]), ("automatic cut", "rules-v1"))
+        cuts = p["edit"]["cuts"]
+        self.assertEqual(cuts[0]["camera"], "cam1")                   # the wide camera (sync server) first
+        self.assertTrue({c["camera"] for c in cuts} <= {"cam1", "cam2"})
+        song_start = p["range_ns"][0]
+        bounce_start = p["bounce"]["start_ns"]
+        beat_ns = {bounce_start + int(round(t * SECOND * (1 + 20e-6))) - song_start for t in times}
+        self.assertTrue(all(c["at_ns"] in beat_ns for c in cuts[1:]))  # on beats, drift included
+        rough = (FIRST_FRAME + 10 * SECOND - song_start, FIRST_FRAME + 11 * SECOND - song_start)
+        ends = [c["at_ns"] for c in cuts[1:]] + [p["range_ns"][1] - song_start]
+        for cut, end in zip(cuts, ends):
+            if cut["camera"] == "cam2":
+                self.assertTrue(end <= rough[0] or cut["at_ns"] >= rough[1])
 
     def test_starts_from_the_quick_mix_even_after_a_resync(self):
         rng = self.projects.project(TAKE, "track-1", 1)["range_ns"]
