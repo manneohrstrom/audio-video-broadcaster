@@ -79,3 +79,4 @@ No software installed; the page runs in Chrome. Tested: Pixel 3 (Chrome 157) and
 | Preact (`preact.module.js`, `hooks.module.js`) | 10.19.3, from jsDelivr, in `hub/hubd/static/editor/vendor/` (sha256 `bfac992a…134e`, `d952f1d8…7d7e`) |
 | htm (`htm.module.js`) | 3.1.1 (sha256 `ab33dd3f…e9e4`) |
 | mp4box.js (`mp4box.all.min.js`) | 0.5.2 (same file as spike E2) |
+| uPlot (`uPlot.iife.min.js`, `uPlot.min.css`) | 1.6.30, from jsDelivr, in `hub/hubd/static/` (hub page "Last hour" charts; sha256 `7f29cd14…`, `df630c6a…`) |

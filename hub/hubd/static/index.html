@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Studio Multicam</title>
+<link rel="stylesheet" href="/uPlot.min.css">
 <style>
   :root { --bg:#111; --card:#1c1c1e; --fg:#eee; --dim:#888; --ok:#3c3; --warn:#e90; --bad:#e33; --rec:#d22; --live:#27e; }
   * { box-sizing: border-box; }
@@ -99,6 +100,18 @@
   .bounces { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--dim); margin-top: 3px; }
   .video-version { font-size: 13px; margin-top: 4px; }
   .song-empty { font-size: 13px; color: var(--dim); }
+  .edit-button { display: inline-block; padding: 6px 14px; border-radius: 8px; background: var(--accent, #4a9eff); color: #fff; font-weight: 600; font-size: 14px; text-decoration: none; }
+  .edit-button:hover { filter: brightness(1.1); }
+  .edit-button.off { background: #333; color: #888; cursor: default; }
+  .song-head { margin-bottom: 4px; }
+  .trends { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); }
+  .trends-title { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin-bottom: 6px; }
+  .trend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .trend-head { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--dim); }
+  .trend-value { color: inherit; font-variant-numeric: tabular-nums; color: #ddd; white-space: nowrap; }
+  .trend-value.warn { color: #f2c14c; }
+  .trend-chart { height: 34px; margin-top: 2px; }
+  .trend-chart .uplot, .trend-chart .u-wrap { background: transparent; }
 </style>
 </head>
 <body>
@@ -146,6 +159,7 @@
 </div>
 
 <script src="qrcode.js"></script>
+<script src="/uPlot.iife.min.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 let snap = null, busy = false;
@@ -154,6 +168,87 @@ function fmt(v, unit, digits = 1) { return v == null ? "–" : (+v).toFixed(digi
 function hms(s) { s = Math.floor(s); return [s / 3600 | 0, (s / 60 | 0) % 60, s % 60].map(x => String(x).padStart(2, "0")).join(":"); }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+// ---- sparklines (user, 2026-11-16): the last hour of each health value, one point per 10 s,
+// from /api/history (fetched every 10 s). Gaps (offline, unknown) break the line.
+let history = { hub: {}, cameras: {} };
+async function loadHistory() {
+  try { history = await (await fetch("/api/history")).json(); attachTrends(); } catch (e) {}
+}
+loadHistory();
+setInterval(loadHistory, 10000);
+// Small charts (uPlot, vendored and pinned: /uPlot.iife.min.js 1.6.30). Each metric gets a
+// tile: its name, the current value, a thin line with a soft fill on a FIXED scale (so
+// normal wiggles stay small), a dot on the latest point, and on hover the value and how
+// long ago. Quiet blue; the warning colour only when the latest value is out of range.
+const TREND_DEFS = {
+  hub: [
+    { key: "temp_c", label: "Temperature", unit: " °C", min: 30, max: 85, warnAbove: 75, digits: 1 },
+    { key: "mem_available_mb", label: "Memory free", unit: " MB", min: 0, max: h => h.mem_total_mb || 1000, warnBelow: 150, digits: 0 },
+    { key: "swap_used_mb", label: "Swap used", unit: " MB", min: 0, max: 1000, warnAbove: 500, digits: 0 },
+    { key: "load", label: "CPU load", unit: "", min: 0, max: 4, warnAbove: 3.5, digits: 2 },
+  ],
+  camera: [
+    { key: "temp_c", label: "Temperature", unit: " °C", min: 30, max: 85, warnAbove: 70, digits: 1 },
+    { key: "wifi_dbm", label: "Wi-Fi", unit: " dBm", min: -90, max: -40, warnBelow: -65, digits: 0 },
+  ],
+};
+const TREND_COLOURS = { normal: ["#7fa6d6", "rgba(127,166,214,0.16)"], warn: ["#f2c14c", "rgba(242,193,76,0.18)"] };
+const trendCharts = new Map();       // "hub::temp_c" -> { chart, warn }
+function trendBlock(scope, id, h) {
+  const defs = TREND_DEFS[scope];
+  return `<div class="trends"><div class="trends-title">Last hour</div><div class="trend-grid">` + defs.map(d =>
+    `<div class="trend"><div class="trend-head"><span>${d.label}</span><span class="trend-value" data-trend-value="${scope}:${id}:${d.key}"></span></div>` +
+    `<div class="trend-chart" data-trend="${scope}:${id}:${d.key}"></div></div>`).join("") + `</div></div>`;
+}
+function trendSeries(scope, id, key) {
+  return scope === "hub" ? (history.hub || {})[key] : ((history.cameras || {})[id] || {})[key];
+}
+function formatTrend(d, v) { return v == null ? "–" : v.toFixed(d.digits) + d.unit; }
+function agoText(seconds) { return seconds < 60 ? "now" : `${Math.round(seconds / 60)} min ago`; }
+// After each render: put every chart (kept between renders) back into its place, with fresh data.
+function attachTrends() {
+  if (typeof uPlot === "undefined") return;
+  document.querySelectorAll("[data-trend]").forEach(place => {
+    const [scope, id, key] = place.dataset.trend.split(":");
+    const d = TREND_DEFS[scope].find(x => x.key === key);
+    const values = (trendSeries(scope, id, key) || []).map(v => (typeof v === "number" ? v : null));
+    const interval = history.interval_s || 10;
+    const xs = values.map((_, i) => -(values.length - 1 - i) * interval);
+    const latestIndex = values.reduce((last, v, i) => (v === null ? last : i), -1);
+    const latest = latestIndex >= 0 ? values[latestIndex] : null;
+    const warn = latest !== null && ((d.warnAbove != null && latest > d.warnAbove) || (d.warnBelow != null && latest < d.warnBelow));
+    const valueEl = document.querySelector(`[data-trend-value="${place.dataset.trend}"]`);
+    const showLatest = () => { if (valueEl) { valueEl.textContent = formatTrend(d, latest); valueEl.classList.toggle("warn", warn); } };
+    const name = place.dataset.trend;
+    let entry = trendCharts.get(name);
+    const max = typeof d.max === "function" ? d.max(snap.hub || {}) : d.max;
+    if (!entry || entry.warn !== warn || entry.max !== max) {
+      if (entry) entry.chart.destroy();
+      const [stroke, fill] = TREND_COLOURS[warn ? "warn" : "normal"];
+      const chart = new uPlot({
+        width: Math.max(80, place.clientWidth || 110), height: 34, legend: { show: false },
+        cursor: { y: false, drag: { x: false, y: false }, points: { size: 6, fill: stroke } },
+        select: { show: false },
+        scales: { x: { time: false }, y: { range: [d.min, max] } },
+        axes: [{ show: false }, { show: false }],
+        series: [{}, { stroke, fill, width: 1.5, spanGaps: false,
+                       points: { show: true, size: 5, fill: stroke, filter: u => {
+                         const ys = u.data[1]; for (let i = ys.length - 1; i >= 0; i--) if (ys[i] != null) return [i]; return null; } } }],
+        hooks: { setCursor: [u => {
+          const i = u.cursor.idx;
+          if (i == null || u.data[1][i] == null) { showLatest(); return; }
+          if (valueEl) { valueEl.textContent = `${formatTrend(d, u.data[1][i])} · ${agoText(-u.data[0][i])}`; valueEl.classList.remove("warn"); }
+        }] },
+      }, [xs, values], place);
+      entry = { chart, warn, max };
+      trendCharts.set(name, entry);
+    } else {
+      place.appendChild(entry.chart.root);
+      entry.chart.setData([xs, values]);
+    }
+    showLatest();
+  });
+}
 function hubCard(h) {
   if (!h || h.temp_c == null) return "";
   const thr = h.throttled;
@@ -168,9 +263,11 @@ function hubCard(h) {
       <span>temp</span><span class="${hot ? "bad" : ""}">${h.temp_c} °C <span class="step">(throttles at 80)</span></span>
       <span>fan</span><span>${h.fan_rpm == null ? "–" : h.fan_rpm ? h.fan_rpm + " rpm" : "off"}</span>
       <span>CPU</span><span>${h.cpu_mhz ?? "–"} MHz · load ${h.load ?? "–"}</span>
+      <span>memory</span><span class="${h.mem_available_mb != null && h.mem_available_mb < 150 ? "bad" : ""}">${h.mem_available_mb ?? "–"} MB free of ${h.mem_total_mb ?? "–"}</span>
+      <span>swap</span><span>${h.swap_used_mb ?? "–"} MB used</span>
       <span>throttling</span><span>${thrTxt}</span>
       <span>SD free</span><span>${h.free_gb ?? "–"} GB</span>
-    </div></div>`;
+    </div>${trendBlock("hub", "hub", h)}</div>`;
 }
 // Calibration (Track B): each camera waits for the card and calibrates itself.
 function calLine(name) {
@@ -210,7 +307,6 @@ function card(name, n) {
   const take = st.take ? `<span>take</span><span>${esc(st.take.take_id)} · ${hms(st.take.elapsed_s)} · ${st.take.frames ?? st.take.frames_est} fr</span>
     <span>dropped</span><span class="${dr ? "bad" : "good"}">${dr ? "<b>" + dr + " frames</b> (" + st.take.gaps_so_far + " gaps)" : "0"}</span>
     <span>sync Δ</span><span class="${sd != null && Math.abs(sd) > 1000 ? "bad" : ""}">${sd == null ? "–" : (sd / 1000).toFixed(3) + " ms"}</span>` : "";
-  const url = `srt://${name}.local:8890?streamid=read:cam`;
   return `<div class="card ${cls}">
     <h2>${esc(name)} <span class="mode">${mode === "recording" ? '<span class="recdot"></span>REC' : esc(mode)}${st.take ? " · " + esc(st.take.role) : ""}</span></h2>
     <div class="kv">
@@ -221,11 +317,11 @@ function card(name, n) {
       <span>Wi-Fi</span><span><span class="${st.wifi_dbm != null && st.wifi_dbm < -65 ? "bad" : ""}" title="Weaker than −65 dBm: move the camera or the access point (aim for −60 or better)">${fmt(st.wifi_dbm, " dBm", 0)}</span>${st.wifi_mbps != null ? " · " + fmt(st.wifi_mbps, " Mbit/s", 0) : ""} · PS ${st.wifi_powersave === false ? "off" : "<b class=bad>on</b>"}</span>
       ${st.last_error ? `<span>error</span><span class="bad">${esc(st.last_error)}</span>` : ""}
     </div>
+    ${trendBlock("camera", name)}
     ${calLine(name)}
     ${n.slow ? `<div class="problems">Slow to respond (Wi-Fi busy?); showing its last status.</div>` : ""}
     ${n.problems.length && mode !== "recording" ? `<div class="problems">${n.problems.map(esc).join("<br>")}</div>` : ""}
-    <div class="url"><input readonly value="${url}"><button data-copy="${url}">copy</button>
-      <a class="pv${mode === "live" ? "" : " off"}" href="http://${name}.local:8889/cam/" target="_blank" rel="noopener"
+    <div class="url"><a class="pv${mode === "live" ? "" : " off"}" href="http://${name}.local:8889/cam/" target="_blank" rel="noopener"
          title="${mode === "live" ? "Open live preview" : "Turn LIVE on to preview"}">preview</a></div>
   </div>`;
 }
@@ -314,6 +410,7 @@ function render() {
   $("#stop").disabled = busy || snap.state !== "recording";
   $("#live").disabled = busy || snap.state !== "idle";
   $("#live").textContent = live ? "LIVE OFF" : "LIVE ON";
+  setTimeout(attachTrends, 0);
   $("#cards").innerHTML = hubCard(snap.hub) + Object.entries(snap.nodes).map(([k, n]) => card(k, n)).join("") +
     Object.entries(snap.phones || {}).map(([k, p]) => phoneCard(k, p)).join("");
   if (!busy && snap.message) msg(snap.message);
@@ -492,7 +589,9 @@ function songGroup(take, sg) {
   const bounces = done.map(v => `<span class="bounce">bounce v${v.version} ${syncTxt(take, sg.id, v)}` +
     (v.on_drive ? "" : ' <small>· waiting for ingest</small>') + `</span>`).join("") +
     (unfinished.length ? `<span class="bounce" style="color:var(--warn)">v${unfinished.map(v => v.version).join(", v")} uploading…</span>` : "");
-  const edit = synced.length ? `<a class="addaudio" href="/editor/?take=${encodeURIComponent(take)}&song=${encodeURIComponent(sg.id)}&v=${synced[0].version}" target="_blank" rel="noopener">✎ Edit</a>` : "";
+  const edit = synced.length
+    ? `<a class="edit-button" href="/editor/?take=${encodeURIComponent(take)}&song=${encodeURIComponent(sg.id)}&v=${synced[0].version}" target="_blank" rel="noopener" title="Open the editor: choose the cameras, set the look, make the video">✎ Edit video</a>`
+    : `<span class="edit-button off" title="The bounce has to be synced to the take first">✎ Edit video</span>`;
   const r = sg.render;
   const running = r && ["queued", "rendering", "paused", "checking", "writing"].includes(r.status);
   const renderRow = r && (running || r.status === "error")

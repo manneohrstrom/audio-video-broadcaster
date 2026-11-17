@@ -30,8 +30,9 @@ import lamp  # noqa: E402
 import phones  # noqa: E402
 import scratch  # noqa: E402
 import editor_projects  # noqa: E402
+import health_history  # noqa: E402
 
-VERSION = "0.18.0"
+VERSION = "0.19.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -91,8 +92,22 @@ def _read(path, conv=str):
         return None
 
 
-def hub_health(state_dir, sysfs="/sys", vcgencmd="vcgencmd"):
-    """The hub's own temperature, fan, clock, throttling, load and SD space.
+def memory_mb(meminfo="/proc/meminfo"):
+    """(total, available, swap used) in MB, or Nones (not on Linux)."""
+    values = {}
+    try:
+        with open(meminfo) as f:
+            for line in f:
+                name, _, rest = line.partition(":")
+                values[name] = int(rest.split()[0]) // 1024
+    except (OSError, ValueError, IndexError):
+        return None, None, None
+    swap_used = values["SwapTotal"] - values["SwapFree"] if "SwapTotal" in values and "SwapFree" in values else None
+    return values.get("MemTotal"), values.get("MemAvailable"), swap_used
+
+
+def hub_health(state_dir, sysfs="/sys", vcgencmd="vcgencmd", meminfo="/proc/meminfo"):
+    """The hub's own temperature, fan, clock, throttling, load, memory, swap and SD space.
     Every field is None if its source is missing (e.g. not on a Pi)."""
     t = _read(os.path.join(sysfs, "class/thermal/thermal_zone0/temp"), int)
     fan = None
@@ -109,9 +124,11 @@ def hub_health(state_dir, sysfs="/sys", vcgencmd="vcgencmd"):
         free_gb = round(shutil.disk_usage(state_dir).free / 1e9, 1)
     except OSError:
         free_gb = None
+    mem_total, mem_available, swap_used = memory_mb(meminfo)
     return {"temp_c": round(t / 1000, 1) if t is not None else None, "fan_rpm": fan,
             "cpu_mhz": mhz // 1000 if mhz else None, "throttled": throttled,
-            "load": round(os.getloadavg()[0], 2), "free_gb": free_gb}
+            "load": round(os.getloadavg()[0], 2), "free_gb": free_gb,
+            "mem_total_mb": mem_total, "mem_available_mb": mem_available, "swap_used_mb": swap_used}
 
 
 def load_config(path):
@@ -294,6 +311,7 @@ class Hub:
         self.lamp = lamp.Lamp(cfg.get("lamp"), self.lamp_inputs, log)
         adir = cfg.get("audio_dir") or os.path.join(cfg["state_dir"], "audio")
         self.audio = audio.Audio(adir, takes=self.take_ids, busy=self.rig_busy)
+        self.history = health_history.HealthHistory()           # the page's sparklines
         # The editor (docs/editor-plan.md, M-E3): one song version at a time.
         self.editor = editor_projects.EditorProjects(
             self.audio, read_take_document=self.read_take_document, find_quick_edit=self.find_quick_edit,
@@ -397,6 +415,9 @@ class Hub:
             t = time.monotonic()
             self.poll_once()
             self.health = hub_health(self.cfg["state_dir"])
+            with self.lock:
+                statuses = dict(self.status)
+            self.history.maybe_record(self.health, statuses)
             self.check_budget()
             self.calibrator.tick()
             stop.wait(max(0.1, self.cfg["poll_s"] - (time.monotonic() - t)))
@@ -1232,6 +1253,8 @@ class Handler(BaseHTTPRequestHandler):
             if "watch=1" in self.path:
                 h.calibrator.page_open()      # a page is open: watch for the card
             return self._send(200, h.snapshot())
+        if self.path == "/api/history":                 # sparklines: the last hour, one point per 10 s
+            return self._send(200, h.history.as_dict())
         if self.path == "/api/takes":
             return self._send(200, h.read_log())
         if self.path == "/api/ingest":
