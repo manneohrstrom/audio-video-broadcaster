@@ -69,6 +69,31 @@ Per synced song segment (from Track A), using the rules already in `docs/design.
 
 It runs right after a bounce is synced, so the cut is ready the first time the user opens the song.
 
+## 3b. Automatic cut, version 2: music-aware, with AI listening and watching (backlog, user 2026-11-17)
+
+**When:** after a few real sessions recorded the way they're meant to sound (full band, real mixes), not before: it has to be judged on real music. Version 1 (section 3, rules) comes first and is the baseline to beat. Today the editor still starts from the quick mix's 10 s rotation; neither version is built.
+
+**The question it answers:** given the music playing at each moment, which camera shows it best? Not "a new camera every N seconds", but a cut that follows the song the way a good live director would.
+
+**Listening (the bounce, and the stems if the user uploads them):**
+- the song's structure: intro, verse, chorus, bridge, solo, breakdown, ending, and the build-ups between them;
+- energy and density over time (how much is going on), tempo, beats and bars;
+- who is playing or leading right now: vocals, a solo instrument, drums fills, a riff; from stems when there are any, otherwise from source separation of the mix.
+
+**Watching (every camera, at low resolution, after ingest):**
+- who and what each camera sees: which player, which instrument, faces, hands on the instrument; wide or close;
+- movement and expression over time; picture quality (rough sections, focus, exposure) as hard limits.
+
+**Deciding:**
+- show who carries the music: the singer on the vocal line, the soloist during a solo, the drummer on a fill;
+- pace follows the music: longer holds in quiet verses, faster cuts in a chorus or a build, a cut on the downbeat where a section changes; always on beats, preferably bars;
+- variety and rhythm across the song (back to a wide shot regularly, no ping-pong), never into a rough section or a camera that wasn't recording;
+- every cut has a reason the editor can show ("chorus starts", "guitar solo: cam3 sees the guitarist"), so the user can see why and change it.
+
+**Learning from the user:** the edit records who made each cut (`made_by`: rules, agent, user); what the user changes after an automatic cut is the feedback for the next one.
+
+**To explore first (spikes, before any plan):** which models do the listening and watching (on the hub, on the Mac, or a cloud model: a decision for the user, since the rig is offline-first); how long it takes per song; and a blind comparison on the same real songs: the user watches version 1 and this one and picks.
+
 ## 4. Editor UI: step 1, the cut
 
 *Revised with the user, 2026-11-16 (requirements below are theirs; replaces the first draft of this section). Needs the user's OK before building.*
@@ -197,7 +222,7 @@ What's known so far:
 
 ## Not in this plan
 
-The agent (listening to the music, analysing video, cutting in a style the user asks for); the vertical story version (section 7, a maybe); transitions, titles, split screen, picture-in-picture; keyframed or masked colour; rendering on the Mac; editing from outside the LAN.
+The agent (listening to the music, analysing video, cutting in a style the user asks for), beyond the backlog item in section 3b; the vertical story version (section 7, a maybe); transitions, titles, split screen, picture-in-picture; keyframed or masked colour; rendering on the Mac; editing from outside the LAN.
 
 ## Decisions for the user
 
