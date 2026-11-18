@@ -42,17 +42,21 @@ export function LookPanel({ store }) {
         const [kind, id] = key.split(":");
         if (kind === "filter") {
           renderer.setLook(store.look.adjust, looks.adjustments, store.filterSettings(id),
-                           id === store.look.filter ? store.look.filter_strength : 1);
+                           id === store.look.filter ? store.look.filter_strength : 1, store.look.effects.colorpop || 0);
           renderer.render(store.pictureCanvas, {}, store.playheadSeconds);
         } else if (kind === "film") {
           const overlay = (store.overlays || []).find(o => o.id === id);
-          renderer.setLook(store.look.adjust, looks.adjustments, store.filterSettings(), store.look.filter_strength);
+          renderer.setLook(store.look.adjust, looks.adjustments, store.filterSettings(), store.look.filter_strength,
+                           store.look.effects.colorpop || 0);
           const shown = overlayVideo(overlay && { ...overlay, strength: store.look.effects[`overlay:${id}`] ?? overlay.default_strength });
           renderer.render(store.pictureCanvas, {}, store.playheadSeconds, shown);
         } else {
           const effect = looks.effects.find(e => e.id === id);
-          renderer.setLook(store.look.adjust, looks.adjustments, store.filterSettings(), store.look.filter_strength);
-          renderer.render(store.pictureCanvas, { [id]: store.look.effects[id] ?? effect.default_strength }, store.playheadSeconds);
+          const strength = store.look.effects[id] ?? effect.default_strength;
+          // Colour pop lives in the colour table; the other effects are drawn after it.
+          renderer.setLook(store.look.adjust, looks.adjustments, store.filterSettings(), store.look.filter_strength,
+                           id === "colorpop" ? strength : 0);
+          renderer.render(store.pictureCanvas, id === "colorpop" ? {} : { [id]: strength }, store.playheadSeconds);
         }
         tile.getContext("2d").drawImage(offscreen, 0, 0);
       }
@@ -88,8 +92,9 @@ export function LookPanel({ store }) {
           ${looks.effects.map(effect => tile(`effect:${effect.id}`, effect, store.look.effects[effect.id] != null,
                                             store.look.effects[effect.id] != null, () => store.tapEffect(effect.id)))}
         </div>
-        ${looks.effects.filter(effect => store.look.effects[effect.id] != null).map(effect =>
-          strengthRow(effect.name, store.look.effects[effect.id], value => store.setStrength(effect.id, value)))}
+        ${looks.effects.filter(effect => store.look.effects[effect.id] != null).map(effect => html`
+          ${strengthRow(effect.name, store.look.effects[effect.id], value => store.setStrength(effect.id, value))}
+          ${effect.note && html`<p class="look-hint">${effect.note}</p>`}`)}
         ${(store.overlays || []).length ? html`
           <div class="filter-group">Film</div>
           <div class="look-row">

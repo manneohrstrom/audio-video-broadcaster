@@ -311,6 +311,16 @@ class AgentTest(unittest.TestCase):
             time.sleep(0.02)
         self.fail("sha256 never written after restart")
 
+    def test_take_files_are_flushed_at_stop(self):
+        synced = []
+        real_fsync = camnode.os.fsync
+        camnode.os.fsync = lambda fd: synced.append(fd) or real_fsync(fd)
+        try:
+            self.take()
+        finally:
+            camnode.os.fsync = real_fsync
+        self.assertGreaterEqual(len(synced), 2)          # the take's files and its folder
+
     def test_bad_sync_difference_recorded(self):
         man = self.take(env={"FAKE_SYNC_DIFF": "-183870"})
         self.assertEqual(man["sync_difference_us"], -183870)

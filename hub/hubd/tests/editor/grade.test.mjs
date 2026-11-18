@@ -18,7 +18,7 @@ test("every filter gives the same colours in JavaScript and Python", () => {
   assert.ok(vectors.length >= looks.filters.length * 12);
   for (const v of vectors) {
     const got = v.sliders
-      ? lookColour(v.in, adjustmentSettings(v.sliders, looks.adjustments), byId[v.filter], v.strength)
+      ? lookColour(v.in, adjustmentSettings(v.sliders, looks.adjustments), byId[v.filter], v.strength, v.pop || 0)
       : gradeWithStrength(v.in, byId[v.filter], v.strength);
     got.forEach((value, i) => assert.ok(Math.abs(value - v.out[i]) < 1e-5, `${v.filter} ${v.strength} ${v.in}: ${got} vs ${v.out}`));
   }

@@ -42,7 +42,7 @@ import edit_render  # noqa: E402
 import drive_records  # noqa: E402
 import motion  # noqa: E402
 
-VERSION = "0.18.0"
+VERSION = "0.20.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -52,6 +52,12 @@ TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the mani
 DEFAULT_RATES = {"pulled": 1.0, "checked": 0.01, "conformed": 1.0, "verified": 0.25,
                  "written": 0.05, "marked": 0.0}
 STEP_OVERHEAD_S = 2.0
+# Convert and verify give the same answer every time on the same files: after this many
+# failures in a row a camera-take is given up on (kept, shown as needing attention, not
+# tried again) instead of being converted and verified every round (user, 2026-11-17: a
+# take whose end was lost in a camera reboot failed verify over and over).
+GIVE_UP_AFTER = 3
+GIVE_UP_STEPS = ("conformed", "verified")
 
 
 RSYNC_TEMP_RE = re.compile(r"^\.(.+)\.[A-Za-z0-9]{6}$")    # ".video.h264.zEmXtj" -> "video.h264"
@@ -441,8 +447,21 @@ class Ingest:
         with self.lock:
             return self.state["takes"].setdefault(take_id, {}).setdefault(cam, {"done": []})
 
+    def record_failure(self, cs, step, error):
+        """A camera-take's step failed. Convert and verify fail the same way every time on
+        the same files: GIVE_UP_AFTER of those in a row and it's given up on."""
+        failures = cs.setdefault("failures", {})
+        if step in GIVE_UP_STEPS:
+            failures[step] = failures.get(step, 0) + 1
+        message = str(error)
+        if failures.get(step, 0) >= GIVE_UP_AFTER:
+            cs["gave_up"] = True
+            message = "gave up after %d tries: %s" % (failures[step], message)
+        cs.update(error=message, step=None, progress=None)
+
     def mark(self, take_id, cam, step, **info):
         cs = self.cam_state(take_id, cam)
+        (cs.get("failures") or {}).pop(step, None)        # it worked: start counting again
         if step not in cs["done"]:
             cs["done"].append(step)
         self._learn(cs, step)
@@ -671,7 +690,7 @@ class Ingest:
                 if m.get("verified"):
                     continue
                 cs = self.state["takes"].get(m["take_id"], {}).get(cam, {})
-                if "marked" in cs.get("done", []):
+                if "marked" in cs.get("done", []) or cs.get("gave_up"):
                     continue
                 out.setdefault(m["take_id"], {})[cam] = m
         for take_id, part, m in self.phone_takes():
@@ -1538,10 +1557,16 @@ class Ingest:
             brand_frame = self.cfg["brand_frame_path"] if edit.get("branding") else None
             if brand_frame and not os.path.exists(brand_frame):
                 raise RuntimeError("the border and logo image is missing: %s" % brand_frame)
+            try:            # the bounce's bars, for the beat pulse (beats.json, next to the bounce)
+                with open(os.path.join(os.path.dirname(bounce), "beats.json")) as f:
+                    downbeats_s = json.load(f).get("downbeats_s") or []
+            except (OSError, ValueError):
+                downbeats_s = []
             renderer = edit_render.EditRenderer(edit, take_doc, folder, bounce, edit.get("look"), looks, out_dir,
                                                 busy=busy, should_abort=self.eject_requested, progress=progress,
                                                 brand_frame=brand_frame,
-                                                brand_colour=edit.get("branding_colour") or "#ffffff")
+                                                brand_colour=edit.get("branding_colour") or "#ffffff",
+                                                downbeats_s=downbeats_s)
             job.update(frames=renderer.total_frames, shots=len(renderer.shots),
                        length_s=round(renderer.total_frames / render.FPS, 1))
             renderer.run(tmp)
@@ -1761,7 +1786,7 @@ class Ingest:
             except Paused:
                 raise
             except Exception as e:  # noqa: BLE001 - record, move on to the next camera
-                cs.update(error=str(e), step=None, progress=None)
+                self.record_failure(cs, cs.get("step"), e)
                 self.save()
         members = self.take_cams(take_id, cams)
         if members and all("written" in self.cam_state(take_id, c)["done"] for c in members):

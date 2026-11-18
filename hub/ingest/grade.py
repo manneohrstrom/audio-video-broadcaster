@@ -6,10 +6,10 @@ test (hub/hubd/tests/editor/grade.test.mjs) checks the JavaScript against.
 
 Colours are r, g, b in 0..1 (display, gamma-encoded, as in the video). Steps, in order:
 exposure (stops) -> temperature and tint -> contrast around 0.5 -> highlight and shadow
-lift -> saturation (or mono) -> shadows/highlights colour -> fade -> clamp. A look is the
-Adjust sliders first (primary correction), then the filter, whose strength blends between
-its input (0) and the filtered colour (1): look_colour(). The render writes the result as
-a .cube file for ffmpeg's lut3d filter.
+lift -> saturation (or mono) -> shadows/highlights colour -> split tone -> fade -> clamp.
+A look is the Adjust sliders first (primary correction), then the filter, whose strength
+blends between its input (0) and the filtered colour (1), then the colour pop effect:
+look_colour(). The render writes the result as a .cube file for ffmpeg's lut3d filter.
 """
 import json
 import math
@@ -134,6 +134,7 @@ def grade_colour(colour, settings):
     fade = settings.get("fade", 0)
     highlight_lift = settings.get("highlight_lift", 0)
     shadow_lift = settings.get("shadow_lift", 0)
+    split = settings.get("split_tone", 0)
     gain = 2 ** exposure
     r, g, b = r * gain, g * gain, b * gain
     r *= 1 + 0.1 * temperature
@@ -151,6 +152,11 @@ def grade_colour(colour, settings):
     r *= shadows[0] * (1 - light) + highlights[0] * light
     g *= shadows[1] * (1 - light) + highlights[1] * light
     b *= shadows[2] * (1 - light) + highlights[2] * light
+    if split:
+        # Split tone: teal shadows and warm highlights (negative: the other way round).
+        r *= 1 + split * (0.12 * light - 0.10 * (1 - light))
+        g *= 1 + split * (0.02 * light + 0.02 * (1 - light))
+        b *= 1 + split * (-0.14 * light + 0.12 * (1 - light))
     r, g, b = [fade + c * (1 - fade) for c in (r, g, b)]
     return [clamp01(r), clamp01(g), clamp01(b)]
 
@@ -171,18 +177,32 @@ def adjustment_settings(sliders, definitions):
     return settings
 
 
-def look_colour(colour, adjust, settings, strength):
-    """The whole look on one colour: Adjust first, then the filter at its strength."""
-    return grade_with_strength(grade_colour(colour, adjust), settings, strength)
+POP_KEY = (1.0, 0.62, 0.25)     # colour pop keeps colours near this warm orange (lamp light)
 
 
-def write_cube(path, settings, strength, size=LUT_SIZE, adjust=None):
+def colour_pop(colour, amount):
+    """The Colour pop effect: colours far from POP_KEY lose their colour, by `amount` (0..1);
+    near it (within 0.25, fading out over the next 0.3) they keep it."""
+    if not amount:
+        return list(colour)
+    distance = math.sqrt(sum((c - k) ** 2 for c, k in zip(colour, POP_KEY)) / 3)
+    drain = amount * clamp01((distance - 0.25) / 0.3)
+    grey = LUMA[0] * colour[0] + LUMA[1] * colour[1] + LUMA[2] * colour[2]
+    return [c + (grey - c) * drain for c in colour]
+
+
+def look_colour(colour, adjust, settings, strength, pop=0):
+    """The whole look on one colour: Adjust first, then the filter at its strength, then colour pop."""
+    return colour_pop(grade_with_strength(grade_colour(colour, adjust), settings, strength), pop)
+
+
+def write_cube(path, settings, strength, size=LUT_SIZE, adjust=None, pop=0):
     """A .cube 3D LUT for ffmpeg's lut3d (red fastest, then green, then blue)."""
     lines = ["TITLE \"studio-multicam look\"", "LUT_3D_SIZE %d" % size]
     for bi in range(size):
         for gi in range(size):
             for ri in range(size):
-                r, g, b = look_colour([ri / (size - 1), gi / (size - 1), bi / (size - 1)], adjust or {}, settings, strength)
+                r, g, b = look_colour([ri / (size - 1), gi / (size - 1), bi / (size - 1)], adjust or {}, settings, strength, pop)
                 lines.append("%.6f %.6f %.6f" % (r, g, b))
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -199,14 +219,20 @@ def test_vectors(looks):
                             "out": [round(v, 6) for v in grade_with_strength(colour, look["grade"], strength)]})
     # The Adjust sliders, alone and together with a filter.
     for sliders in ({"brightness": 0.6, "contrast": -0.3, "highlights": -0.8, "shadows": 0.7},
-                    {"saturation": -0.5, "warmth": 0.8, "tint": -0.4, "fade": 0.9},
-                    {"brightness": -0.4, "highlights": 0.5, "shadows": -0.6, "warmth": -1, "fade": -1}):
+                    {"saturation": -0.5, "warmth": 0.8, "tint": -0.4, "fade": 0.9, "split": 0.8},
+                    {"brightness": -0.4, "highlights": 0.5, "shadows": -0.6, "warmth": -1, "fade": -1, "split": -0.6}):
         adjust = adjustment_settings(sliders, looks["adjustments"])
         for filter_id, strength in (("normal", 1.0), ("golden", 0.7)):
             grade = next(f["grade"] for f in looks["filters"] if f["id"] == filter_id)
             for colour in inputs:
                 out.append({"sliders": sliders, "filter": filter_id, "strength": strength, "in": colour,
                             "out": [round(v, 6) for v in look_colour(colour, adjust, grade, strength)]})
+    # Colour pop after a filter.
+    for pop in (1.0, 0.5):
+        grade = next(f["grade"] for f in looks["filters"] if f["id"] == "cinema")
+        for colour in inputs + [[1.0, 0.6, 0.3], [0.9, 0.7, 0.4]]:
+            out.append({"sliders": {}, "filter": "cinema", "strength": 1.0, "pop": pop, "in": colour,
+                        "out": [round(v, 6) for v in look_colour(colour, {}, grade, 1.0, pop)]})
     return out
 
 

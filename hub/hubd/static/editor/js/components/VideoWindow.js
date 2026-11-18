@@ -53,7 +53,12 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
       const active = withLook ? store.activeOverlay() : null;
       const overlay = overlayVideo(active);
       playOnlyOverlay(active ? active.id : null);
-      if (withLook) renderer.setLook(store.look.adjust, store.looks?.adjustments, store.filterSettings(), store.look.filter_strength);
+      if (withLook) {
+        renderer.setLook(store.look.adjust, store.looks?.adjustments, store.filterSettings(), store.look.filter_strength,
+                         store.look.effects.colorpop || 0);
+        // The bars in song seconds (the bounce's, minus where the song starts in it).
+        renderer.setDownbeats((store.project.bounce.downbeats_s || []).map(d => d - store.bounceOffsetSeconds));
+      }
       else renderer.setFilter({}, 0);
       renderer.render(picture, withLook ? store.look.effects : {}, seconds, overlay);
     }

@@ -7,9 +7,11 @@
 // Colours are r, g, b in 0..1 (display, gamma-encoded, as in the video). Steps, in order:
 //   exposure (stops) -> temperature (warm +, cool -) and tint (magenta +, green -)
 //   -> contrast around mid-grey 0.5 -> highlight and shadow lift (tone)
-//   -> saturation (or mono) -> shadows/highlights colour -> fade (lifts the blacks) -> clamp.
+//   -> saturation (or mono) -> shadows/highlights colour -> split tone -> fade (lifts the
+//   blacks) -> clamp.
 // A look is: the Adjust sliders (primary correction) first, then the filter, whose
-// strength blends between its input (0) and the filtered colour (1): lookColour().
+// strength blends between its input (0) and the filtered colour (1), then the colour pop
+// effect: lookColour().
 
 export const LUT_SIZE = 33;
 
@@ -102,7 +104,7 @@ export function gradeColour(colour, settings) {
   const {
     exposure = 0, temperature = 0, tint = 0, contrast = 1, saturation = 1,
     mono = false, shadows = [1, 1, 1], highlights = [1, 1, 1], fade = 0,
-    highlight_lift: highlightLift = 0, shadow_lift: shadowLift = 0,
+    highlight_lift: highlightLift = 0, shadow_lift: shadowLift = 0, split_tone: split = 0,
   } = settings;
   const gain = Math.pow(2, exposure);
   r *= gain; g *= gain; b *= gain;
@@ -126,6 +128,11 @@ export function gradeColour(colour, settings) {
   r *= shadows[0] * (1 - light) + highlights[0] * light;
   g *= shadows[1] * (1 - light) + highlights[1] * light;
   b *= shadows[2] * (1 - light) + highlights[2] * light;
+  if (split) {          // split tone: teal shadows and warm highlights (negative: the other way round)
+    r *= 1 + split * (0.12 * light - 0.10 * (1 - light));
+    g *= 1 + split * (0.02 * light + 0.02 * (1 - light));
+    b *= 1 + split * (-0.14 * light + 0.12 * (1 - light));
+  }
   r = fade + r * (1 - fade);
   g = fade + g * (1 - fade);
   b = fade + b * (1 - fade);
@@ -143,9 +150,21 @@ export function adjustmentSettings(sliders, definitions) {
   return settings;
 }
 
-/** The whole look on one colour: Adjust first, then the filter at its strength. */
-export function lookColour(colour, adjust, filter, strength) {
-  return gradeWithStrength(gradeColour(colour, adjust), filter, strength);
+const POP_KEY = [1.0, 0.62, 0.25];     // colour pop keeps colours near this warm orange (lamp light)
+
+/** The Colour pop effect: colours far from POP_KEY lose their colour, by `amount` (0..1);
+ * near it (within 0.25, fading out over the next 0.3) they keep it. */
+export function colourPop(colour, amount) {
+  if (!amount) return [...colour];
+  const distance = Math.sqrt(colour.reduce((sum, c, i) => sum + (c - POP_KEY[i]) ** 2, 0) / 3);
+  const drain = amount * clamp01((distance - 0.25) / 0.3);
+  const grey = LUMA[0] * colour[0] + LUMA[1] * colour[1] + LUMA[2] * colour[2];
+  return colour.map(c => c + (grey - c) * drain);
+}
+
+/** The whole look on one colour: Adjust first, then the filter at its strength, then colour pop. */
+export function lookColour(colour, adjust, filter, strength, pop = 0) {
+  return colourPop(gradeWithStrength(gradeColour(colour, adjust), filter, strength), pop);
 }
 
 /** gradeColour blended with the original by `strength` (0..1). */
@@ -158,13 +177,13 @@ export function gradeWithStrength(colour, settings, strength) {
  * A LUT_SIZE^3 colour table as RGBA bytes (red fastest, then green, then blue), the
  * layout of a WebGL 3D texture and of a .cube file.
  */
-export function buildLut(settings, strength, size = LUT_SIZE, adjust = {}) {
+export function buildLut(settings, strength, size = LUT_SIZE, adjust = {}, pop = 0) {
   const table = new Uint8Array(size * size * size * 4);
   let i = 0;
   for (let bi = 0; bi < size; bi++) {
     for (let gi = 0; gi < size; gi++) {
       for (let ri = 0; ri < size; ri++) {
-        const [r, g, b] = lookColour([ri / (size - 1), gi / (size - 1), bi / (size - 1)], adjust, settings, strength);
+        const [r, g, b] = lookColour([ri / (size - 1), gi / (size - 1), bi / (size - 1)], adjust, settings, strength, pop);
         table[i++] = Math.round(r * 255);
         table[i++] = Math.round(g * 255);
         table[i++] = Math.round(b * 255);

@@ -23,6 +23,7 @@ Small, known difference to the preview: the preview mixes the two pictures and t
 applies the colour table; the render applies the table to each shot and then mixes.
 Only the dissolve frames are affected, and only by the non-linearity of the look.
 """
+import functools
 import os
 import signal
 import subprocess
@@ -98,10 +99,53 @@ def dissolve_mix(frame_number, cut_frame, half_frames):
     return t * t * (3 - 2 * t)
 
 
-def decoder_command(source, start_s, frames, lut_path, pixel_format):
+def denoise_filter(strength):
+    """hqdn3d before the look (the Denoise effect): the dark room's high-gain noise, mostly
+    colour blotches, cleaned so the look's grain reads as film, not as camera noise."""
+    return "hqdn3d=%.2f:%.2f:%.2f:%.2f" % (2 + 4 * strength, 3 + 6 * strength, 3 + 6 * strength, 4 + 8 * strength)
+
+
+# Colour: the Pi cameras' files carry no colour tags, but they are Rec. 709, limited range
+# (rpicam-vid at 720p and up), and that is how the browser shows untagged video in the editor's
+# preview (Chrome reads it as 709; measured 2026-11-18). A tagged file (a phone's, maybe) is
+# shown by its tags. ffmpeg instead assumes Rec. 601 for untagged video whenever it converts to
+# RGB (lut3d, the effects) or to the finished video's 709 tags: until 2026-11-18 every render
+# showed saturated colours as 601, a warm red (193, 48, 32) in the preview came out
+# (180, 34, 34). So the decoders read each file as the browser does and always hand over
+# Rec. 709 limited range, and the encoder's raw input says so.
+PIPE_COLOUR_OPTIONS = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"]
+# ffprobe's colour_space tag -> scale's name for that matrix. Anything else counts as untagged.
+SCALE_MATRIX = {"bt709": "bt709", "smpte170m": "smpte170m", "bt470bg": "bt470", "bt2020nc": "bt2020"}
+
+
+@functools.lru_cache(maxsize=64)
+def source_colour(path):
+    """(matrix, range) of a video file as the browser reads it: its tags, else Rec. 709 limited."""
+    try:
+        text = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                               "stream=color_space,color_range", "-of", "default=noprint_wrappers=1", path],
+                              capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        text = ""
+    tags = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)     # ffprobe's own order
+    matrix = SCALE_MATRIX.get(tags.get("color_space", ""), "bt709")
+    full = tags.get("color_range") in ("pc", "jpeg", "full")
+    return matrix, "pc" if full else "tv"
+
+
+def decoder_command(source, start_s, frames, lut_path, pixel_format, denoise=0, colour=("bt709", "tv")):
+    """colour: the source's (matrix, range), from source_colour(). The output is Rec. 709 limited."""
+    matrix, value_range = colour
     filters = "fps=%d:round=near,scale=%d:%d" % (FPS, WIDTH, HEIGHT)
+    if (matrix, value_range) != ("bt709", "tv") and not lut_path:
+        filters += ",scale=in_color_matrix=%s:in_range=%s:out_color_matrix=bt709:out_range=tv" % (matrix, value_range)
+    if denoise:
+        filters += "," + denoise_filter(denoise)
     if lut_path:
-        filters += ",lut3d=file='%s':interp=trilinear" % lut_path.replace("'", "")
+        # Explicit conversions around the colour table: the automatic ones assume Rec. 601, and
+        # ffmpeg 7.1 (the hub's) still lost a couple of levels with them even on tagged frames.
+        filters += (",scale=in_color_matrix=%s:in_range=%s,format=gbrp,lut3d=file='%s':interp=trilinear,"
+                    "scale=out_color_matrix=bt709:out_range=tv" % (matrix, value_range, lut_path.replace("'", "")))
     return ["ffmpeg", "-nostdin", "-v", "error", "-threads", DECODER_THREADS, "-ss", "%.6f" % max(0.0, start_s), "-i", source,
             "-vf", filters, "-frames:v", str(frames), "-f", "rawvideo", "-pix_fmt", pixel_format, "-"]
 
@@ -151,15 +195,18 @@ def brand_overlay(graph, extra_inputs, brand_frame, colour="#ffffff"):
 
 
 def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir=".", preset=FINAL_PRESET, crf=FINAL_CRF,
-                    brand_frame=None, brand_colour="#ffffff"):
+                    brand_frame=None, brand_colour="#ffffff", downbeats_s=()):
     command = render.encoder_cmd(bounce, audio_start_s, frames, out, preset=preset, crf=crf)
+    pipe = command.index("-")                   # the raw video input: Rec. 709 (CAMERA_COLOUR)
+    command[pipe - 1:pipe - 1] = PIPE_COLOUR_OPTIONS
     command[command.index("-b:a") + 1] = AUDIO_BITRATE
     command[command.index("-threads") + 1] = ENCODER_THREADS
     if effects or brand_frame:
         # Inputs: 0 = the frames, 1 = the bounce, 2... = effect masks, then the brand frame.
         extra_inputs, graph = [], None
         if effects:
-            extra_inputs, graph = look_render.effect_filter_graph(effects, work_dir, first_extra_input=2)
+            extra_inputs, graph = look_render.effect_filter_graph(effects, work_dir, first_extra_input=2,
+                                                                  downbeats_s=downbeats_s, audio_start_s=audio_start_s)
         if brand_frame:
             extra_inputs, graph = brand_overlay(graph, extra_inputs, brand_frame, brand_colour)
         audio_input_end = command.index(bounce) + 1
@@ -180,10 +227,11 @@ class EditRenderer:
 
     def __init__(self, edit, take_doc, video_dir, bounce, look, looks, work_dir,
                  busy=lambda: False, should_abort=lambda: False, progress=lambda done, total: None,
-                 brand_frame=None, brand_colour="#ffffff"):
+                 brand_frame=None, brand_colour="#ffffff", downbeats_s=()):
         self.edit, self.take_doc, self.video_dir, self.bounce = edit, take_doc, video_dir, bounce
         self.brand_frame = brand_frame           # the border and logo on top (edit's "branding"), or None
         self.brand_colour = brand_colour         # their colour (edit's "branding_colour")
+        self.downbeats_s = list(downbeats_s)     # the bounce's bars (beats.json), for the beat pulse
         self.busy, self.should_abort, self.progress = busy, should_abort, progress
         self.dissolve_s = float(edit.get("dissolve_s") or 0)
         self.shots, self.total_frames = plan_shots(edit, take_doc, self.dissolve_s)
@@ -210,8 +258,10 @@ class EditRenderer:
         first, count = shot.decoded_frames()
         if count <= 0:
             return                               # the camera recorded none of this shot: black
-        command = decoder_command(os.path.join(self.video_dir, shot.camera_id + ".mov"),
-                                  self.file_seconds(shot.camera_id, first), count, self.lut_path, self.pixel_format)
+        source = os.path.join(self.video_dir, shot.camera_id + ".mov")
+        command = decoder_command(source,
+                                  self.file_seconds(shot.camera_id, first), count, self.lut_path, self.pixel_format,
+                                  denoise=self.effects.get("denoise", 0), colour=source_colour(source))
         shot.process = self.spawn(command, stdout=subprocess.PIPE)
 
     def black_frame(self):
@@ -276,7 +326,7 @@ class EditRenderer:
     def run(self, out_path):
         encoder = self.spawn(encoder_command(self.bounce, self.audio_start_s(), self.total_frames, out_path,
                                              self.effects, self.work_dir, brand_frame=self.brand_frame,
-                                             brand_colour=self.brand_colour),
+                                             brand_colour=self.brand_colour, downbeats_s=self.downbeats_s),
                              stdin=subprocess.PIPE)
         try:
             current = 0

@@ -325,6 +325,35 @@ class IngestTest(Base):
         self.assertEqual(self.rig.verified, {})
         self.assertFalse(os.path.exists(self.folder()))
 
+    def test_gives_up_after_repeated_verify_failures(self):
+        """A source that can never verify (its end lost in a camera reboot) is tried
+        GIVE_UP_AFTER times, then left alone: no convert-and-verify every round."""
+        self.rig.add_take("cam1")
+        self.runner.frames_override = 5
+        for _ in range(ingest.GIVE_UP_AFTER):
+            self.command("start")
+            self.ing.tick()
+        cs = self.ing.cam_state(TAKE, "cam1")
+        self.assertTrue(cs["gave_up"])
+        self.assertIn("gave up after 3 tries: verify failed", cs["error"])
+        self.assertNotIn(TAKE, self.ing.pending())           # not picked up again
+        self.assertEqual(self.rig.verified, {})               # and still kept on the camera
+
+    def test_a_success_resets_the_count(self):
+        cs = {"done": []}
+        self.ing.record_failure(cs, "verified", RuntimeError("verify failed: x"))
+        self.ing.record_failure(cs, "verified", RuntimeError("verify failed: x"))
+        self.ing.state["takes"][TAKE] = {"cam1": cs}
+        self.ing.mark(TAKE, "cam1", "verified")
+        self.ing.record_failure(cs, "verified", RuntimeError("verify failed: x"))
+        self.assertNotIn("gave_up", cs)                        # 1 in a row, not 3
+
+    def test_transient_failures_never_give_up(self):
+        cs = {"done": []}
+        for _ in range(5):
+            self.ing.record_failure(cs, "written", RuntimeError("drive full"))
+        self.assertNotIn("gave_up", cs)
+
     def test_offline_camera_merged_later(self):
         self.rig.add_take("cam1")
         self.rig.add_take("cam2")

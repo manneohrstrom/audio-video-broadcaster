@@ -18,7 +18,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.7.0"
+VERSION = "0.7.1"
 NOMINAL_MS = 1000.0 / 30
 TAKE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WC_RE = re.compile(rb'"FrameWallClock":\s*(\d+)')
@@ -766,6 +766,7 @@ class Agent:
             return self._finalize(take, rc, reason)
 
     def _finalize(self, take, rc, reason):
+        flush_to_card(take["dir"])
         man = build_manifest(take["dir"], take, rc, reason)
         write_json_atomic(os.path.join(take["dir"], "manifest.json"), man)
         self.last_take = man
@@ -794,6 +795,33 @@ class Agent:
             write_json_atomic(p, man)
             if self.last_take and self.last_take["take_id"] == man["take_id"]:
                 self.last_take = man
+
+
+def flush_to_card(d):
+    """Make sure a finished take's files are on the SD card, not just in memory. Linux keeps
+    the last seconds of writes in RAM for up to ~30 s: cam1 rebooted 3 min after a 20 min take
+    (2026-11-17) and both video.h264 and video.pts came back cut at a 4 KB page, ~6 s short,
+    which no ingest can verify. fsync at STOP (a few seconds at most) closes that window."""
+    for name in sorted(os.listdir(d)):
+        path = os.path.join(d, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        except OSError as e:
+            sys.stderr.write("fsync %s: %s\n" % (path, e))
+    try:
+        fd = os.open(d, os.O_RDONLY)          # the folder's entries too
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
 
 
 def needs_hash(d):

@@ -326,6 +326,9 @@ class EditorProjects:
             missing_thumbnails = missing_thumbnails or not camera["thumbnails_ready"] or not has_proxy
         if missing_thumbnails:
             self.request_thumbnails(take_id)
+        # The bounce's bars (bounce seconds), for the Beat pulse effect's preview.
+        beats = read_json(os.path.join(self._version_dir(take_id, song_id, version), "beats.json"))
+        downbeats_s = (beats.get("downbeats_s") if isinstance(beats, dict) else None) or []
         return {
             "take_id": take_id,
             "song": {"id": song_id, "name": song["name"]},
@@ -339,6 +342,7 @@ class EditorProjects:
                 "duration_s": version_info["duration_s"],
                 "file_name": version_info["filename"],
                 "sync": sync_summary,
+                "downbeats_s": downbeats_s,
             },
             "mode": "edit",
             "edit": edit,
