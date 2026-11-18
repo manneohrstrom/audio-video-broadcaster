@@ -52,8 +52,8 @@
     src: "{{ playbook_dir }}/../hub/ingest/{{ item }}"
     dest: "/opt/hub-ingest/{{ item }}"
     mode: "0644"
-  loop: [edit_render.py, look_render.py, grade.py]
-  notify: Restart hub-ingest
+  loop: [edit_render.py, look_render.py, grade.py, title_render.py, youtube_upload.py]
+  notify: [Restart hub-ingest, Restart hub-upload]
 
 - name: hub-ingest analysis for the automatic cut (beats of each bounce, movement per camera)
   ansible.builtin.copy:
@@ -101,6 +101,51 @@
 - name: hub-ingest enabled and running
   ansible.builtin.systemd_service:
     name: hub-ingest
+    enabled: true
+    state: started
+    daemon_reload: true
+  ignore_errors: "{{ ansible_check_mode }}"
+
+# YouTube (docs/youtube-plan.md): hub-upload sends the finished videos the editor marks
+# "YouTube" to the channel, private. The login is made once on the Mac with
+# mac/youtube_login.py; it lives outside the repo and is copied here only if it exists.
+- name: YouTube folders (the login and the videos waiting to upload; only studio can read them)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: studio
+    group: studio
+    mode: "0700"
+  loop: [/var/lib/hubd/youtube, /var/lib/hubd/youtube/uploads]
+
+- name: Is there a YouTube login on this Mac?
+  ansible.builtin.stat:
+    path: "{{ youtube_credentials_local }}"
+  delegate_to: localhost
+  become: false
+  register: youtube_login
+
+- name: YouTube login
+  ansible.builtin.copy:
+    src: "{{ youtube_credentials_local }}"
+    dest: /var/lib/hubd/youtube/credentials.json
+    owner: studio
+    group: studio
+    mode: "0600"
+  when: youtube_login.stat.exists
+  no_log: true
+  notify: Restart hub-upload
+
+- name: hub-upload systemd unit
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../hub/systemd/hub-upload.service"
+    dest: /etc/systemd/system/hub-upload.service
+    mode: "0644"
+  notify: Restart hub-upload
+
+- name: hub-upload enabled and running
+  ansible.builtin.systemd_service:
+    name: hub-upload
     enabled: true
     state: started
     daemon_reload: true

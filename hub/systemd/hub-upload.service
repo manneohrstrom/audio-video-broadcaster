@@ -1,0 +1,20 @@
+# YouTube uploads of the finished videos (hub/ingest/youtube_upload.py, docs/youtube-plan.md).
+# Separate from hub-ingest so a long upload never holds up the next render, and a network
+# problem here can't touch ingest, REC or LIVE. One upload at a time; pauses while recording.
+[Unit]
+Description=hub-upload: finished videos to YouTube (private)
+After=network-online.target hubd.service
+Wants=network-online.target
+
+[Service]
+User=studio
+Group=studio
+ExecStart=/usr/bin/python3 -u /opt/hub-ingest/youtube_upload.py
+Restart=on-failure
+RestartSec=30
+# It reads 8 MB at a time; this is plenty, and keeps it out of the renders' way.
+MemoryMax=120M
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

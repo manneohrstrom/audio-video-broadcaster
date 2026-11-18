@@ -39,10 +39,12 @@ import render  # noqa: E402
 import thumbnails  # noqa: E402
 import proxies  # noqa: E402
 import edit_render  # noqa: E402
+import title_render  # noqa: E402
+import youtube_upload  # noqa: E402
 import drive_records  # noqa: E402
 import motion  # noqa: E402
 
-VERSION = "0.20.0"
+VERSION = "0.23.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -137,7 +139,11 @@ DEFAULT_CONFIG = {
     # The editor's looks (filters, effects, adjustments), shared with the editor's preview.
     "looks_path": "/opt/hubd/static/editor/looks.json",
     # The border and logo the editor's "Border & logo" switch puts on top (hub/tools/make_brand_frame.py).
-    "brand_frame_path": "/opt/hubd/static/editor/brand/brand-frame.png",
+    "brand_dir": "/opt/hubd/static/editor/brand",
+    # Figtree, for the video's title (title_render.py); the editor's preview uses the same files.
+    "fonts_dir": "/opt/hubd/static/shared/vendor/fonts",
+    # Finished videos the editor sends to YouTube wait here for hub-upload (youtube_upload.py).
+    "youtube_spool_dir": "/var/lib/hubd/youtube/uploads",
 }
 TAKE_RE = re.compile(r"^\d{8}-\d{6}$")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1398,7 +1404,10 @@ class Ingest:
         if (jobs.get(key) or {}).get("status") in ("queued", "rendering", "checking", "writing"):
             return
         jobs[key] = {"take": take, "song": song, "version": v, "kind": kind, "status": "queued",
-                     "queued_at": self.clock(), "progress": None, "error": None}
+                     "queued_at": self.clock(), "progress": None, "error": None,
+                     # The editor's "Upload to YouTube": the finished video goes on to hub-upload.
+                     "youtube": kind == "edit" and doc.get("youtube") is True,
+                     "song_name": str(doc.get("song_name") or song)[:200], "upload": None}
         self.manual = True                    # asked for by the user: don't wait for 30 min idle
         self.save()
 
@@ -1554,9 +1563,14 @@ class Ingest:
                     job["status"] = "paused" if is_busy else "rendering"
                     self.save(status="paused: rig busy" if is_busy else "ingesting")
                 return is_busy
-            brand_frame = self.cfg["brand_frame_path"] if edit.get("branding") else None
-            if brand_frame and not os.path.exists(brand_frame):
-                raise RuntimeError("the border and logo image is missing: %s" % brand_frame)
+            brand_dir = self.cfg["brand_dir"] if edit.get("branding") else None
+            for name in (edit_render.BRAND_BORDER, edit_render.BRAND_LOGO, edit_render.BRAND_LOGO_BOX) if brand_dir else ():
+                if not os.path.exists(os.path.join(brand_dir, name)):
+                    raise RuntimeError("the border and logo image is missing: %s" % name)
+            if title_render.is_shown(edit.get("title")):
+                for font in (title_render.TITLE_FONT, title_render.LINE_FONT):
+                    if not os.path.exists(os.path.join(self.cfg["fonts_dir"], font)):
+                        raise RuntimeError("the title's font is missing: %s" % font)
             try:            # the bounce's bars, for the beat pulse (beats.json, next to the bounce)
                 with open(os.path.join(os.path.dirname(bounce), "beats.json")) as f:
                     downbeats_s = json.load(f).get("downbeats_s") or []
@@ -1564,9 +1578,9 @@ class Ingest:
                 downbeats_s = []
             renderer = edit_render.EditRenderer(edit, take_doc, folder, bounce, edit.get("look"), looks, out_dir,
                                                 busy=busy, should_abort=self.eject_requested, progress=progress,
-                                                brand_frame=brand_frame,
+                                                brand_dir=brand_dir,
                                                 brand_colour=edit.get("branding_colour") or "#ffffff",
-                                                downbeats_s=downbeats_s)
+                                                downbeats_s=downbeats_s, fonts_dir=self.cfg["fonts_dir"])
             job.update(frames=renderer.total_frames, shots=len(renderer.shots),
                        length_s=round(renderer.total_frames / render.FPS, 1))
             renderer.run(tmp)
@@ -1599,10 +1613,25 @@ class Ingest:
             self.copy_verified(tmp, mp4)
             self.copy_verified(edit_copy, os.path.join(destination_dir, name + ".json"))
             size = os.path.getsize(mp4)
-        os.remove(tmp)
         os.remove(edit_copy)
+        upload = None
+        if job.get("youtube"):
+            # Our copy on the SD card goes to hub-upload; the one on the drive is the master.
+            upload = "%s_%s_video%d" % (job["take"], job["song"], number)
+            try:
+                youtube_upload.spool_video(
+                    self.cfg["youtube_spool_dir"], tmp, upload,
+                    youtube_upload.video_metadata(job.get("song_name") or job["song"], edit.get("title"), job["take"]),
+                    {"take": job["take"], "song": job["song"], "video_number": number,
+                     "file": os.path.relpath(mp4, self.take_folder(job["take"]))}, clock=self.clock)
+            except OSError as e:          # the video is safe on the drive; only the upload is lost
+                upload = None
+                job["upload_error"] = "couldn't queue the YouTube upload: %s" % e
+        if os.path.exists(tmp):
+            os.remove(tmp)
         job.update(status="done", path=mp4, file=os.path.relpath(mp4, self.take_folder(job["take"])),
-                   finished=self.clock(), bytes=size, render_s=round(time.monotonic() - started), video_number=number)
+                   finished=self.clock(), bytes=size, render_s=round(time.monotonic() - started), video_number=number,
+                   upload=upload)
         videos = self.state.setdefault("videos", {}).setdefault(job["take"], {}).setdefault(job["song"], [])
         videos.append({"number": number, "file": job["file"], "bounce_version": job["version"],
                        "made_at": self.clock(), "length_s": job.get("length_s"), "bytes": size})

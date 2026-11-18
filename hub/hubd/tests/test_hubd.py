@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -647,6 +648,58 @@ class SyncRequestTest(unittest.TestCase):
         hub.audio.version_info = lambda t, s, v: {"complete": False}
         with self.assertRaises(ValueError):
             hub.request_sync("20261116-185403", "track-1", 2)
+
+
+class YouTubeTest(unittest.TestCase):
+    """The editor's "Upload to YouTube": only when the hub is signed in; the upload's progress
+    comes back with the render's."""
+
+    def setUp(self):
+        cfg = hubd.load_config(None)
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.credentials = os.path.join(self.tmp, "youtube", "credentials.json")
+        self.spool = os.path.join(self.tmp, "youtube", "uploads")
+        cfg.update(state_dir=self.tmp, ingest_dir=os.path.join(self.tmp, "ingest"), client_head_start_s=0,
+                   sync_timeout_s=1, youtube_credentials_path=self.credentials, youtube_spool_dir=self.spool)
+        self.hub = hubd.Hub(cfg, nodes=FakeRig(cfg["nodes"]), sleep=lambda s: None)
+        self.hub.audio.version_info = lambda t, s, v: {"synced": True}
+        self.hub.editor.working_copy_path = lambda t, s, v: os.path.join(self.tmp, "edit.json")
+        self.hub.editor._song_and_version = lambda t, s, v: ({"name": "Blue in Green"}, {}, {})
+        with open(os.path.join(self.tmp, "edit.json"), "w") as f:
+            f.write("{}")
+
+    def commands(self):
+        d = os.path.join(self.tmp, "ingest", "commands")
+        return [json.load(open(os.path.join(d, n))) for n in sorted(os.listdir(d))]
+
+    def sign_in(self):
+        os.makedirs(os.path.dirname(self.credentials), exist_ok=True)
+        with open(self.credentials, "w") as f:
+            json.dump({"client_id": "a", "client_secret": "b", "refresh_token": "c"}, f)
+
+    def test_only_when_signed_in(self):
+        self.assertEqual(self.hub.youtube_status(), {"signed_in": False})
+        self.hub.request_edit_render("20261117-201741", "track-1", 1, youtube=True)
+        self.sign_in()
+        self.assertEqual(self.hub.youtube_status(), {"signed_in": True})
+        self.hub.request_edit_render("20261117-201741", "track-1", 1, youtube=True)
+        self.hub.request_edit_render("20261117-201741", "track-1", 1, youtube=False)
+        self.assertEqual([(c["youtube"], c["song_name"]) for c in self.commands()],
+                         [(False, "Blue in Green"), (True, "Blue in Green"), (False, "Blue in Green")])
+
+    def test_the_upload_comes_back_with_the_render(self):
+        os.makedirs(os.path.join(self.tmp, "ingest"))
+        with open(os.path.join(self.tmp, "ingest", "state.json"), "w") as f:
+            json.dump({"renders": {"20261117-201741/track-1:edit": {
+                "status": "done", "video_number": 2, "youtube": True, "upload": "20261117-201741_track-1_video2"}}}, f)
+        self.assertIsNone(self.hub.edit_render_status("20261117-201741", "track-1", 1)["upload"])
+        os.makedirs(self.spool)
+        with open(os.path.join(self.spool, "20261117-201741_track-1_video2.json"), "w") as f:
+            json.dump({"status": "uploading", "progress": 0.4, "session_uri": "secret-ish", "video_number": 2}, f)
+        upload = self.hub.edit_render_status("20261117-201741", "track-1", 1)["upload"]
+        self.assertEqual((upload["status"], upload["progress"]), ("uploading", 0.4))
+        self.assertNotIn("session_uri", upload)                    # the page doesn't need YouTube's session
 
 
 class DriveViewTest(unittest.TestCase):

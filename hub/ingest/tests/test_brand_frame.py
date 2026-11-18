@@ -1,7 +1,9 @@
-"""The border and logo (the editor's "Border & logo" switch) in the render: the last layer,
-on top of the look's effects, so the grain doesn't touch it. Runs the real encoder command
-(needs ffmpeg) on a few grey frames."""
+"""The border and logo (the editor's "Border & logo" switch) in the render: the last layers,
+on top of the look's effects, so the grain doesn't touch them. The border is there from the
+first frame; the logo fades in (title_render.logo_start_s). Runs the real encoder command
+(needs ffmpeg) on grey frames."""
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -14,42 +16,68 @@ sys.path.insert(0, os.path.join(REPO, "hub/ingest"))
 import edit_render  # noqa: E402
 
 W, H = 1920, 1080
-FRAMES = 3
-BRAND_FRAME = os.path.join(REPO, "hub/hubd/static/editor/brand/brand-frame.png")
+BRAND_DIR = os.path.join(REPO, "hub/hubd/static/editor/brand")
 GREY = 100      # luma of the test picture
+LOGO_BOX = (slice(H - 24 - 32 - 56, H - 24 - 32), slice(W - 24 - 32 - 345, W - 24 - 32))
 
 
-def render(effects, brand_frame, folder):
+def render(effects, brand_dir, folder, frames=3, wanted=(0,), title=None):
+    """Grey frames through the encoder; the frames numbered in `wanted`, as luma."""
     bounce = os.path.join(folder, "bounce.wav")
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "1", bounce],
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "8", bounce],
                    check=True)
     out = os.path.join(folder, "out.mp4")
-    command = edit_render.encoder_command(bounce, 0.0, FRAMES, out, effects, folder, preset="ultrafast", crf="10",
-                                          brand_frame=brand_frame)
+    command = edit_render.encoder_command(bounce, 0.0, frames, out, effects, folder, preset="ultrafast", crf="10",
+                                          brand_dir=brand_dir, title=title)
     frame = np.concatenate([np.full(W * H, GREY, np.uint8), np.full(W * H // 2, 128, np.uint8)])
-    subprocess.run(command, input=frame.tobytes() * FRAMES, check=True)
-    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", out, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-                         capture_output=True, check=True).stdout
-    return np.frombuffer(raw, np.uint8).reshape(H, W)
+    subprocess.run(command, input=frame.tobytes() * frames, check=True)
+    pick = "+".join("eq(n,%d)" % n for n in wanted)
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", out, "-vf", "select='%s'" % pick, "-fps_mode", "passthrough",
+                          "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True, check=True).stdout
+    frames_out = np.frombuffer(raw, np.uint8).reshape(-1, H, W)
+    assert len(frames_out) == len(wanted)
+    return dict(zip(wanted, frames_out))
+
+
+def lit(luma):
+    """How much of the logo's box is white letters."""
+    return (luma[LOGO_BOX] > 200).mean()
 
 
 class BrandFrameTest(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.folder, True)     # videos: /tmp is RAM on the hub
 
-    def test_border_and_logo_on_top_of_the_grain(self):
-        luma = render({"grain": 1.0}, BRAND_FRAME, self.folder)
-        border = np.concatenate([luma[:20].ravel(), luma[-20:].ravel(), luma[:, :20].ravel(), luma[:, -20:].ravel()])
-        self.assertGreaterEqual(border.min(), 230)                   # white (235), no grain in it
-        middle = luma[400:600, 800:1100]
-        self.assertGreater(middle.std(), 2)                          # the grain is there underneath
-        logo_box = luma[H - 24 - 32 - 56:H - 24 - 32, W - 24 - 32 - 345:W - 24 - 32]
-        self.assertGreater((logo_box > 200).mean(), 0.1)             # white letters
-        self.assertGreater((logo_box < 150).mean(), 0.3)             # picture between them
+    def test_border_from_the_start_and_the_logo_fades_in_at_5_s(self):
+        # No title: the logo fades in from 5.0 s over 1 s (frames 150 to 180).
+        frames = render({"grain": 1.0}, BRAND_DIR, self.folder, frames=200, wanted=(0, 149, 165, 185, 199))
+        for n, luma in frames.items():
+            border = np.concatenate([luma[:20].ravel(), luma[-20:].ravel(), luma[:, :20].ravel(), luma[:, -20:].ravel()])
+            self.assertGreaterEqual(border.min(), 230, n)            # white (235), no grain in it
+        self.assertGreater(frames[0][400:600, 800:1100].std(), 2)   # the grain is there underneath
+        self.assertLess(lit(frames[0]), 0.01)                       # no logo yet
+        self.assertLess(lit(frames[149]), 0.01)
+        letters = frames[199][LOGO_BOX] > 200
+        half = frames[165][LOGO_BOX][letters].mean()
+        self.assertTrue(GREY + 30 < half < 220, half)               # about half way through the fade
+        self.assertGreater(lit(frames[185]), 0.1)                   # white letters
+        self.assertGreater((frames[199][LOGO_BOX] < 150).mean(), 0.3)   # picture between them
+
+    def test_after_a_title_the_logo_waits(self):
+        title = {"on": True, "text": "T", "lines": [], "colour": "#ffffff", "start_s": 1.0, "duration_s": 3.0}
+        # Title gone at 4 s, logo from 5 s; checked well inside: none at 4.9 s.
+        frames = render({}, BRAND_DIR, self.folder, frames=200, wanted=(147, 199), title=title) \
+            if "drawtext" in subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True).stdout \
+            else None
+        if frames is None:
+            self.skipTest("this ffmpeg has no drawtext")
+        self.assertLess(lit(frames[147]), 0.01)
+        self.assertGreater(lit(frames[199]), 0.1)
 
     def test_without_effects_only_the_border_and_logo_change(self):
-        plain = render({}, None, self.folder).astype(int)
-        branded = render({}, BRAND_FRAME, self.folder).astype(int)
+        plain = render({}, None, self.folder, frames=200, wanted=(199,))[199].astype(int)
+        branded = render({}, BRAND_DIR, self.folder, frames=200, wanted=(199,))[199].astype(int)
         self.assertLess(abs(plain[:20].mean() - plain[500, 960]), 1)  # off: the edge is picture
         self.assertGreaterEqual(branded[:20].min(), 230)
         self.assertLessEqual(np.abs(branded[100:900, 100:1400] - plain[100:900, 100:1400]).max(), 1)   # x264 noise only

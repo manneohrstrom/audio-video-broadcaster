@@ -192,6 +192,20 @@ class ProjectTest(unittest.TestCase):
         with self.assertRaises(ep.ProjectError):
             self.projects.save_edit(TAKE, "track-1", 1, dict(cut, branding_colour="red"))
 
+    def test_title_is_saved_and_checked(self):
+        cut = {"cuts": [{"at_ns": 0, "camera": "cam2"}]}
+        self.assertNotIn("title", self.projects.save_edit(TAKE, "track-1", 1, cut))
+        title = {"on": True, "text": "Brockley Live", "lines": ["Anna, piano", ""], "colour": "#F4E7CC",
+                 "start_s": 2, "duration_s": 6.5}
+        saved = self.projects.save_edit(TAKE, "track-1", 1, dict(cut, title=title))["title"]
+        self.assertEqual(saved, dict(title, colour="#f4e7cc", start_s=2.0))
+        self.assertEqual(self.projects.project(TAKE, "track-1", 1)["edit"]["title"]["text"], "Brockley Live")
+        for bad in ({"on": "yes"}, {"text": "two\nlines"}, {"text": "x" * 81}, {"lines": ["a"] * 9},
+                    {"lines": "Anna"}, {"colour": "white"}, {"start_s": -1}, {"start_s": 10 ** 6},
+                    {"duration_s": 0.5}, {"duration_s": 61}, {"duration_s": True}):
+            with self.assertRaises(ep.ProjectError, msg=bad):
+                self.projects.save_edit(TAKE, "track-1", 1, dict(cut, title=dict(title, **bad)))
+
     def test_bad_requests(self):
         with self.assertRaises(ep.ProjectError):
             self.projects.project("../etc", "track-1", 1)

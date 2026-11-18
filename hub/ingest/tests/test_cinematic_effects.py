@@ -2,6 +2,7 @@
 command (needs ffmpeg) on a few synthetic 1080p frames, checked for what it should do."""
 import math
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -60,6 +61,7 @@ def texture():
 class CinematicEffectsTest(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.folder, True)     # videos: /tmp is RAM on the hub
 
     def test_letterbox_bars_are_black(self):
         frames = render([grey(128)] * 3, {"letterbox": 1.0}, self.folder)

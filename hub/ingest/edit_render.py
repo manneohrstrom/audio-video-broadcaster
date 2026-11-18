@@ -24,6 +24,7 @@ applies the colour table; the render applies the table to each shot and then mix
 Only the dissolve frames are affected, and only by the non-linearity of the look.
 """
 import functools
+import json
 import os
 import signal
 import subprocess
@@ -32,6 +33,7 @@ import numpy as np
 
 import look_render
 import render
+import title_render
 
 FPS = render.FPS
 WIDTH, HEIGHT = render.W, render.H
@@ -173,42 +175,72 @@ def brand_colour_filter(colour):
     return "lutrgb=r=val*%d/255:g=val*%d/255:b=val*%d/255" % (red, green, blue)
 
 
-def brand_overlay(graph, extra_inputs, brand_frame, colour="#ffffff"):
-    """Put the brand frame (border and logo, a white 1920x1080 PNG with transparency, in
-    `colour`) on top of the finished picture: the last step, after the look, its effects and
-    the grain, so nothing changes it. graph: the effects' filter graph ending in [video], or None.
-    One frame, no -loop: overlay repeats a finished input's last frame (eof_action repeat)."""
-    brand_input = 2 + sum(1 for part in extra_inputs if part == "-i")
-    extra_inputs = extra_inputs + ["-i", brand_frame]
-    brand = "[%d:v]" % brand_input
-    chains = []
-    if colour.lower() != "#ffffff":
-        chains.append("%sformat=rgba,%s[brand]" % (brand, brand_colour_filter(colour)))
-        brand = "[brand]"
+BRAND_BORDER = "brand-border.png"
+BRAND_LOGO = "brand-logo.png"
+BRAND_LOGO_BOX = "brand-logo.json"      # where the logo is in brand-logo.png: {x, y, w, h}
+
+
+def brand_overlay(graph, extra_inputs, brand_dir, colour="#ffffff", logo_start_s=title_render.LOGO_WITHOUT_TITLE_S):
+    """Put the brand frame on top of the finished picture, in `colour`: the border (all the
+    time) and the logo (fading in at logo_start_s, song seconds), two white 1920x1080 PNGs
+    with transparency in brand_dir (hub/tools/make_brand_frame.py). The last step, after the
+    look, its effects, the grain and the title, so nothing changes them. graph: the filter
+    graph so far, ending in [video], or None.
+    Each PNG is one frame, no -loop (a looping image input made ffmpeg decode copies ahead:
+    +250 MB, 2026-11-16). The border: overlay repeats a finished input's last frame. The logo:
+    the loop filter repeats its one frame (it holds just that one), timed at 30 fps for the fade;
+    only the logo's box goes through that (the full frame cost ~40 MB more on the hub)."""
+    with open(os.path.join(brand_dir, BRAND_LOGO_BOX)) as f:
+        box = json.load(f)
+    first = 2 + sum(1 for part in extra_inputs if part == "-i")
+    extra_inputs = extra_inputs + ["-i", os.path.join(brand_dir, BRAND_BORDER), "-i", os.path.join(brand_dir, BRAND_LOGO)]
+    tint = "" if colour.lower() == "#ffffff" else "," + brand_colour_filter(colour)
+    chains = [
+        "[%d:v]format=rgba%s[border]" % (first, tint),
+        "[%d:v]crop=%d:%d:%d:%d,format=rgba%s,loop=loop=-1:size=1,setpts=N/%d/TB,fade=t=in:st=%.4f:d=%.4f:alpha=1[logo]"
+        % (first + 1, box["w"], box["h"], box["x"], box["y"], tint, FPS, logo_start_s, title_render.LOGO_FADE_S),
+    ]
     if graph:
         assert graph.endswith("[video]")
         chains.insert(0, graph[:-len("[video]")] + "[looked]")
-        chains.append("[looked]%soverlay=format=auto[video]" % brand)
+        picture = "[looked]"
     else:
-        chains.append("[0:v]%soverlay=format=auto[video]" % brand)
+        picture = "[0:v]"
+    chains.append("%s[border]overlay=format=auto[bordered]" % picture)
+    chains.append("[bordered][logo]overlay=x=%d:y=%d:format=auto:shortest=1[video]" % (box["x"], box["y"]))
     return extra_inputs, ";".join(chains)
 
 
+def then_filters(graph, filters):
+    """The filter graph (ending in [video], or None for the plain frames) followed by `filters`."""
+    if not graph:
+        return "[0:v]%s[video]" % filters
+    assert graph.endswith("[video]")
+    return graph[:-len("[video]")] + "[before_title];[before_title]%s[video]" % filters
+
+
 def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir=".", preset=FINAL_PRESET, crf=FINAL_CRF,
-                    brand_frame=None, brand_colour="#ffffff", downbeats_s=()):
+                    brand_dir=None, brand_colour="#ffffff", downbeats_s=(), title=None,
+                    fonts_dir="/opt/hubd/static/shared/vendor/fonts"):
+    """title: the edit's title (title_render), drawn after the effects and under the brand frame.
+    brand_dir: the brand frame's folder (border and logo), or None for no brand frame."""
+    show_title = title_render.is_shown(title)
     command = render.encoder_cmd(bounce, audio_start_s, frames, out, preset=preset, crf=crf)
     pipe = command.index("-")                   # the raw video input: Rec. 709 (CAMERA_COLOUR)
     command[pipe - 1:pipe - 1] = PIPE_COLOUR_OPTIONS
     command[command.index("-b:a") + 1] = AUDIO_BITRATE
     command[command.index("-threads") + 1] = ENCODER_THREADS
-    if effects or brand_frame:
-        # Inputs: 0 = the frames, 1 = the bounce, 2... = effect masks, then the brand frame.
+    if effects or brand_dir or show_title:
+        # Inputs: 0 = the frames, 1 = the bounce, 2... = effect masks, then the border and logo.
         extra_inputs, graph = [], None
         if effects:
             extra_inputs, graph = look_render.effect_filter_graph(effects, work_dir, first_extra_input=2,
                                                                   downbeats_s=downbeats_s, audio_start_s=audio_start_s)
-        if brand_frame:
-            extra_inputs, graph = brand_overlay(graph, extra_inputs, brand_frame, brand_colour)
+        if show_title:
+            graph = then_filters(graph, title_render.title_filters(title, work_dir, fonts_dir))
+        if brand_dir:
+            extra_inputs, graph = brand_overlay(graph, extra_inputs, brand_dir, brand_colour,
+                                                title_render.logo_start_s(title))
         audio_input_end = command.index(bounce) + 1
         command[audio_input_end:audio_input_end] = extra_inputs
         at = command.index("-map")
@@ -227,9 +259,11 @@ class EditRenderer:
 
     def __init__(self, edit, take_doc, video_dir, bounce, look, looks, work_dir,
                  busy=lambda: False, should_abort=lambda: False, progress=lambda done, total: None,
-                 brand_frame=None, brand_colour="#ffffff", downbeats_s=()):
+                 brand_dir=None, brand_colour="#ffffff", downbeats_s=(), fonts_dir=None):
         self.edit, self.take_doc, self.video_dir, self.bounce = edit, take_doc, video_dir, bounce
-        self.brand_frame = brand_frame           # the border and logo on top (edit's "branding"), or None
+        self.title = edit.get("title")           # the title and the lines below it (title_render), or None
+        self.fonts_dir = fonts_dir or "/opt/hubd/static/shared/vendor/fonts"
+        self.brand_dir = brand_dir               # the border and logo on top (edit's "branding"), or None
         self.brand_colour = brand_colour         # their colour (edit's "branding_colour")
         self.downbeats_s = list(downbeats_s)     # the bounce's bars (beats.json), for the beat pulse
         self.busy, self.should_abort, self.progress = busy, should_abort, progress
@@ -325,8 +359,9 @@ class EditRenderer:
 
     def run(self, out_path):
         encoder = self.spawn(encoder_command(self.bounce, self.audio_start_s(), self.total_frames, out_path,
-                                             self.effects, self.work_dir, brand_frame=self.brand_frame,
-                                             brand_colour=self.brand_colour, downbeats_s=self.downbeats_s),
+                                             self.effects, self.work_dir, brand_dir=self.brand_dir,
+                                             brand_colour=self.brand_colour, downbeats_s=self.downbeats_s,
+                                             title=self.title, fonts_dir=self.fonts_dir),
                              stdin=subprocess.PIPE)
         try:
             current = 0

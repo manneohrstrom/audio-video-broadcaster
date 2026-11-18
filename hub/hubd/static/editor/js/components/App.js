@@ -14,6 +14,7 @@ import { TransportBar } from "./TransportBar.js";
 import { Splitter, savedVideoHeight } from "./Splitter.js";
 import { Timeline } from "./Timeline.js";
 import { LookPanel } from "./LookPanel.js";
+import { TitlePanel } from "./TitlePanel.js";
 import { MakeVideo } from "./MakeVideo.js";
 import { SyncBar } from "./SyncBar.js";
 import { Icon } from "shared/icons.js";
@@ -85,7 +86,7 @@ function Editor({ project }) {
     : html`<${Timeline} key="look" compact store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`;
   const saveLabel = { saved: "Saved", unsaved: "Not saved yet", saving: "Saving…", error: "Not saved" }[store.saveState];
   return html`
-    <div class=${"editor" + (store.step === "look" ? " look-step" : "")}
+    <div class=${"editor" + (store.step !== "cut" && !store.syncMode ? " look-step" : "")}
          style=${videoHeight ? { "--video-area-height": `${videoHeight}px` } : null}>
       ${store.syncMode ? html`<${SyncBar} store=${store} />` : html`
       <header class="editor-header">
@@ -103,6 +104,7 @@ function Editor({ project }) {
         <nav class="steps" aria-label="Steps">
           <button aria-current=${store.step === "cut" ? "step" : null} onClick=${() => store.setStep("cut")}><${Icon} name="scissors" />Cut</button>
           <button aria-current=${store.step === "look" ? "step" : null} onClick=${() => store.setStep("look")}><${Icon} name="eye" />Look</button>
+          <button aria-current=${store.step === "title" ? "step" : null} onClick=${() => store.setStep("title")}><${Icon} name="title" />Title</button>
         </nav>
         <div class="header-actions">
           <span class=${"save-state " + store.saveState} title=${store.saveProblem || ""}>${saveLabel}</span>
@@ -119,6 +121,7 @@ function Editor({ project }) {
           <${TransportBar} store=${store} transport=${transport} />
         </div>
         ${store.step === "look" && !store.syncMode && html`<${LookPanel} store=${store} />`}
+        ${store.step === "title" && !store.syncMode && html`<${TitlePanel} store=${store} transport=${transport} />`}
       </div>
       ${(store.step === "cut" || store.syncMode) && html`<${Splitter} onResize=${setVideoHeight} />`}
       <div class="below-splitter">${timeline}</div>

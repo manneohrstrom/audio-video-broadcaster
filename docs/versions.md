@@ -79,6 +79,7 @@ No software installed; the page runs in Chrome. Tested: Pixel 3 (Chrome 157) and
 |---|---|
 | Preact (`preact.module.js`, `hooks.module.js`) | 10.19.3, from jsDelivr, in `hub/hubd/static/shared/vendor/` (sha256 `bfac992a…134e`, `d952f1d8…7d7e`) |
 | Jost (`jost-latin-{400,500,600}-normal.woff2`, SIL OFL) | @fontsource/jost 5.0.17, from jsDelivr, in `hub/hubd/static/shared/vendor/fonts/` (sha256 `03aaf59e…`, `b2cf900a…`, `1762fc2b…`; licence `OFL-jost.txt`) |
+| Figtree (`Figtree-Regular.ttf`, `Figtree-SemiBold.ttf`, SIL OFL) | v2.0.3 from github.com/erikdkennedy/figtree (`fonts/ttf/`), in `hub/hubd/static/shared/vendor/fonts/` (sha256 `e6f1cae1…`, `a63306f1…`; licence `OFL-figtree.txt`). The video's title: the editor's preview and the render's drawtext use the same files. |
 | DSEG7 Classic Bold (`DSEG7Classic-Bold.woff2`, SIL OFL) | dseg 0.46.0, from jsDelivr, same folder (sha256 `ec2e7499…`; licence `OFL-dseg.txt`): the editor's LCD readouts |
 | DSEG14 Classic Bold (`DSEG14Classic-Bold.woff2`, SIL OFL) | dseg 0.46.0, from jsDelivr, same folder (sha256 `a73df6e6…`): the hub page's 14-segment rig display |
 | htm (`htm.module.js`) | 3.1.1 (sha256 `ab33dd3f…e9e4`) |

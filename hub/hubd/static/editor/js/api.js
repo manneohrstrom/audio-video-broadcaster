@@ -24,11 +24,16 @@ export function saveSync(takeId, songId, version, bounceStartNs) {
 }
 
 /** Ask the hub to render the finished video of this edit (runs when the rig is idle). */
-export function requestRender(takeId, songId, version) {
-  return request("POST", `/api/editor/${takeId}/${songId}/v${version}/render`, {});
+export function requestRender(takeId, songId, version, youtube = false) {
+  return request("POST", `/api/editor/${takeId}/${songId}/v${version}/render`, { youtube });
 }
 
-/** The render's progress: { status, progress, eta_s, file, error }. */
+/** Is the hub signed in to YouTube? { signed_in } (mac/youtube_login.py, then the deploy). */
+export function youtubeStatus() {
+  return request("GET", "/api/youtube");
+}
+
+/** The render's progress: { status, progress, eta_s, file, error, upload: { status, progress, url, studio_url, note, error } }. */
 export function renderStatus(takeId, songId, version) {
   return request("GET", `/api/editor/${takeId}/${songId}/v${version}/render`);
 }

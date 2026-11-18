@@ -12,7 +12,10 @@ const NUDGE_SECONDS = 0.01;
 
 export function attachKeyboard(store, transport) {
   function onKey(event) {
-    const typing = event.target.tagName === "INPUT" && event.target.type !== "range";
+    // Typing in a text field (the title's boxes): its keys are text, not shortcuts.
+    const target = event.target;
+    const typing = (target.tagName === "INPUT" && !["range", "checkbox", "color", "button"].includes(target.type))
+      || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable;
     if (typing) return;
     if (store.syncMode && (event.code === "Comma" || event.code === "Period") && !event.metaKey && !event.ctrlKey) {
       event.preventDefault();

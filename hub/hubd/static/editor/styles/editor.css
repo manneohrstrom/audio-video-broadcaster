@@ -81,10 +81,18 @@ a.button { text-decoration: none; color: var(--color-text); }
 .video-window canvas { display: block; width: 100%; height: 100%; }
 /* The border and logo: the same 1920x1080 image the render puts on top, over the whole picture */
 /* The image is white with transparency: its alpha cuts the chosen colour (as the render's lutrgb does) */
-.brand-frame {
-  position: absolute; inset: 0; pointer-events: none; background: #fff;
-  -webkit-mask: url(/editor/brand/brand-frame.png) center / 100% 100% no-repeat;
-  mask: url(/editor/brand/brand-frame.png) center / 100% 100% no-repeat;
+/* The title: drawn at 1920x1080 on its own canvas (title/title-layout.js), faded with opacity */
+.video-window .title-layer { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+/* Two layers: the border (all the time) and the logo (fades in; its opacity is set per frame) */
+.brand-border, .brand-logo { position: absolute; inset: 0; pointer-events: none; background: #fff; }
+.brand-border {
+  -webkit-mask: url(/editor/brand/brand-border.png) center / 100% 100% no-repeat;
+  mask: url(/editor/brand/brand-border.png) center / 100% 100% no-repeat;
+}
+.brand-logo {
+  opacity: 0;
+  -webkit-mask: url(/editor/brand/brand-logo.png) center / 100% 100% no-repeat;
+  mask: url(/editor/brand/brand-logo.png) center / 100% 100% no-repeat;
 }
 .editor-footer .brand-colour { width: 28px; height: 22px; padding: 0; border: 1px solid var(--color-line); border-radius: 4px; background: none; cursor: pointer; }
 .editor-footer .brand-colour:disabled { opacity: 0.35; cursor: default; }
@@ -261,3 +269,28 @@ input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px va
 .sync-readout small { color: #8d9a68; font-size: 11px; }
 .sync-start { color: var(--color-text-muted); font-size: var(--font-size-small); white-space: normal; text-align: right; max-width: 18em; }
 .sync-readout .unit { font: 500 12px var(--font-ui); margin-left: 3px; }
+
+/* Step 3, the title. Figtree: the same files the render's drawtext uses (shared/vendor/fonts). */
+@font-face { font-family: "Figtree"; font-weight: 400; font-display: block; src: url("/shared/vendor/fonts/Figtree-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Figtree"; font-weight: 600; font-display: block; src: url("/shared/vendor/fonts/Figtree-SemiBold.ttf") format("truetype"); }
+.title-fields { margin: 0; padding: 0 0 var(--space-3); border: 0; border-bottom: 1px solid var(--color-line); min-width: 0; }
+.title-fields:disabled { opacity: 0.45; }
+.title-switch { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+.title-switch .row-title { padding-top: 0; }
+.title-field { display: grid; gap: 6px; }
+.title-field > span { color: var(--color-text); font-weight: 500; }
+.title-field small { color: var(--color-text-muted); font-weight: 400; margin-left: 6px; }
+.title-field input[type=text], .title-field textarea {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; font: inherit; color: var(--color-text);
+  background: var(--color-well); box-shadow: var(--well-depth); border: 0; border-radius: var(--radius-small); resize: vertical;
+}
+.title-colours { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.title-colours .swatch { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 1px solid var(--color-line); cursor: pointer; }
+.title-colours .swatch.selected { outline: 2px solid var(--color-text); outline-offset: 2px; }
+.title-colours input[type=color] { width: 34px; height: 28px; padding: 0; border: 1px solid var(--color-line); border-radius: 4px; background: none; cursor: pointer; }
+.title-when { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.title-time { font: 500 15px var(--font-numbers); min-width: 4.5em; }
+.title-duration { grid-template-columns: 84px 1fr 48px; }
+
+/* "Make video": upload to YouTube (only when the hub is signed in) */
+.make-video .youtube-choice { display: inline-flex; align-items: center; gap: 6px; color: var(--color-text-muted); font-size: var(--font-size-small); cursor: pointer; }

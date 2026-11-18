@@ -34,13 +34,17 @@ export class EditorStore {
 
     this.cuts = cutsFromFile(project.edit.cuts);
     this.dissolveSeconds = project.edit.dissolve_s ?? 0.3;
-    // The border and logo on top of everything (brand/brand-frame.png): in the preview and the video.
+    // The border and logo on top of everything (brand/brand-border.png and brand-logo.png; the logo fades in): in the preview and the video.
     this.branding = project.edit.branding === true;
     this.brandingColour = project.edit.branding_colour || "#ffffff";
+    // Step 3, the title (docs/editor-plan.md section 5b): a title line and the lines below it,
+    // dissolving in at start_s and gone duration_s later. Off until switched on.
+    this.title = { on: false, text: project.song.name, lines: [], colour: "#ffffff", start_s: 2, duration_s: 6,
+                   ...(project.edit.title || {}) };
 
     // Step 2, the look (docs/editor-plan.md section 5): one filter with a strength and any
     // number of effects with a strength each, for the whole song. Definitions: looks.json.
-    this.step = "cut";                       // "cut" | "look"
+    this.step = "cut";                       // "cut" | "look" | "title"
     this.looks = null;                       // looks.json, loaded by the page
     this.look = { filter: "normal", filter_strength: 1, effects: {}, adjust: {}, ...(project.edit.look || {}) };
     this.comparing = false;                  // held down on the video: show without the look
@@ -274,6 +278,13 @@ export class EditorStore {
     this.notify();
   }
 
+  /** Change some of the title's settings ({ text, lines, colour, start_s, duration_s, on }). */
+  setTitle(changes) {
+    this.title = { ...this.title, ...changes };
+    this.scheduleSave();
+    this.notify();
+  }
+
   setDissolve(seconds) {
     this.dissolveSeconds = seconds;
     this.scheduleSave();
@@ -336,7 +347,7 @@ export class EditorStore {
     const { take_id: takeId, song, version } = this.project;
     try {
       await saveEdit(takeId, song.id, version, { cuts: cutsToFile(this.cuts), dissolve_s: this.dissolveSeconds, look: this.look,
-                      branding: this.branding, branding_colour: this.brandingColour });
+                      branding: this.branding, branding_colour: this.brandingColour, title: this.title });
       this.saveState = this.saveState === "saving" ? "saved" : this.saveState;
       this.saveProblem = null;
     } catch (error) {

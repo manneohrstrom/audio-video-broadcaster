@@ -166,7 +166,17 @@ A second step (a tab, after the cut is done): **what's the vibe of this video?**
 - **Camera matching stays automatic and invisible:** each device's correction from its calibration card readings (Phase 4 Track B, B4: the phones' tint and colour rendering against the Pis') is applied before the look. The user never sees per-camera controls.
 - **The preview must match the render:** the look and overlays run in WebGL in the browser and the same maths in the hub's render (ffmpeg `lut3d` for colour; overlays generated the same way on both sides, e.g. grain from a fixed seed). Per camera, the match correction and the look combine into one LUT, so colour costs what spike E3 measured (0.53× real time). Overlays add render cost; to measure.
 - **The cinematic set** (user, 2026-11-17: "do all 10"): **Halation** (red-orange halo around bright lights), **Letterbox** (16:9 to 2.39:1), **Projector** (gate weave in whole pixels and brightness flicker), **Clarity** (local contrast), **Light trails**, **Colour pop** (keeps the warm colours, the rest goes grey; in the colour table), **Beat pulse** (a zoom punch on each bar of the bounce, from `beats.json`) and **Denoise** (`hqdn3d` before the look, render only: the preview can't do temporal denoise and says so), plus a **Split tone** adjustment and four film grades (Bleach bypass, Teal & orange, Tungsten 800T, Print film). Light trails show in the preview only while playing (they need the previous frame).
-- **Not in v1:** per-camera colour controls, keyframed or changing looks, masks, titles, split screen, picture-in-picture.
+- **Not in v1:** per-camera colour controls, keyframed or changing looks, masks, split screen, picture-in-picture.
+
+## 5b. Editor UI: step 3, the title
+
+*Added by the user, 2026-11-18 (titles were "not in v1" before).*
+
+- **What:** a title line and some lines below it, usually who's playing, left-aligned 144 px from the left edge and centred top to bottom (user, 2026-11-18: left, not centred), in one colour (white, cream, amber, black, the border's colour, or any colour).
+- **When:** it dissolves in all at once at a chosen time, stays, and dissolves out so it's gone a chosen number of seconds later (0.5 s each way; 1-20 s on the slider, up to 60 s accepted).
+- **Type:** Figtree (Google Fonts, SIL OFL; user's pick), SemiBold 84 px for the title and Regular 42 px for the lines, in the 1920×1080 picture, with a slight hard shadow so light text reads on light walls.
+- **The Brockley Live logo fades in after the title** (user, 2026-11-18): 1 s after the title is gone, or at 5 s when there's no title, fading in over 1 s; the border is there from the start. The brand frame is two images now (`brand-border.png`, `brand-logo.png`, plus `brand-logo.json`, the logo's box, from `hub/tools/make_brand_frame.py`).
+- **Preview = render:** the same font files and layout numbers in the preview (`static/editor/js/title/title-layout.js`, a canvas over the video) and the render (`hub/ingest/title_render.py`, ffmpeg `drawtext` with HarfBuzz and `y_align=baseline`). The title goes on after the look and its effects and under the border and logo. A test checks that the two layouts agree; a side-by-side of the preview and a hub render matches to the pixel in position.
 
 ## 6. Render
 
@@ -237,7 +247,7 @@ What's known so far:
 
 ## Not in this plan
 
-The agent (listening to the music, analysing video, cutting in a style the user asks for), beyond the backlog item in section 3b; the vertical story version (section 7, a maybe); transitions, titles, split screen, picture-in-picture; keyframed or masked colour; rendering on the Mac; editing from outside the LAN.
+The agent (listening to the music, analysing video, cutting in a style the user asks for), beyond the backlog item in section 3b; the vertical story version (section 7, a maybe); transitions, split screen, picture-in-picture; keyframed or masked colour; rendering on the Mac; editing from outside the LAN.
 
 ## Decisions for the user
 

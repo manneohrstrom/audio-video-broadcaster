@@ -33,7 +33,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.30.0"
+VERSION = "0.33.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -46,6 +46,9 @@ DEFAULT_CONFIG = {
     "poll_s": 2.0,
     "state_dir": "/var/lib/hubd",
     "ingest_dir": "/var/lib/hubd/ingest",
+    # YouTube (hub-upload, hub/ingest/youtube_upload.py): the login and the upload folder.
+    "youtube_credentials_path": "/var/lib/hubd/youtube/credentials.json",
+    "youtube_spool_dir": "/var/lib/hubd/youtube/uploads",
     "drive_mount": "/mnt/studio",       # hub-ingest owns mounting; hubd only reads
     "static_dir": os.path.join(HERE, "static"),
     # Phone cameras (docs/phone-plan.md): footage staged here during a take.
@@ -1092,8 +1095,29 @@ class Hub:
             out.append(info)
         return {"overlays": out}
 
-    def request_edit_render(self, take, song, version):
-        """The editor's edit as the finished video (hub-ingest's edit_render.py), when idle."""
+    def youtube_status(self):
+        """Is the hub signed in to YouTube (mac/youtube_login.py, copied by the deploy)?"""
+        try:
+            with open(self.cfg["youtube_credentials_path"]) as f:
+                signed_in = bool(json.load(f).get("refresh_token"))
+        except (OSError, ValueError):
+            signed_in = False
+        return {"signed_in": signed_in}
+
+    def youtube_upload(self, key):
+        """hub-upload's record of one upload, as the editor shows it, or None."""
+        if not key or "/" in key:
+            return None
+        try:
+            with open(os.path.join(self.cfg["youtube_spool_dir"], key + ".json")) as f:
+                record = json.load(f)
+        except (OSError, ValueError):
+            return None
+        return {k: record.get(k) for k in ("status", "progress", "url", "studio_url", "note", "error", "video_number")}
+
+    def request_edit_render(self, take, song, version, youtube=False):
+        """The editor's edit as the finished video (hub-ingest's edit_render.py), when idle.
+        youtube: then upload it (private) to the channel, when the hub is signed in."""
         path = self.editor.working_copy_path(take, song, version)
         if not os.path.exists(path):
             older = self.editor._older_per_version_copy(take, song)
@@ -1102,7 +1126,13 @@ class Hub:
             shutil.copyfile(older, path)                 # edits saved per bounce version before 2026-11-17
         if not self.audio.version_info(take, song, version).get("synced"):
             raise ValueError("this song isn't synced to the take yet")
-        return self.ingest_command("render", take=take, song=song, version=version, kind="edit")
+        youtube = youtube is True and self.youtube_status()["signed_in"]
+        try:
+            song_name = self.editor._song_and_version(take, song, version)[0].get("name") or song
+        except (ValueError, OSError, KeyError):
+            song_name = song
+        return self.ingest_command("render", take=take, song=song, version=version, kind="edit",
+                                   youtube=youtube, song_name=song_name)
 
     def edit_render_status(self, take, song, version):
         """The newest render job of this song's edit, from hub-ingest's state (or {})."""
@@ -1112,8 +1142,10 @@ class Hub:
         except (OSError, ValueError):
             return {}
         job = jobs.get("%s/%s:edit" % (take, song)) or {}
-        return {k: job.get(k) for k in ("status", "progress", "eta_s", "error", "file", "status_note", "length_s",
-                                        "render_s", "version", "video_number")}
+        status = {k: job.get(k) for k in ("status", "progress", "eta_s", "error", "file", "status_note", "length_s",
+                                          "render_s", "version", "video_number", "youtube", "upload_error")}
+        status["upload"] = self.youtube_upload(job.get("upload"))
+        return status
 
     def sync_job(self, take, song, version):
         """hub-ingest's automatic sync job for this bounce version, or None."""
@@ -1162,7 +1194,7 @@ class Hub:
 
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json",
                 ".css": "text/css", ".svg": "image/svg+xml", ".ico": "image/x-icon",
-                ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8",   # editor fonts and their licences
+                ".woff2": "font/woff2", ".ttf": "font/ttf", ".txt": "text/plain; charset=utf-8",   # editor fonts and their licences
                 ".png": "image/png"}                                           # the brand frame
 
 
@@ -1330,6 +1362,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._media_proxy()
         if self.MEDIA_OVERLAY.match(self.path.split("?")[0]):
             return self._media_overlay()
+        if self.path.split("?")[0] == "/api/youtube":
+            return self._send(200, h.youtube_status())
         if self.path.split("?")[0] == "/api/overlays":
             return self._send(200, h.film_overlays())
         m = self.MEDIA_THUMBS.match(self.path.split("?")[0])
@@ -1523,7 +1557,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, v)
             m = self.P_EDITOR_RENDER.match(self.path)
             if m:                                  # "Make video" in the editor: the finished video
-                return self._send(200, h.request_edit_render(m.group(1), m.group(2), int(m.group(3))))
+                return self._send(200, h.request_edit_render(m.group(1), m.group(2), int(m.group(3)),
+                                                             youtube=b.get("youtube") is True))
             if self.path == "/api/sync":           # {"take", "song", "version"}: sync again
                 return self._send(200, h.request_sync(b.get("take"), b.get("song"), int(b.get("version") or 0)))
             m = self.P_AUDIO_CHOOSE.match(self.path)

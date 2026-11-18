@@ -9,6 +9,7 @@ import { cutIndexAt } from "../edit-model.js";
 import { formatSeconds } from "../time-format.js";
 import { fullVideoAvailable } from "../media/video-player.js";
 import { LookRenderer } from "../look/look-renderer.js";
+import { drawTitle, opacityAt, logoOpacityAt } from "../title/title-layout.js";
 
 // Pictures are put together (camera, dissolve) on this hidden canvas, then shown through
 // the look (filter and effects) on the visible WebGL canvas.
@@ -23,6 +24,17 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
   const wrapperRef = useRef(null);
 
   const noteRef = useRef(null);
+  const titleRef = useRef(null);
+  const logoRef = useRef(null);
+
+  // The title layer: drawn again when the title changes (and once Figtree has loaded); its
+  // opacity follows the playhead in the frame loop below.
+  const titleKey = JSON.stringify(store.title);
+  useEffect(() => {
+    const draw = () => drawTitle(titleRef.current.getContext("2d"), store.title);
+    draw();
+    document.fonts.load("600 84px Figtree").then(() => document.fonts.load("400 42px Figtree")).then(draw, () => {});
+  }, [titleKey]);
 
   useEffect(() => {
     const picture = document.createElement("canvas");
@@ -62,6 +74,12 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
       else renderer.setFilter({}, 0);
       renderer.render(picture, withLook ? store.look.effects : {}, seconds, overlay);
     }
+    const titleOpacity = skimCamera ? 0 : opacityAt(store.title, seconds);   // not while skimming a camera
+    if (titleRef.current.style.opacity !== String(titleOpacity)) titleRef.current.style.opacity = String(titleOpacity);
+    if (logoRef.current) {                   // the logo fades in after the title (or at 5 s)
+      const logoOpacity = String(logoOpacityAt(store.title, seconds));
+      if (logoRef.current.style.opacity !== logoOpacity) logoRef.current.style.opacity = logoOpacity;
+    }
     const shown = skimCamera || store.cameraAt(seconds);
     wrapperRef.current.style.setProperty("--frame-colour", skimCamera ? `var(--color-camera-${(shown.index % 6) + 1})` : "transparent");
     const text = `${shown.number} ${shown.label}` + (skimCamera ? ` · ${formatSeconds(seconds)}` : "");
@@ -76,7 +94,10 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
       <div class="video-window" ref=${wrapperRef}
            onPointerDown=${hold(true)} onPointerUp=${hold(false)} onPointerLeave=${hold(false)}>
         <canvas ref=${canvasRef} width="1920" height="1080" aria-label="Video preview"></canvas>
-        ${store.branding && html`<div class="brand-frame" style=${{ background: store.brandingColour }}></div>`}
+        <canvas class="title-layer" ref=${titleRef} width="1920" height="1080" aria-hidden="true"></canvas>
+        ${store.branding && html`
+          <div class="brand-border" style=${{ background: store.brandingColour }}></div>
+          <div class="brand-logo" ref=${logoRef} style=${{ background: store.brandingColour }}></div>`}
         ${store.step === "look" && html`<div class="video-hold">${store.comparing ? "Without the look" : "Press and hold to compare"}</div>`}
         <div class="video-badge" ref=${badgeRef}></div>
         <div class="video-note" ref=${noteRef} hidden></div>

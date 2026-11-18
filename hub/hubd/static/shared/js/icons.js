@@ -10,6 +10,7 @@ const PATHS = {
   // Steps
   scissors: () => html`<circle cx="6" cy="17" r="3" /><circle cx="18" cy="17" r="3" />
     <path d="M8.2 15 16 4M15.8 15 8 4" /><circle cx="12" cy="9.6" r="0.6" fill="currentColor" />`,
+  title: () => html`<path d="M5 7V5h14v2M12 5v14M9 19h6" />`,
   eye: () => html`<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" />
     <circle cx="12" cy="12" r="3" /><circle cx="13" cy="11" r="0.8" fill="currentColor" stroke="none" />`,
   // Transport

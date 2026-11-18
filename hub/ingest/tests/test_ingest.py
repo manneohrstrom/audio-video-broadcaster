@@ -553,12 +553,11 @@ class AudioCopyTest(Base):
 
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "needs ffmpeg")
-class RenderTest(Base):
-    """The quick mix end to end with real ffmpeg: two 6 s cameras, 2 s shots."""
+class RenderFixture:
+    """A take with two 6 s cameras on the drive and a synced 8 s bounce (real ffmpeg)."""
     ORIGIN = 1_794_688_180_200_000_000          # on the 30 fps grid
 
-    def setUp(self):
-        super().setUp()
+    def make_take_and_bounce(self):
         self.ing.cfg.update(audio_dir=os.path.join(self.tmp, "audio"), quick_shot_s=2.0)
         folder = self.folder()
         os.makedirs(folder)
@@ -579,6 +578,14 @@ class RenderTest(Base):
         with open(os.path.join(d, "sync.json"), "w") as f:      # bounce starts 1 s before the cameras
             json.dump({"bounce_start_ns": self.ORIGIN - 1_000_000_000, "anchor": "test"}, f)
         self.ing.state["takes"][TAKE] = {"complete": True}
+
+
+class RenderTest(RenderFixture, Base):
+    """The quick mix end to end with real ffmpeg: two 6 s cameras, 2 s shots."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_take_and_bounce()
 
     def queue(self):
         with open(os.path.join(self.ing.cmd_dir, "1-render.json"), "w") as f:
@@ -624,6 +631,66 @@ class RenderTest(Base):
         job = self.ing.state["renders"][TAKE + "/song/v1"]
         self.assertEqual(job["status"], "error")
         self.assertIn("not synced", job["error"])
+
+
+class EditRenderYouTubeTest(RenderFixture, Base):
+    """The editor's video with "Upload to YouTube": after the drive has it, hub-ingest's copy
+    goes to the upload folder with a record for hub-upload. The render itself is stubbed."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_take_and_bounce()
+        state = os.path.join(self.tmp, "hubd")
+        self.spool = os.path.join(self.tmp, "youtube", "uploads")
+        static = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "hubd", "static")
+        self.ing.cfg.update(hubd_state_dir=state, youtube_spool_dir=self.spool,
+                            looks_path=os.path.join(static, "editor", "looks.json"),
+                            fonts_dir=os.path.join(static, "shared", "vendor", "fonts"))
+        os.makedirs(os.path.join(state, "edits", TAKE))
+        with open(os.path.join(state, "edits", TAKE, "song.json"), "w") as f:
+            json.dump({"cuts": [{"at_ns": 0, "camera": "cam1"}],
+                       "title": {"on": True, "text": "Blue in Green", "lines": ["Anna, piano"]}}, f)
+
+        class FakeRenderer:
+            def __init__(self, *args, **kwargs):
+                self.total_frames, self.shots = 30, [None]
+
+            def run(self, out):
+                with open(out, "wb") as f:
+                    f.write(b"\0" * 5000)
+        originals = (ingest.edit_render.EditRenderer, ingest.render.probe_output)
+        ingest.edit_render.EditRenderer = FakeRenderer
+        ingest.render.probe_output = lambda path: {"frames": 30, "rate": "30/1", "size": (1920, 1080), "duration_s": 1.0}
+        self.addCleanup(setattr, ingest.edit_render, "EditRenderer", originals[0])
+        self.addCleanup(setattr, ingest.render, "probe_output", originals[1])
+
+    def queue_edit(self, youtube):
+        with open(os.path.join(self.ing.cmd_dir, "1-render.json"), "w") as f:
+            json.dump({"cmd": "render", "take": TAKE, "song": "song", "version": 1, "kind": "edit",
+                       "youtube": youtube, "song_name": "Song name"}, f)
+
+    def test_the_video_goes_to_the_upload_folder(self):
+        self.queue_edit(True)
+        self.ing.tick()
+        job = self.ing.state["renders"][TAKE + "/song:edit"]
+        self.assertEqual(job["status"], "done", job.get("error"))
+        self.assertEqual(job["upload"], TAKE + "_song_video1")
+        self.assertTrue(os.path.exists(os.path.join(self.folder(), "edits", "song", "song-video1.mp4")))
+        with open(os.path.join(self.spool, job["upload"] + ".json")) as f:
+            record = json.load(f)
+        self.assertEqual(record["status"], "queued")
+        self.assertEqual(record["metadata"]["snippet"]["title"], "Blue in Green")
+        self.assertEqual(record["metadata"]["status"]["privacyStatus"], "private")
+        self.assertEqual(record["file"], "edits/song/song-video1.mp4")
+        self.assertEqual(os.path.getsize(os.path.join(self.spool, job["upload"] + ".mp4")), 5000)
+        self.assertEqual(os.listdir(os.path.join(self.ing.work, "renders", TAKE)), [])     # nothing left behind
+
+    def test_without_youtube_nothing_is_queued(self):
+        self.queue_edit(False)
+        self.ing.tick()
+        job = self.ing.state["renders"][TAKE + "/song:edit"]
+        self.assertEqual((job["status"], job["upload"]), ("done", None))
+        self.assertFalse(os.path.exists(self.spool))
 
 
 class EjectTest(Base):
@@ -1172,6 +1239,7 @@ class PulledBytesTest(unittest.TestCase):
 
     def setUp(self):
         self.folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.folder, True)     # videos: /tmp is RAM on the hub
 
     def test_first_pull_counts_the_temporary(self):
         self.write("manifest.json", 10)

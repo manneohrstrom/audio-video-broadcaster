@@ -109,6 +109,41 @@ def take_span_ns(cameras):
             max(camera["last_frame_ns"] for camera in pi_cameras)]
 
 
+TITLE_MAX_LINES = 8           # as hub/ingest/title_render.py
+TITLE_MAX_CHARACTERS = 80
+
+
+def validate_title(title, song_s):
+    """The edit's title (the title line, the lines below, colour, when and how long), or None.
+    Rendered by hub/ingest/title_render.py."""
+    if title is None:
+        return None
+    if not isinstance(title, dict):
+        raise ProjectError("title must be an object")
+
+    def text(value, what):
+        if not isinstance(value, str) or len(value) > TITLE_MAX_CHARACTERS or any(ord(c) < 32 for c in value):
+            raise ProjectError("%s must be one line of at most %d characters" % (what, TITLE_MAX_CHARACTERS))
+        return value
+
+    on = title.get("on", False)
+    if not isinstance(on, bool):
+        raise ProjectError("title.on must be true or false")
+    lines = title.get("lines", [])
+    if not isinstance(lines, list) or len(lines) > TITLE_MAX_LINES:
+        raise ProjectError("title.lines must be a list of at most %d lines" % TITLE_MAX_LINES)
+    colour = title.get("colour", "#ffffff")
+    if not isinstance(colour, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", colour):
+        raise ProjectError("title.colour must be a colour like #ffffff")
+    start_s, duration_s = title.get("start_s", 0), title.get("duration_s", 6)
+    for value, what, low, high in ((start_s, "title.start_s", 0, max(0.0, song_s)), (duration_s, "title.duration_s", 1, 60)):
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not low <= value <= high:
+            raise ProjectError("%s must be %g-%g seconds" % (what, low, high))
+    return {"on": on, "text": text(title.get("text", ""), "title.text"),
+            "lines": [text(line, "a line under the title") for line in lines],
+            "colour": colour.lower(), "start_s": round(float(start_s), 3), "duration_s": round(float(duration_s), 3)}
+
+
 def read_json(path):
     """The file's JSON, or None if it's missing or unreadable."""
     try:
@@ -486,14 +521,17 @@ class EditorProjects:
         dissolve_s = edit.get("dissolve_s", 0.3)
         if not isinstance(dissolve_s, (int, float)) or not 0 <= dissolve_s <= 2:
             raise ProjectError("dissolve_s must be 0-2 seconds")
-        branding = edit.get("branding", False)     # the border and logo on top (brand-frame.png)
+        branding = edit.get("branding", False)     # the border and logo on top (brand-border.png, brand-logo.png)
         if not isinstance(branding, bool):
             raise ProjectError("branding must be true or false")
         branding_colour = edit.get("branding_colour", "#ffffff")
         if not isinstance(branding_colour, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", branding_colour):
             raise ProjectError("branding_colour must be a colour like #ffffff")
+        title = validate_title(edit.get("title"), (range_ns[1] - range_ns[0]) / 1e9)
         saved = self._new_edit(take_id, song_id, version, range_ns, cuts, "user")
         saved.update(look=edit.get("look"), dissolve_s=dissolve_s, branding=branding,
                      branding_colour=branding_colour.lower(), saved_at=self.clock())
+        if title is not None:
+            saved["title"] = title
         self._write_working_copy(take_id, song_id, version, saved)
         return saved
