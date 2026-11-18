@@ -33,7 +33,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.33.0"
+VERSION = "0.34.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -984,9 +984,20 @@ class Hub:
                                    {k.split("/", 1)[1]: j for k, j in jobs.items() if k.startswith(tid + "/")},
                                    {k.split("/", 1)[1]: j for k, j in syncs.items() if k.startswith(tid + "/")},
                                    videos.get(tid) or {})
+            for song in a.get("songs") or []:
+                self.add_youtube(tid, song, jobs.get("%s/%s:edit" % (tid, song["id"])) or {})
             if a:
                 t["audio"] = a
         return st
+
+    def add_youtube(self, take, song, job):
+        """The YouTube upload with the song's video render (a fourth step after Write to drive)
+        and with every finished video (its link in YouTube Studio)."""
+        if song.get("render") is not None:
+            song["render"].update(youtube=job.get("youtube"), upload_error=job.get("upload_error"),
+                                  upload=self.youtube_upload(job.get("upload")))
+        song["videos"] = [dict(v, youtube=self.youtube_upload("%s_%s_video%s" % (take, song["id"], v.get("number"))))
+                          for v in song.get("videos") or []]
 
     # -- playback from the STUDIO drive (read-only mount, managed by hub-ingest)
     def touch_lease(self):

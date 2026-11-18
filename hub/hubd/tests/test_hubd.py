@@ -701,6 +701,24 @@ class YouTubeTest(unittest.TestCase):
         self.assertEqual((upload["status"], upload["progress"]), ("uploading", 0.4))
         self.assertNotIn("session_uri", upload)                    # the page doesn't need YouTube's session
 
+    def test_the_archive_shows_the_upload_as_a_step_and_links_finished_videos(self):
+        os.makedirs(self.spool)
+        for number, status in ((1, "done"), (2, "uploading")):
+            with open(os.path.join(self.spool, "20261117-201741_track-1_video%d.json" % number), "w") as f:
+                json.dump({"status": status, "progress": 0.5, "session_uri": "x",
+                           "studio_url": "https://studio.youtube.com/video/abc/edit" if status == "done" else None}, f)
+        song = {"id": "track-1", "render": {"status": "done"}, "videos": [{"number": 1}, {"number": 2}]}
+        self.hub.add_youtube("20261117-201741", song, {"status": "done", "youtube": True,
+                                                       "upload": "20261117-201741_track-1_video2"})
+        self.assertTrue(song["render"]["youtube"])
+        self.assertEqual((song["render"]["upload"]["status"], song["render"]["upload"]["progress"]), ("uploading", 0.5))
+        self.assertEqual(song["videos"][0]["youtube"]["studio_url"], "https://studio.youtube.com/video/abc/edit")
+        self.assertNotIn("session_uri", song["videos"][1]["youtube"])
+        quiet = {"id": "track-2", "render": None, "videos": [{"number": 1}]}
+        self.hub.add_youtube("20261117-201741", quiet, {})
+        self.assertIsNone(quiet["render"])
+        self.assertIsNone(quiet["videos"][0]["youtube"])
+
 
 class DriveViewTest(unittest.TestCase):
     """The take list fitted to the STUDIO drive (docs/stick-db-plan.md, S3)."""

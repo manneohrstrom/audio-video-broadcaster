@@ -39,7 +39,33 @@ function IngestChips({ camera, paused }) {
   });
 }
 
-/** A video render's progress (the editor's "Make video"): Render → Check → Write. */
+/** Is the render (and its YouTube upload, if any) still worth showing as steps? */
+function renderInFlight(render) {
+  if (!render) return false;
+  if (RENDER_RUNNING.includes(render.status) || render.status === "error") return true;
+  if (render.status !== "done" || !render.youtube) return false;
+  return !!render.upload_error || !render.upload || render.upload.status !== "done";
+}
+
+/** The fourth step, after Write to drive: hub-upload sending the video to the channel (private). */
+function YouTubeChip({ render }) {
+  const upload = render.upload;
+  const name = "YouTube";
+  if (render.status !== "done") return html`<${Chip} name=${name} />`;
+  if (render.upload_error) return html`<${Chip} state="error" name=${name} title=${render.upload_error} />`;
+  if (!upload) return html`<${Chip} name=${name} />`;
+  switch (upload.status) {
+    case "done": return html`<${Chip} state="done" name=${name} />`;
+    case "error": return html`<${Chip} state="error" name=${name} title=${upload.error || ""} />`;
+    case "uploading": return html`<${Chip} state="running" name=${name} percent=${Math.round((upload.progress || 0) * 100)} />`;
+    case "paused": return html`<${Chip} state="running" name=${name} paused=${true} />`;
+    case "retrying": case "waiting":
+      return html`<${Chip} state="running" name=${name} extra=${` · ${upload.note || "trying again soon"}`} />`;
+    default: return html`<span class="chip">○ ${name} · waiting to upload</span>`;
+  }
+}
+
+/** A video render's progress (the editor's "Make video"): Render → Check → Write (→ YouTube). */
 function RenderChips({ render }) {
   const error = render.error || "";
   const failed = render.status !== "error" ? null
@@ -56,7 +82,7 @@ function RenderChips({ render }) {
         extra=${key === "rendering" && render.eta_s && !paused ? ` · ${fmtEta(render.eta_s)} left` : ""} />`;
     }
     return html`<${Chip} name=${name} />`;
-  })}${render.status === "queued" && html`<span class="chip">queued${render.status_note ? ": " + render.status_note : ""}</span>`}`;
+  })}${render.youtube && render.status !== "error" && html`<${YouTubeChip} render=${render} />`}${render.status === "queued" && html`<span class="chip">queued${render.status_note ? ": " + render.status_note : ""}</span>`}`;
 }
 
 /** Dropped-frame stretches to avoid in an edit, from ingest. */
@@ -103,7 +129,7 @@ function SongGroup({ take, song, say, refresh, openDialog }) {
   const uploading = song.versions.filter(v => !v.complete);
   const synced = done.filter(v => v.synced).sort((a, b) => b.version - a.version);
   const render = song.render;
-  const rendering = render && (RENDER_RUNNING.includes(render.status) || render.status === "error");
+  const rendering = renderInFlight(render);
   return html`
     <div class="song">
       <div class="song-head">
@@ -123,6 +149,9 @@ function SongGroup({ take, song, say, refresh, openDialog }) {
         <div class="video-version">
           <button class="key small" onClick=${() => openDialog({ kind: "player", take, file: video.file })}>▶ watch</button>
           video ${video.number} <small>· bounce v${video.bounce_version}${video.length_s ? " · " + fmtDur(video.length_s) : ""}</small>
+          ${video.youtube && video.youtube.status === "done" && html`
+            <a class="key small" href=${video.youtube.studio_url || video.youtube.url} target="_blank" rel="noopener"
+               title="Private on the channel: open it in YouTube Studio to check it and publish">On YouTube</a>`}
         </div>`)}
     </div>`;
 }
