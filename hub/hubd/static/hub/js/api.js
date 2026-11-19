@@ -25,6 +25,8 @@ export const loadHistory = () => request("GET", "/api/history");
 /** REC, STOP, LIVE on/off, ingest now, eject: a rig action. Resolves with hubd's answer. */
 export const rigAction = (path, body = {}) => request("POST", path, body);
 
+/** Name a camera or take ("" goes back to the default). Resolves with every name. */
+export const saveName = (kind, id, name) => request("POST", "/api/names", { kind, id, name });
 export const setPhoneMount = (phoneId, mount) => request("POST", `/api/phone/${encodeURIComponent(phoneId)}/mount`, { mount });
 export const requestSync = (take, song, version) => request("POST", "/api/sync", { take, song, version });
 

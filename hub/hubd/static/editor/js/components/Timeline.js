@@ -53,7 +53,7 @@ export function Timeline({ store, transport, thumbnailsByCamera, waveform, compa
                     onClick=${() => store.cutToCameraAtPlayhead(camera)}>
               <span class="camera-key">${camera.number}</span>
               <span class="camera-name"><strong>${camera.label}</strong>
-                <small>${camera.kind === "phone" ? "phone" : "Pi camera"}${camera.is_sync_server ? " · sync" : ""}${camera.thumbnails_ready ? "" : " · pictures coming"}</small></span>
+                <small>${camera.label !== camera.id ? camera.id + " · " : ""}${camera.kind === "phone" ? "phone" : "Pi camera"}${camera.is_sync_server ? " · sync" : ""}${camera.thumbnails_ready ? "" : " · pictures coming"}</small></span>
             </button>`;
         })}
       </div>

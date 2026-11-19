@@ -1,5 +1,6 @@
 // Reading hub-ingest's take records (/api/ingest "takes"): which entries are cameras, how
 // far each got, labels. Pure functions, shared by the archive and the view LEDs.
+import { givenCameraName } from "./names.js";
 
 /** The ingest steps of one camera file, in order, with their names on the page. */
 export const STEPS = [["pulled", "Pull"], ["checked", "Check"], ["conformed", "Convert"],
@@ -21,8 +22,8 @@ export function isIngested(take) {
   return take.complete || (cameras.length > 0 && cameras.every(([, camera]) => (camera.done || []).includes("marked")));
 }
 
-/** A camera's name as the user gave it (phones), else its id. */
-export function labelOf(take, cameraId) {
-  return (take[cameraId] && take[cameraId].label) ||
+/** A camera's name: the one given on the hub page, else a phone's own label, else its id. */
+export function labelOf(take, cameraId, names) {
+  return givenCameraName(names, cameraId) || (take[cameraId] && take[cameraId].label) ||
     (take.recorded && take.recorded.cameras && take.recorded.cameras[cameraId] && take.recorded.cameras[cameraId].label) || cameraId;
 }

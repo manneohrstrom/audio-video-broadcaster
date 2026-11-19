@@ -62,15 +62,18 @@ def clean_text(text):
     return " ".join(str(text or "").replace("<", "").replace(">", "").split())
 
 
-def video_metadata(song_name, title, take_id):
+def video_metadata(song_name, title, take_id, take_name=None):
     """YouTube's snippet and status for a finished video: the editor's title line (or the
-    song's name) as the name, the lines below it and the take's date as the description."""
+    song's name) as the name, the lines below it and the take's date as the description,
+    with the take's name from the hub page if it has one ("Sunday jam, recorded 2026-11-19.")."""
     title = title or {}
     heading = clean_text(title.get("text")) if title.get("on") else ""
     name = (heading or clean_text(song_name) or "Untitled")[:TITLE_MAX]
     lines = [clean_text(line) for line in (title.get("lines") or []) if clean_text(line)] if title.get("on") else []
     day = "%s-%s-%s" % (take_id[0:4], take_id[4:6], take_id[6:8])
-    description = "\n".join(lines + ([""] if lines else []) + ["Recorded %s." % day])
+    take_name = clean_text(take_name)
+    recorded = "%s, recorded %s." % (take_name, day) if take_name else "Recorded %s." % day
+    description = "\n".join(lines + ([""] if lines else []) + [recorded])
     description = description.encode("utf-8")[:DESCRIPTION_MAX_BYTES].decode("utf-8", "ignore")
     return {"snippet": {"title": name, "description": description, "categoryId": CATEGORY_MUSIC},
             "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": False}}

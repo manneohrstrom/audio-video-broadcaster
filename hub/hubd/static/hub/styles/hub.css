@@ -213,6 +213,24 @@ code { font-size: 13px; color: var(--color-text-muted); }
 .plate-row { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; }
 .model-plate { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 6px; border-radius: var(--radius-small); background: #2b2824; color: #c9c0ae; font-weight: 600; font-size: 13px; letter-spacing: 0.04em; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 0 rgba(0, 0, 0, 0.5); }
 .model-plate small { font-weight: 400; color: var(--color-text-muted); letter-spacing: 0; }
+.plate-quote { white-space: normal; }
+.plate-by { color: var(--color-text-dim); font-style: italic; white-space: nowrap; }
+
+/* -- names the user gives cameras and takes (names.js): the id small, in brackets */
+.nick { font-size: 0.78em; font-weight: 400; color: var(--color-text-dim); font-variant-numeric: tabular-nums; }
+.name-edit { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; }
+.name-pencil {
+  align-self: center; display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px;
+  background: none; color: var(--color-text-dim); cursor: pointer; opacity: 0.35; transition: opacity 120ms, background 120ms;
+}
+.name-edit:hover .name-pencil, .name-pencil:focus-visible { opacity: 1; }
+.name-pencil:hover { background: var(--color-raised); color: var(--color-text); }
+.name-field {
+  font: inherit; color: var(--color-text); background: var(--color-well); border: 0; border-radius: 8px; padding: 2px 8px;
+  box-shadow: var(--well-depth); width: min(22ch, 100%); outline: 1px solid var(--color-line);
+}
+.take h3 .name-field { width: min(44ch, 100%); }
+@media (hover: none) { .name-pencil { opacity: 0.7; } }
 .quiet-link { color: var(--color-text-dim); font-size: 13px; }
 
 /* -- phones: the view switch becomes a tab bar at the bottom, the keys fill the width */

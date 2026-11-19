@@ -92,7 +92,7 @@ function Editor({ project }) {
       <header class="editor-header">
         <div class="song-title">
           <strong>${project.song.name}</strong>
-          <span class="details">take ${project.take_id} · ${formatSeconds(store.songSeconds)}</span>
+          <span class="details">${project.take_name ? `${project.take_name} (${project.take_id})` : `take ${project.take_id}`} · ${formatSeconds(store.songSeconds)}</span>
           ${project.bounce_versions.length > 1
             ? html`<label class="bounce-choice">bounce
                 <select aria-label="Bounce version" value=${project.version}

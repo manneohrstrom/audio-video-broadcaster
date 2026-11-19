@@ -24,6 +24,7 @@ import { AudioDialog } from "./AudioDialog.js";
 import { Player } from "./Player.js";
 import { useCalibrationChime } from "../chime.js";
 import { notIngested } from "../takes.js";
+import { pickQuote } from "../quotes.js";
 
 const VIEWS = [
   { id: "deck", label: "deck", icon: "deck" },
@@ -88,6 +89,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState(null);             // { kind: "qr" | "audio" | "player", ... }
   const [unreachable, setUnreachable] = useState(false);
+  const [quote] = useState(pickQuote);                    // a new one on every reload
   const wide = useWideScreen();
 
   const fetchStatus = useCallback(() => loadStatus(!document.hidden).then(status => { setUnreachable(false); return status; }), []);
@@ -130,7 +132,7 @@ export function App() {
   const recording = status && status.state === "recording";
   const sideBySide = wide && PAIRED.includes(view);
   const isCurrent = id => (sideBySide ? PAIRED.includes(id) : view === id);
-  const context = { status, ingest, history, busy, act, say, refreshIngest, openDialog: setDialog, go };
+  const context = { status, ingest, history, busy, act, say, refreshIngest, refreshStatus, openDialog: setDialog, go };
   return html`
     <div class=${"hub" + (recording ? " is-recording" : "") + (sideBySide ? " side-by-side" : "")}>
       <header class="topbar">
@@ -158,11 +160,12 @@ export function App() {
         ${!sideBySide && view === "archive" && html`<${Archive} ...${context} />`}
       </main>
       <footer class="plate-row">
-        <span class="model-plate"><span class="grille" aria-hidden="true"></span>SM-1 <small>Jazz – Funk – Dub</small></span>
+        <span class="model-plate"><span class="grille" aria-hidden="true"></span>SM-1
+          <small class="plate-quote">${quote.text}${quote.by && html` <span class="plate-by">— ${quote.by}</span>`}</small></span>
       </footer>
       ${dialog && dialog.kind === "qr" && html`<${QrDialog} onClose=${() => setDialog(null)} />`}
-      ${dialog && dialog.kind === "audio" && html`<${AudioDialog} take=${dialog.take} onClose=${() => { setDialog(null); refreshIngest(); }} onChange=${refreshIngest} />`}
-      ${dialog && dialog.kind === "player" && html`<${Player} ...${dialog} onSwitch=${next => setDialog({ ...dialog, ...next })} onClose=${() => setDialog(null)} />`}
+      ${dialog && dialog.kind === "audio" && html`<${AudioDialog} take=${dialog.take} names=${status && status.names} onClose=${() => { setDialog(null); refreshIngest(); }} onChange=${refreshIngest} />`}
+      ${dialog && dialog.kind === "player" && html`<${Player} ...${dialog} names=${status && status.names} onSwitch=${next => setDialog({ ...dialog, ...next })} onClose=${() => setDialog(null)} />`}
     </div>`;
 }
 

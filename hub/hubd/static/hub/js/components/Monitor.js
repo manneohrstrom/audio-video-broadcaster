@@ -5,6 +5,7 @@ import { Icon } from "shared/icons.js";
 import { fmt, hms, shownMode, when } from "../format.js";
 import { setPhoneMount } from "../api.js";
 import { Trends } from "./Trend.js";
+import { EditableName, cameraName, givenCameraName } from "../names.js";
 
 /** Calibration (Phase 4 Track B): each camera waits for the card and calibrates itself. */
 function CalibrationLine({ entry, watching, phone }) {
@@ -24,10 +25,10 @@ function CalibrationLine({ entry, watching, phone }) {
 /** A panel: a status LED, the name, what it's doing, then rows of name / value.
  * shooting (cameras only): true while the camera takes a still; false keeps the icon's
  * place, so the header doesn't move when it appears. */
-function Panel({ tone, name, mode, shooting, children }) {
+function Panel({ tone, name, heading, mode, shooting, children }) {
   return html`
     <article class=${"panel " + tone}>
-      <header><i class=${"led " + LED_FOR[tone]} aria-hidden="true"></i><h2>${name}</h2>
+      <header><i class=${"led " + LED_FOR[tone]} aria-hidden="true"></i><h2>${heading || name}</h2>
         ${shooting != null && html`<span class=${"shooting" + (shooting ? " on" : "")} title=${shooting ? `${name} is taking a still (the calibration check)` : ""}><${Icon} name="camera" size=${16} /></span>`}
         <span class="mode">${mode}</span></header>
       ${children}
@@ -59,9 +60,17 @@ function HubPanel({ hub, history }) {
   <//>`;
 }
 
-function CameraPanel({ name, node, calibration, history }) {
+/** A device's name in its panel header: the pencil renames it. */
+function DeviceName({ id, label, names, say, refresh }) {
+  return html`<${EditableName} kind="cameras" id=${id} given=${givenCameraName(names, id)} fallback=${label || id}
+                               say=${say} onSaved=${refresh} />`;
+}
+
+function CameraPanel({ name, node, calibration, history, names, say, refresh }) {
+  const heading = html`<${DeviceName} id=${name} names=${names} say=${say} refresh=${refresh} />`;
+  const shownName = cameraName(names, name);
   if (!node.online) {
-    return html`<${Panel} tone="off" name=${name} mode="offline">
+    return html`<${Panel} tone="off" name=${shownName} heading=${heading} mode="offline">
       <p class="note">Asleep, unplugged or off the Wi-Fi. REC goes on without it.</p><//>`;
   }
   const st = node.status || {};
@@ -70,7 +79,7 @@ function CameraPanel({ name, node, calibration, history }) {
   const take = st.take;
   const dropped = take ? take.dropped_so_far || 0 : 0;
   const syncUs = take && take.sync_difference_us;
-  return html`<${Panel} tone=${tone} name=${name} shooting=${!!node.shooting || st.mode === "snapshot"}
+  return html`<${Panel} tone=${tone} name=${shownName} heading=${heading} shooting=${!!node.shooting || st.mode === "snapshot"}
                        mode=${(mode === "recording" ? "● rec" : mode) + (take ? " · " + take.role : "")}>
     <${Rows} rows=${[
       take && ["take", `${take.take_id} · ${hms(take.elapsed_s)} · ${take.frames ?? take.frames_est} fr`],
@@ -92,10 +101,11 @@ function CameraPanel({ name, node, calibration, history }) {
   <//>`;
 }
 
-function PhonePanel({ id, phone, calibration, onChange }) {
-  const name = phone.label || id;
+function PhonePanel({ id, phone, calibration, onChange, names, say, refresh }) {
+  const name = cameraName(names, id, phone.label);
+  const heading = html`<${DeviceName} id=${id} label=${phone.label} names=${names} say=${say} refresh=${refresh} />`;
   if (!phone.online) {
-    return html`<${Panel} tone="off" name=${name} mode="gone">
+    return html`<${Panel} tone="off" name=${name} heading=${heading} mode="gone">
       <p class="note">Page closed or phone off ${Math.round(phone.age_s)} s ago. REC goes on without it.</p><//>`;
   }
   const st = phone.status || {};
@@ -103,7 +113,7 @@ function PhonePanel({ id, phone, calibration, onChange }) {
   const settings = st.settings || {};
   const mode = recording ? "● rec" : { ready: "ready", off: "camera off", finishing: "finishing", uploading: "uploading" }[st.state] || st.state || "–";
   async function mount(choice) { await setPhoneMount(id, choice).catch(() => {}); onChange(); }
-  return html`<${Panel} tone=${recording ? "recording" : (phone.problems || []).length ? "warn" : "ok"} name=${name} mode=${mode + " · phone"}>
+  return html`<${Panel} tone=${recording ? "recording" : (phone.problems || []).length ? "warn" : "ok"} name=${name} heading=${heading} mode=${mode + " · phone"}>
     <${Rows} rows=${[
       ["files", `${st.part || id}.mov`],
       st.take && ["take", `${st.take} · ${st.frames ?? 0} fr`],
@@ -125,15 +135,16 @@ function PhonePanel({ id, phone, calibration, onChange }) {
   <//>`;
 }
 
-export function Monitor({ status, history }) {
+export function Monitor({ status, history, say, refreshStatus }) {
   if (!status) return html`<p class="empty">Warming up the valves…</p>`;
   const calibration = status.calibration || {};
+  const naming = { names: status.names, say, refresh: refreshStatus };
   return html`
     <section class="monitor" aria-label="Monitor">
       <${HubPanel} hub=${status.hub} history=${history} />
       ${Object.entries(status.nodes || {}).map(([name, node]) =>
-        html`<${CameraPanel} key=${name} name=${name} node=${node} calibration=${calibration} history=${history} />`)}
+        html`<${CameraPanel} key=${name} name=${name} node=${node} calibration=${calibration} history=${history} ...${naming} />`)}
       ${Object.entries(status.phones || {}).map(([id, phone]) =>
-        html`<${PhonePanel} key=${id} id=${id} phone=${phone} calibration=${calibration} onChange=${() => {}} />`)}
+        html`<${PhonePanel} key=${id} id=${id} phone=${phone} calibration=${calibration} onChange=${() => {}} ...${naming} />`)}
     </section>`;
 }

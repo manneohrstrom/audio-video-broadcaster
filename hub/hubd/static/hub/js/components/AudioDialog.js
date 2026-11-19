@@ -6,12 +6,13 @@ import { html } from "shared/html.js";
 import { Dialog } from "./Dialog.js";
 import { loadSongs, newSong, newVersion, finishUpload, chooseVersion, putPiece } from "../api.js";
 import { fmtBytes, fmtDur, fmtEta } from "../format.js";
+import { takeName } from "../names.js";
 
 const PIECE_BYTES = 8 << 20;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const NEW_SONG = "";
 
-export function AudioDialog({ take, onClose, onChange }) {
+export function AudioDialog({ take, names, onClose, onChange }) {
   const [songs, setSongs] = useState([]);
   const [songId, setSongId] = useState(null);          // null until loaded; "" = a new song
   const [newName, setNewName] = useState("");
@@ -77,7 +78,7 @@ export function AudioDialog({ take, onClose, onChange }) {
   }
 
   return html`
-    <${Dialog} title=${`Add a bounce · ${take}`} onClose=${onClose}>
+    <${Dialog} title=${`Add a bounce · ${takeName(names, take) || take}`} onClose=${onClose}>
       <div class="song-list">
         ${songs.length ? songs.map(song => html`<p><b>${song.name}</b>: ${song.versions.map((v, i) => html`${i ? " · " : ""}v${v.version} ${v.filename}
           ${v.complete

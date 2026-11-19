@@ -44,7 +44,7 @@ import youtube_upload  # noqa: E402
 import drive_records  # noqa: E402
 import motion  # noqa: E402
 
-VERSION = "0.23.0"
+VERSION = "0.24.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -1407,7 +1407,8 @@ class Ingest:
                      "queued_at": self.clock(), "progress": None, "error": None,
                      # The editor's "Upload to YouTube": the finished video goes on to hub-upload.
                      "youtube": kind == "edit" and doc.get("youtube") is True,
-                     "song_name": str(doc.get("song_name") or song)[:200], "upload": None}
+                     "song_name": str(doc.get("song_name") or song)[:200], "upload": None,
+                     "take_name": str(doc.get("take_name") or "")[:200] or None}     # named on the hub page
         self.manual = True                    # asked for by the user: don't wait for 30 min idle
         self.save()
 
@@ -1621,7 +1622,8 @@ class Ingest:
             try:
                 youtube_upload.spool_video(
                     self.cfg["youtube_spool_dir"], tmp, upload,
-                    youtube_upload.video_metadata(job.get("song_name") or job["song"], edit.get("title"), job["take"]),
+                    youtube_upload.video_metadata(job.get("song_name") or job["song"], edit.get("title"), job["take"],
+                                                  job.get("take_name")),
                     {"take": job["take"], "song": job["song"], "video_number": number,
                      "file": os.path.relpath(mp4, self.take_folder(job["take"]))}, clock=self.clock)
             except OSError as e:          # the video is safe on the drive; only the upload is lost

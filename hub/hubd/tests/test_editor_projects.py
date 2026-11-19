@@ -7,6 +7,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import editor_projects as ep  # noqa: E402
+import names  # noqa: E402
 
 SECOND = ep.NS_PER_SECOND
 TAKE = "20261116-185403"
@@ -119,6 +120,15 @@ class ProjectTest(unittest.TestCase):
         self.assertEqual(p["bounce"]["url"], "/media-audio/%s/track-1/v1" % TAKE)
         self.assertEqual(p["cameras"][0]["file_url"], "/media/%s/cam1.mov" % TAKE)
         self.assertEqual(p["bounce"]["sync"]["confidence"], "high")
+        self.assertIsNone(p["take_name"])
+
+    def test_the_users_names_for_cameras_and_the_take(self):
+        self.projects.names = names.Names(os.path.join(self.tmp, "names.json"))
+        self.projects.names.set("cameras", "cam2", "Drum kit")
+        self.projects.names.set("takes", TAKE, "Sunday jam")
+        p = self.projects.project(TAKE, "track-1", 1)
+        self.assertEqual([c["label"] for c in p["cameras"]], ["cam1", "Drum kit", "Pixel 9a"])
+        self.assertEqual(p["take_name"], "Sunday jam")
 
     def test_starts_from_the_rules_once_beats_are_analysed(self):
         version_dir = os.path.join(self.tmp, "audio", TAKE, "track-1", "v1")

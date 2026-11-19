@@ -688,6 +688,13 @@ class YouTubeTest(unittest.TestCase):
         self.assertEqual([(c["youtube"], c["song_name"]) for c in self.commands()],
                          [(False, "Blue in Green"), (True, "Blue in Green"), (False, "Blue in Green")])
 
+    def test_the_takes_name_goes_with_the_render(self):
+        self.hub.request_edit_render("20261117-201741", "track-1", 1)
+        self.hub.names.set("takes", "20261117-201741", "Sunday jam")
+        self.hub.request_edit_render("20261117-201741", "track-1", 1)
+        self.assertEqual([c["take_name"] for c in self.commands()], [None, "Sunday jam"])
+        self.assertEqual(self.hub.snapshot()["names"]["takes"], {"20261117-201741": "Sunday jam"})
+
     def test_the_upload_comes_back_with_the_render(self):
         os.makedirs(os.path.join(self.tmp, "ingest"))
         with open(os.path.join(self.tmp, "ingest", "state.json"), "w") as f:

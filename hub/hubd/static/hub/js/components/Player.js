@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { html } from "shared/html.js";
 import { Dialog } from "./Dialog.js";
+import { nameWithId, takeName } from "../names.js";
 
 const mediaUrl = (take, path) => `/media/${encodeURIComponent(take)}/${path.split("/").map(encodeURIComponent).join("/")}`;
 
-export function Player({ take, camera, cameras, file, onSwitch, onClose }) {
+export function Player({ take, camera, cameras, labels, file, names, onSwitch, onClose }) {
+  const takeTitle = nameWithId(takeName(names, take), take, take);
   const videoRef = useRef(null);
   const resumeAt = useRef(0);
   const [note, setNote] = useState("Opening the drive…");
@@ -29,9 +31,10 @@ export function Player({ take, camera, cameras, file, onSwitch, onClose }) {
     onSwitch({ camera: next });
   }
   return html`
-    <${Dialog} title=${file ? `${take} · ${file.split("/").pop()}` : take} onClose=${onClose} wide>
+    <${Dialog} title=${file ? `${takeTitle} · ${file.split("/").pop()}` : takeTitle} onClose=${onClose} wide>
       ${cameras && html`<div class="segmented" role="group" aria-label="Camera">
-        ${cameras.map(c => html`<button aria-pressed=${String(c === camera)} onClick=${() => switchTo(c)}>${c}</button>`)}</div>`}
+        ${cameras.map(c => html`<button aria-pressed=${String(c === camera)} onClick=${() => switchTo(c)}
+                                        title=${(labels || {})[c] && labels[c] !== c ? c : ""}>${(labels || {})[c] || c}</button>`)}</div>`}
       <video ref=${videoRef} class="player-video" src=${source} controls playsinline preload="metadata"></video>
       <p class="note">${note}</p>
     <//>`;

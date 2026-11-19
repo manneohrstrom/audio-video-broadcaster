@@ -3,6 +3,7 @@
 import { html } from "shared/html.js";
 import { Icon } from "shared/icons.js";
 import { hms, hoursMinutes, shownMode } from "../format.js";
+import { Name, cameraName, givenCameraName, nameWithId } from "../names.js";
 
 const LIMIT_NAMES = { hub: "hub SD card" };
 
@@ -42,12 +43,12 @@ function deviceLeds(status) {
     const mode = node.online ? shownMode((node.status || {}).mode) : "offline";
     const colour = !node.online ? "off" : mode === "recording" ? "red" : mode === "live" ? "blue"
       : (node.problems || []).length || node.slow ? "amber" : "green";
-    return { id, label: id, colour, says: node.online ? mode : "offline" };
+    return { id, label: cameraName(status.names, id), colour, says: node.online ? mode : "offline" };
   });
   const phones = Object.entries(status.phones || {}).map(([id, phone]) => {
     const state = (phone.status || {}).state;
     const colour = !phone.online ? "off" : state === "recording" ? "red" : (phone.problems || []).length ? "amber" : "green";
-    return { id, label: phone.label || id, colour, says: phone.online ? state || "ready" : "gone" };
+    return { id, label: cameraName(status.names, id, phone.label), colour, says: phone.online ? state || "ready" : "gone" };
   });
   return [...nodes, ...phones];
 }
@@ -86,8 +87,8 @@ export function Deck({ status, busy, act, openDialog, go }) {
 
       <div class="device-leds" aria-label="Cameras">
         ${deviceLeds(status).map(device => html`
-          <button class="device-led" onClick=${() => go("monitor")} title=${`${device.label}: ${device.says}. Tap for details.`}>
-            <i class=${"led " + device.colour} aria-hidden="true"></i><span>${device.label}</span>
+          <button class="device-led" onClick=${() => go("monitor")} title=${`${nameWithId(givenCameraName(status.names, device.id), device.label, device.id)}: ${device.says}. Tap for details.`}>
+            <i class=${"led " + device.colour} aria-hidden="true"></i><span><${Name} given=${givenCameraName(status.names, device.id)} fallback=${device.label} id=${device.id} /></span>
           </button>`)}
       </div>
 

@@ -664,10 +664,18 @@ class EditRenderYouTubeTest(RenderFixture, Base):
         self.addCleanup(setattr, ingest.edit_render, "EditRenderer", originals[0])
         self.addCleanup(setattr, ingest.render, "probe_output", originals[1])
 
-    def queue_edit(self, youtube):
+    def queue_edit(self, youtube, take_name=None):
         with open(os.path.join(self.ing.cmd_dir, "1-render.json"), "w") as f:
             json.dump({"cmd": "render", "take": TAKE, "song": "song", "version": 1, "kind": "edit",
-                       "youtube": youtube, "song_name": "Song name"}, f)
+                       "youtube": youtube, "song_name": "Song name", "take_name": take_name}, f)
+
+    def test_the_takes_name_goes_into_the_description(self):
+        self.queue_edit(True, take_name="Sunday jam")
+        self.ing.tick()
+        job = self.ing.state["renders"][TAKE + "/song:edit"]
+        with open(os.path.join(self.spool, job["upload"] + ".json")) as f:
+            description = json.load(f)["metadata"]["snippet"]["description"]
+        self.assertTrue(description.endswith("Sunday jam, recorded %s-%s-%s." % (TAKE[:4], TAKE[4:6], TAKE[6:8])), description)
 
     def test_the_video_goes_to_the_upload_folder(self):
         self.queue_edit(True)

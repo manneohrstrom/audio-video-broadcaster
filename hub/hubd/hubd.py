@@ -28,12 +28,13 @@ import budget  # noqa: E402
 import calib  # noqa: E402
 import calibrate  # noqa: E402
 import lamp  # noqa: E402
+import names  # noqa: E402
 import phones  # noqa: E402
 import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.35.1"
+VERSION = "0.36.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -322,6 +323,7 @@ class Hub:
         os.makedirs(cfg["state_dir"], exist_ok=True)
         self.log_path = os.path.join(cfg["state_dir"], "takes.json")
         self.phones = phones.Phones(cfg, clock=clock)
+        self.names = names.Names(os.path.join(cfg["state_dir"], "names.json"))   # user's names: cameras, takes
         self.budget = budget.limits(None, 0, {}, {})
         self.card, self.calib_lock = None, threading.Lock()
         self.snaps_in_flight = 0            # camera snapshots running (REC waits for them)
@@ -354,7 +356,7 @@ class Hub:
             waveforms_dir=os.path.join(cfg["state_dir"], "waveforms"),
             proxies_dir=os.path.join(cfg["state_dir"], "proxies"),
             request_thumbnails=lambda take_id: self.ingest_command("thumbs", take=take_id),
-            read_drive_edit=self.read_drive_edit, sync_job=self.sync_job)
+            read_drive_edit=self.read_drive_edit, sync_job=self.sync_job, names=self.names)
         self.scratch = scratch.Scratch(cfg.get("scratch"), adir, log)
 
     @property
@@ -479,7 +481,7 @@ class Hub:
                     "phones": self.phones.snapshot(self.health.get("free_gb")),
                     "budget": self.budget, "camera_settings": self.cam_settings,
                     "calibration": self.calibrator.status(), "lamp": self.lamp.status(),
-                    "scratch": self.scratch.status(),
+                    "scratch": self.scratch.status(), "names": self.names.all(),
                     "last_take": self.last_take()}
 
     # -- phones
@@ -1143,7 +1145,7 @@ class Hub:
         except (ValueError, OSError, KeyError):
             song_name = song
         return self.ingest_command("render", take=take, song=song, version=version, kind="edit",
-                                   youtube=youtube, song_name=song_name)
+                                   youtube=youtube, song_name=song_name, take_name=self.names.take(take))
 
     def edit_render_status(self, take, song, version):
         """The newest render job of this song's edit, from hub-ingest's state (or {})."""
@@ -1576,6 +1578,8 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 v = b.get("version")
                 return self._send(200, h.audio.choose(m.group(1), m.group(2), int(v) if v is not None else None))
+            if self.path == "/api/names":          # {"kind": "cameras" | "takes", "id", "name"}
+                return self._send(200, h.names.set(b.get("kind"), b.get("id"), b.get("name")))
             if self.path == "/api/rec":
                 return self._send(200, h.rec(b.get("nodes")))
             if self.path == "/api/stop":

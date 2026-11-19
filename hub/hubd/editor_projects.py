@@ -241,8 +241,9 @@ class EditorProjects:
 
     def __init__(self, audio, read_take_document, find_quick_edit, edits_dir, thumbs_dir=None,
                  request_thumbnails=None, waveforms_dir=None, proxies_dir=None, clock=time.time, ffmpeg="ffmpeg",
-                 read_drive_edit=None, sync_job=None):
+                 read_drive_edit=None, sync_job=None, names=None):
         self.audio = audio
+        self.names = names                  # names.Names: the user's names for cameras and the take
         self.read_take_document = read_take_document
         self.find_quick_edit = find_quick_edit
         self.edits_dir = edits_dir
@@ -351,6 +352,7 @@ class EditorProjects:
         song_id = song["id"]
         missing_thumbnails = False
         for camera in cameras:
+            camera["label"] = (self.names and self.names.camera(camera["id"])) or camera["label"]
             camera["file_url"] = "/media/%s/%s.mov" % (take_id, camera["id"])
             camera["thumbnails_url"] = "/media-thumbs/%s/%s/" % (take_id, camera["id"])
             camera["thumbnails_ready"] = os.path.exists(
@@ -366,6 +368,7 @@ class EditorProjects:
         downbeats_s = (beats.get("downbeats_s") if isinstance(beats, dict) else None) or []
         return {
             "take_id": take_id,
+            "take_name": self.names.take(take_id) if self.names else None,
             "song": {"id": song_id, "name": song["name"]},
             "version": version,
             "range_ns": range_ns,

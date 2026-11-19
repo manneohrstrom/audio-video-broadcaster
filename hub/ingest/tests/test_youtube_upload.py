@@ -219,6 +219,11 @@ class MetadataTest(unittest.TestCase):
         self.assertEqual(meta["snippet"]["description"], "Recorded 2026-11-17.")
         self.assertEqual(len(yt.video_metadata("x" * 300, None, "20261117-201741")["snippet"]["title"]), 100)
 
+    def test_the_takes_name_from_the_hub_page(self):
+        meta = yt.video_metadata("Track 1", {"on": True, "text": "Blue in Green", "lines": ["Anna, piano"]},
+                                 "20261117-201741", " Sunday <jam> ")
+        self.assertEqual(meta["snippet"]["description"], "Anna, piano\n\nSunday jam, recorded 2026-11-17.")
+
 
 class HttpTest(unittest.TestCase):
     def test_a_308_is_an_answer_not_a_redirect(self):

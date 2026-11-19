@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { html } from "shared/html.js";
 import { Icon } from "shared/icons.js";
 import { focusDistance, focusParts, shownMode } from "../format.js";
+import { EditableName, Name, givenCameraName } from "../names.js";
 
 // Focus is stored as libcamera's lens position (dioptres, 1 / metres) and shown in metres.
 // The nudges step in dioptres too: the same step moves far focus a lot in metres and near
@@ -63,7 +64,9 @@ function ledColour(node, mode) {
 
 /** One Pi camera: a tile in the grid; "adjust" opens its focus panel (same state, so the
  * still and the focus being set carry over). */
-function CameraTile({ id, node, savedLens, rigIdle, shotRequest, say, onSaved }) {
+function CameraTile({ id, node, savedLens, rigIdle, shotRequest, say, onSaved, names, refreshStatus }) {
+  const given = givenCameraName(names, id);
+  const who = given || id;                                // in messages
   const [open, setOpen] = useState(false);
   const [still, setStill] = useState(null);
   const [lens, setLens] = useState(savedLens ?? null);
@@ -124,7 +127,7 @@ function CameraTile({ id, node, savedLens, rigIdle, shotRequest, say, onSaved })
     if (top) {
       setLens(top.lens);
       await shoot(top.lens);
-      say(`${id}: sharpest at about ${focusDistance(top.lens)}. Tap save focus to keep it.`);
+      say(`${who}: sharpest at about ${focusDistance(top.lens)}. Tap save focus to keep it.`);
     }
     setSweeping(false);
   }
@@ -135,7 +138,7 @@ function CameraTile({ id, node, savedLens, rigIdle, shotRequest, say, onSaved })
     const answer = await response.json().catch(() => ({}));
     if (!response.ok) { say(answer.error || "Didn't save.", true); return; }
     onSaved();
-    say(`${id}: focus at about ${focusDistance(lens)} saved. Every take uses it from now on.`);
+    say(`${who}: focus at about ${focusDistance(lens)} saved. Every take uses it from now on.`);
   }
 
   useEffect(() => {                                       // Esc closes the panel
@@ -155,7 +158,7 @@ function CameraTile({ id, node, savedLens, rigIdle, shotRequest, say, onSaved })
       <${Picture} still=${still} />
       <footer class="tile-bar">
         <i class=${"led " + ledColour(node, mode)} aria-hidden="true"></i>
-        <b>${id}</b>
+        <b><${EditableName} kind="cameras" id=${id} given=${given} fallback=${id} say=${say} onSaved=${refreshStatus} /></b>
         <span class=${"shooting" + (shooting ? " on" : "")} title=${shooting ? "taking a still" : ""}><${Icon} name="camera" size=${14} /></span>
         <span class="tile-note">${problem ? html`<span class="bad" title=${problem}>no picture</span>`
           : mode !== "idle" ? mode : shown == null ? "focus not set" : `focus ≈ ${focusDistance(shown)}${unsaved ? " (not saved)" : ""}`}</span>
@@ -165,9 +168,9 @@ function CameraTile({ id, node, savedLens, rigIdle, shotRequest, say, onSaved })
   if (!open) return tile;
   return html`${tile}
     <div class="dialog-backdrop" onClick=${event => { if (event.target === event.currentTarget) setOpen(false); }}>
-      <section class="dialog wide focus-panel" role="dialog" aria-label=${id + " focus"}>
+      <section class="dialog wide focus-panel" role="dialog" aria-label=${who + " focus"}>
         <header><i class=${"led " + ledColour(node, mode)} aria-hidden="true"></i>
-          <h2>${id}</h2>
+          <h2><${Name} given=${given} fallback=${id} id=${id} /></h2>
           <span class=${"shooting" + (shooting ? " on" : "")} title=${shooting ? "taking a still" : ""}><${Icon} name="camera" size=${16} /></span>
           <span class="mode">${sweeping ? "hunting for focus…" : mode}</span>
           <button class="round-key" onClick=${() => setOpen(false)} aria-label="Close"><${Icon} name="close" size=${16} /></button></header>
@@ -200,7 +203,7 @@ function CameraTile({ id, node, savedLens, rigIdle, shotRequest, say, onSaved })
     </div>`;
 }
 
-function PhoneStill({ id, phone, shotRequest }) {
+function PhoneStill({ id, phone, shotRequest, names, say, refreshStatus }) {
   const [still, setStill] = useState(null);
   useEffect(() => {
     if (!shotRequest) return undefined;
@@ -215,7 +218,8 @@ function PhoneStill({ id, phone, shotRequest }) {
       <${Picture} still=${still} />
       <footer class="tile-bar">
         <i class="led green" aria-hidden="true"></i>
-        <b>${phone.label || id}</b>
+        <b><${EditableName} kind="cameras" id=${id} given=${givenCameraName(names, id)} fallback=${phone.label || id}
+                            say=${say} onSaved=${refreshStatus} /></b>
         <span class="tile-note">phone${still ? ` · ${(phone.status || {}).locked ? "settings locked" : "not locked"} · ${still.info.age_s} s old` : ""}</span>
       </footer>
     </article>`;
@@ -226,7 +230,7 @@ function columnsFor(count) {
   return count <= 1 ? 1 : count <= 4 ? 2 : count <= 9 ? 3 : 4;
 }
 
-export function Cameras({ status, say }) {
+export function Cameras({ status, say, refreshStatus }) {
   const [shotRequest, setShotRequest] = useState(0);      // goes up by one per round of stills
   const [refreshUntil, setRefreshUntil] = useState(() => Date.now() + REFRESH_FOR_MS);
   const [refreshing, setRefreshing] = useState(true);
@@ -272,8 +276,10 @@ export function Cameras({ status, say }) {
       <div class="camera-grid" style=${{ "--columns": columns, "--rows": Math.ceil(count / columns) || 1 }}>
         ${nodes.map(([id, node]) => html`
           <${CameraTile} key=${id} id=${id} node=${node} savedLens=${(settings[id] || {}).lens_position}
-                         rigIdle=${rigIdle} shotRequest=${shotRequest} say=${say} onSaved=${() => setSavedTick(n => n + 1)} />`)}
-        ${phones.map(([id, phone]) => html`<${PhoneStill} key=${id} id=${id} phone=${phone} shotRequest=${shotRequest} />`)}
+                         rigIdle=${rigIdle} shotRequest=${shotRequest} say=${say} onSaved=${() => setSavedTick(n => n + 1)}
+                         names=${status.names} refreshStatus=${refreshStatus} />`)}
+        ${phones.map(([id, phone]) => html`<${PhoneStill} key=${id} id=${id} phone=${phone} shotRequest=${shotRequest}
+                                                          names=${status.names} say=${say} refreshStatus=${refreshStatus} />`)}
       </div>
     </section>`;
 }

@@ -10,6 +10,12 @@ import { Icon } from "shared/icons.js";
 import { requestSync } from "../api.js";
 import { fmtBytes, fmtDur, fmtEta, takeStart } from "../format.js";
 import { STEPS, camerasOf, notIngested, labelOf } from "../takes.js";
+import { EditableName, takeName } from "../names.js";
+
+/** The take's heading: its name (click the pencil to change it), the id in brackets once named. */
+function TakeTitle({ id, names, say }) {
+  return html`<h3><${EditableName} kind="takes" id=${id} given=${takeName(names, id)} fallback=${id} say=${say} /></h3>`;
+}
 
 const RENDER_STEPS = [["rendering", "Render"], ["checking", "Check"], ["writing", "Write to drive"]];
 const RENDER_RUNNING = ["queued", "rendering", "paused", "checking", "writing"];
@@ -184,7 +190,7 @@ function Problems({ recorded }) {
 }
 
 /** A take that's still only on the cameras: what was done in the session, at a glance. */
-function WaitingTake({ id, take, queued, ...rest }) {
+function WaitingTake({ id, take, queued, names, ...rest }) {
   const cameras = camerasOf(take);
   const recorded = take.recorded;
   const rows = recorded ? Object.entries(recorded.cameras)
@@ -193,10 +199,10 @@ function WaitingTake({ id, take, queued, ...rest }) {
   const dropped = rows.reduce((sum, [, v]) => sum + (v.dropped || 0), 0);
   return html`
     <article class="take waiting">
-      <header><i class="led amber" aria-hidden="true"></i><h3>${id}</h3>
+      <header><i class="led amber" aria-hidden="true"></i><${TakeTitle} id=${id} names=${names} say=${rest.say} />
         <small>${[takeStart(id), length ? fmtDur(length) : "", rows.length + (rows.length === 1 ? " camera" : " cameras")].filter(Boolean).join(" · ")}</small>
         <span class="take-state warn">${queued ? "queued for ingest" : "on the cameras · not ingested yet"}</span></header>
-      <p class="note">${rows.map(([c, v], i) => html`${i ? " · " : ""}${v.label || c}${v.uploading ? ": uploading…" : v.frames != null ? ": " + v.frames + " frames" : ""}${v.dropped ? html` <span class="bad">(${v.dropped} dropped)</span>` : ""}<${RoughNote} camera=${take[c]} />`)}
+      <p class="note">${rows.map(([c, v], i) => html`${i ? " · " : ""}${labelOf(take, c, names)}${v.uploading ? ": uploading…" : v.frames != null ? ": " + v.frames + " frames" : ""}${v.dropped ? html` <span class="bad">(${v.dropped} dropped)</span>` : ""}<${RoughNote} camera=${take[c]} />`)}
         ${!dropped && html` · <span class="good">no dropped frames</span>`}</p>
       <${Problems} recorded=${recorded} />
       <${HubMic} take=${take} />
@@ -204,7 +210,8 @@ function WaitingTake({ id, take, queued, ...rest }) {
     </article>`;
 }
 
-function TakeCard({ id, take, paused, driveOk, ...rest }) {
+function TakeCard({ id, take, paused, driveOk, names, ...rest }) {
+  const label = camera => labelOf(take, camera, names);
   const cameras = camerasOf(take);
   const recorded = take.recorded;
   const allDone = cameras.length > 0 && cameras.every(([, v]) => (v.done || []).includes("marked"));
@@ -224,24 +231,25 @@ function TakeCard({ id, take, paused, driveOk, ...rest }) {
   const playable = cameras.filter(([, v]) => (v.done || []).includes("written")).map(([c]) => c);
   return html`
     <article class=${"take " + tone}>
-      <header><i class=${"led " + led} aria-hidden="true"></i><h3>${id}</h3>
+      <header><i class=${"led " + led} aria-hidden="true"></i><${TakeTitle} id=${id} names=${names} say=${rest.say} />
         <small>${[takeStart(id), length ? fmtDur(length) + " of video" : "", size].filter(Boolean).join(" · ")}</small>${state}</header>
       ${allDone
-        ? html`<p class="note">${cameras.map(([c, v], i) => html`${i ? " · " : ""}${labelOf(take, c)}: ${v.frames_out != null ? v.frames_out + " frames" : "done"}${v.repeated > 0 ? ` (${v.repeated} repeated)` : v.repeated < 0 ? ` (${-v.repeated} skipped to fit 30 fps)` : ""}${v.dropped ? `, ${v.dropped} dropped on camera` : ""}<${RoughNote} camera=${v} />`)}</p>`
+        ? html`<p class="note">${cameras.map(([c, v], i) => html`${i ? " · " : ""}${label(c)}: ${v.frames_out != null ? v.frames_out + " frames" : "done"}${v.repeated > 0 ? ` (${v.repeated} repeated)` : v.repeated < 0 ? ` (${-v.repeated} skipped to fit 30 fps)` : ""}${v.dropped ? `, ${v.dropped} dropped on camera` : ""}<${RoughNote} camera=${v} />`)}</p>`
         : cameras.map(([c, v]) => html`
-          <div class="camera-row"><span class="camera-name" title=${labelOf(take, c)}>${labelOf(take, c)}</span>
+          <div class="camera-row"><span class="camera-name" title=${label(c) !== c ? `${label(c)} (${c})` : c}>${label(c)}</span>
             <div class="chips"><${IngestChips} camera=${v} paused=${paused} />${v.rough && v.rough.length ? html`<span class="chip"><${RoughNote} camera=${v} /></span>` : null}</div></div>
           ${v.error && html`<p class="note bad">${v.error}</p>`}`)}
       <${Problems} recorded=${recorded} />
       ${playable.length > 0 && html`<div class="plays">${playable.map(c => html`
         <button class="key small" disabled=${!driveOk || take.drive_absent} title=${driveOk ? "" : "STUDIO drive not in the hub"}
-                onClick=${() => rest.openDialog({ kind: "player", take: id, camera: c, cameras: playable })}>▶ ${labelOf(take, c)}</button>`)}</div>`}
+                onClick=${() => rest.openDialog({ kind: "player", take: id, camera: c, cameras: playable,
+                                                  labels: Object.fromEntries(playable.map(p => [p, label(p)])) })}>▶ ${label(c)}</button>`)}</div>`}
       <${HubMic} take=${take} />
       <${Songs} id=${id} take=${take} ...${rest} />
     </article>`;
 }
 
-export function Archive({ ingest, act, say, refreshIngest, openDialog }) {
+export function Archive({ ingest, status: rig, act, say, refreshIngest, openDialog }) {
   if (!ingest) return html`<p class="empty">Rewinding the tapes…</p>`;
   const status = ingest.status || "–";
   const paused = /^paused/.test(status);
@@ -252,7 +260,7 @@ export function Archive({ ingest, act, say, refreshIngest, openDialog }) {
   const ejected = ingest.drive === "ejected" && /^no .* drive/.test(status);
   const driveOk = !/^no .* drive|needs repair/.test(status) && ingest.drive !== "ejected";
   const driveView = ingest.drive_view || {};
-  const shared = { say, refresh: refreshIngest, openDialog };
+  const shared = { say, refresh: refreshIngest, openDialog, names: rig && rig.names };
   return html`
     <section class="archive" aria-label="Archive">
       <div class="archive-bar">
