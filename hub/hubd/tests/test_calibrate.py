@@ -137,6 +137,29 @@ class CalibratorTest(unittest.TestCase):
         self.assertEqual(arm["settings"]["gain"], s["gain"])
         self.assertEqual(self.hub.stop()["calibration"]["cam1"]["gain"], s["gain"])
 
+    def test_a_little_dark_at_maximum_gain_is_no_problem(self):
+        # The studio on 2026-11-19: cam2's grey 106 at maximum gain (about 80 % of the target).
+        cal = self.hub.calibrator
+        m = {"grey": [107.1, 105.7, 105.1], "patches": {}}
+        cal.save("cam2", calibrate.MAX_GAIN, [1.05, 5.16], False, m, 3, True)
+        rec = cal.records["cam2"]
+        self.assertTrue(rec["light_ok"])
+        self.assertAlmostEqual(rec["light_level"], 0.77, places=2)
+        self.assertIsNone(cal.status()["devices"]["cam2"]["message"])
+
+    def test_more_than_a_stop_dark_at_maximum_gain_warns(self):
+        cal = self.hub.calibrator
+        m = {"grey": [71.3, 70.4, 71.0], "patches": {}}      # cam4 that evening: about 32 %
+        cal.save("cam4", calibrate.MAX_GAIN, [0.97, 5.33], False, m, 4, True)
+        self.assertFalse(cal.records["cam4"]["light_ok"])
+        self.assertIn("not enough light", cal.status()["devices"]["cam4"]["message"])
+
+    def test_gain_above_the_sensor_limit_is_accepted(self):
+        self.hub.set_camera_settings("cam1", {"gain": 24.0})
+        self.assertEqual(self.hub.cam_settings["cam1"]["gain"], 24.0)
+        with self.assertRaises(ValueError):
+            self.hub.set_camera_settings("cam1", {"gain": calibrate.MAX_GAIN + 1})
+
     def test_card_left_in_view_does_not_recalibrate_until_it_returns(self):
         cal = self.hub.calibrator
         cal.page_open()

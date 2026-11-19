@@ -16,7 +16,7 @@ import os
 from PIL import Image
 
 WIDTH, HEIGHT = 1920, 1080
-BORDER_PX = 24          # white border on every side; covers the picture's edges
+BORDER_PX = 20          # white border on every side; covers the picture's edges (24 was a touch thick, user 2026-11-19)
 LOGO_WIDTH_PX = 345     # the logo's width (its empty margin trimmed off), 18 % of the frame
 LOGO_GAP_PX = 32        # from the border's inner edge to the logo, right and below
 

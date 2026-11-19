@@ -27,7 +27,15 @@ import calib
 
 TARGET = 119.0          # the grey's sRGB level after calibration (18 % grey)
 GAMMA = 2.2
-MAX_GAIN = 16.0         # IMX708 analogue gain limit
+# The IMX708's analogue gain stops at 16; above that the camera makes up the rest with
+# digital gain (checked on cam4, 2026-11-19: gain 32 gave analogue 16 x digital 2.0, and a
+# brighter picture). Up to 2x digital for the dim studio (user, 2026-11-19): more noise,
+# and lamps in the picture clip sooner, so no further.
+MAX_GAIN = 32.0
+# At maximum gain, a grey still within a stop of TARGET (linear) counts as enough light:
+# no warning. Darker than that: "not enough light".
+DARK_OK = 0.5
+MAX_STEP = 2.0          # gain changes at most this factor per round
 TOL_LEVEL = 0.08        # grey's brightness within ±8 % (linear)
 TOL_WB = 0.04           # R/G and B/G within ±4 %
 MIN_MARKER_PX = 30      # smaller: card too far away to read well
@@ -102,8 +110,10 @@ def next_settings(grey, gain, awb, sens=(SENS, SENS)):
     want = gain * lin(TARGET) / G
     if max(grey) >= 250:            # clipped: the reading understates; step down hard
         want = gain * 0.5
-    ok = want <= MAX_GAIN * 1.02
-    g = min(max(want, 1.0), MAX_GAIN)
+    # At most a stop per round: a channel reading near zero (colour gains far off) asks for
+    # a huge step, which overshoots once the colour gains move too.
+    g = min(max(want, 1.0, gain / MAX_STEP), MAX_GAIN, gain * MAX_STEP)
+    ok = want <= MAX_GAIN * 1.02 or g < MAX_GAIN       # not at the limit yet: keep going
     r = min(max(awb[0] * (G / R) ** (1 / sens[0]), 0.3), 10.0)
     b = min(max(awb[1] * (G / B) ** (1 / sens[1]), 0.3), 10.0)
     return round(g, 3), [round(r, 3), round(b, 3)], ok
@@ -114,6 +124,11 @@ def good(grey, light_ok=True):
     wb = abs(R / G - 1) <= TOL_WB and abs(B / G - 1) <= TOL_WB
     level = abs(G / lin(TARGET) - 1) <= TOL_LEVEL
     return wb and (level or not light_ok)        # too dark at max gain: best we can do
+
+
+def light_level(grey):
+    """The grey's brightness as a share of TARGET, in linear light (1.0 = on target)."""
+    return lin(grey[1]) / lin(TARGET)
 
 
 def card_problem(m):
@@ -341,9 +356,12 @@ class Calibrator:
         self.save(cam, g, wb, ok, m, rounds, good(m["grey"], ok))
         self.in_view[cam] = True
 
-    def save(self, cam, gain, awb, light_ok, m, rounds, converged):
+    def save(self, cam, gain, awb, reachable, m, rounds, converged):
+        """reachable: the target brightness was within MAX_GAIN."""
         self.hub.set_camera_settings(cam, {"gain": gain, "awb_gains": awb})
+        light_ok = reachable or light_level(m["grey"]) >= DARK_OK
         rec = {"at": self.clock(), "gain": gain, "awb_gains": awb, "light_ok": light_ok, "converged": converged,
+               "light_level": round(light_level(m["grey"]), 2),
                "rounds": rounds, "grey": m["grey"], "patches": m["patches"], "marker_px": m.get("marker_px"),
                "card_even": card_lit_evenly(m)}
         with self.lock:

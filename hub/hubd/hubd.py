@@ -33,7 +33,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.34.0"
+VERSION = "0.35.1"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -625,7 +625,7 @@ class Hub:
                             % (take_id, "the hub" if by == "hub" else by))
 
     # -- per-camera settings kept on the hub, sent with every arm and snapshot (Track B)
-    SETTING_RANGES = {"lens_position": (0.0, 15.0), "gain": (1.0, 16.0), "awb_gains": (0.3, 10.0)}
+    SETTING_RANGES = {"lens_position": (0.0, 15.0), "gain": (1.0, calibrate.MAX_GAIN), "awb_gains": (0.3, 10.0)}
 
     def set_camera_settings(self, cam, body):
         if cam not in self.cfg["nodes"]:
