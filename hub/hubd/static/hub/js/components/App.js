@@ -25,6 +25,8 @@ import { Player } from "./Player.js";
 import { useCalibrationChime } from "../chime.js";
 import { notIngested } from "../takes.js";
 import { pickQuote } from "../quotes.js";
+import { applyTheme, saveChoice, savedChoice, themeFor } from "../themes.js";
+import { ThemePicker } from "./ThemePicker.js";
 
 const VIEWS = [
   { id: "deck", label: "deck", icon: "deck" },
@@ -90,6 +92,8 @@ export function App() {
   const [dialog, setDialog] = useState(null);             // { kind: "qr" | "audio" | "player", ... }
   const [unreachable, setUnreachable] = useState(false);
   const [quote] = useState(pickQuote);                    // a new one on every reload
+  const [themeChoice, setThemeChoice] = useState(savedChoice);   // the grille on the plate (themes.js): "daily" or a theme
+  const [theme, setTheme] = useState(() => themeFor(savedChoice()));   // the monitor is keyed by it: charts read colours once
   const wide = useWideScreen();
 
   const fetchStatus = useCallback(() => loadStatus(!document.hidden).then(status => { setUnreachable(false); return status; }), []);
@@ -109,6 +113,15 @@ export function App() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
+  const pickTheme = choice => { saveChoice(choice); setThemeChoice(choice); setTheme(themeFor(choice)); };
+  useEffect(() => applyTheme(theme), [theme]);
+  useEffect(() => {                                       // a page left open past midnight gets the new day's theme
+    const timer = setInterval(() => setTheme(current => {
+      const next = themeFor(themeChoice);
+      return next.id === current.id ? current : next;
+    }), 60000);
+    return () => clearInterval(timer);
+  }, [themeChoice]);
   const go = id => { location.hash = id === "deck" ? "" : id; setView(id); };
   const say = (text, error = false) => setMessage(text ? { text, error } : null);
 
@@ -141,7 +154,8 @@ export function App() {
           <span class="brand-name">Brockley Live</span>
           <small class="version">${status ? "hubd " + status.hub_version : ""}</small>
         </div>
-        <${SegmentDisplay} text=${unreachable ? "NO HUB" : rigLabel(status)} state=${unreachable ? "error" : status && status.state} />
+        <${SegmentDisplay} text=${unreachable ? "NO HUB" : rigLabel(status)} state=${unreachable ? "error" : status && status.state}
+                           plain=${theme.display === "plain"} />
         <nav class="views" aria-label="Views">
           ${VIEWS.map(item => html`
             <button class="view-key" aria-current=${isCurrent(item.id) ? "page" : null} onClick=${() => go(item.id)}>
@@ -155,12 +169,12 @@ export function App() {
       <main class="view">
         ${sideBySide && html`<div class="studio"><${Deck} ...${context} /><${Archive} ...${context} /></div>`}
         ${!sideBySide && view === "deck" && html`<${Deck} ...${context} />`}
-        ${view === "monitor" && html`<${Monitor} ...${context} />`}
+        ${view === "monitor" && html`<${Monitor} key=${theme.id} ...${context} />`}
         ${view === "cameras" && html`<${Cameras} ...${context} />`}
         ${!sideBySide && view === "archive" && html`<${Archive} ...${context} />`}
       </main>
       <footer class="plate-row">
-        <span class="model-plate"><span class="grille" aria-hidden="true"></span>SM-1
+        <span class="model-plate"><${ThemePicker} theme=${theme} choice=${themeChoice} onPick=${pickTheme} />SM-1
           <small class="plate-quote">${quote.text}${quote.by && html` <span class="plate-by">— ${quote.by}</span>`}</small></span>
       </footer>
       ${dialog && dialog.kind === "qr" && html`<${QrDialog} onClose=${() => setDialog(null)} />`}
@@ -190,7 +204,13 @@ const NARROW = new Set([":", "."]);       // narrow glyphs in DSEG: they take no
  * Colons are narrow in the segment font, so the unlit layer copies the lit text's colons
  * (otherwise its full-width cells stick out past the box: "REC 00:12:03", user 2026-11-17),
  * and an invisible sizer holds the widest possible text so the box never changes size. */
-function SegmentDisplay({ text, state }) {
+function SegmentDisplay({ text, state, plain }) {
+  if (plain) {                                                 // a theme with an ordinary font: the text alone
+    return html`
+      <div class=${"segments plain " + (state || "")} role="status" aria-label=${"Rig: " + text}>
+        <span class="segments-lit" aria-hidden="true">${text}</span>
+      </div>`;
+  }
   const lit = fitCells(text.replace(/ /g, "!"));               // "!" is DSEG's full-width blank
   const unlit = [...lit].map(c => (NARROW.has(c) ? c : "~")).join("");
   return html`

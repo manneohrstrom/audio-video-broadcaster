@@ -6,8 +6,21 @@
 <meta name="theme-color" content="#1e1c1a">
 <title>Brockley Live</title>
 <link rel="stylesheet" href="/shared/styles/tokens.css">
+<link rel="stylesheet" href="/hub/styles/themes.css">
 <link rel="stylesheet" href="/uPlot.min.css">
 <link rel="stylesheet" href="/hub/styles/hub.css">
+<!-- The saved theme (js/themes.js) before the first paint, so the page doesn't flash the default.
+     "daily": today's, as noted by themes.js (the first visit of a day paints Graphite until main.js runs). -->
+<script>
+try {
+  var choice = localStorage.getItem("hub-theme") || "daily";
+  if (choice === "daily") {
+    var now = new Date(), today = (localStorage.getItem("hub-theme-today") || "").split(" ");
+    choice = today[0] === now.getFullYear() + "-" + (now.getMonth() + 1) + "-" + now.getDate() ? today[1] : "graphite";
+  }
+  document.documentElement.dataset.theme = choice;
+} catch (e) {}
+</script>
 <!-- Classic scripts that set globals: uPlot (charts) and qrcode (the phone page's QR code), both vendored and pinned. -->
 <script src="/uPlot.iife.min.js"></script>
 <script src="/qrcode.js"></script>

@@ -1,0 +1,481 @@
+/* The hub page's themes (user, 2026-11-20; js/themes.js has the list). Each block sets the
+   whole palette, the page's background (a colour, or a tiling texture drawn with gradients
+   or a small SVG: no image files), the fonts and the rig display's style. hub.css only uses
+   these variables; the "flair" after each block adds what a variable can't (borders,
+   uppercase, a skew).
+
+   Every theme sets every variable, Graphite included (it repeats tokens.css's values): the
+   picker's cards carry their own data-theme and must not inherit the page's theme. Flair
+   rules start with :root[data-theme=…] so they stay off the cards.
+
+   Fonts: all SIL OFL, copied into shared/vendor/fonts and pinned (docs/versions.md). A
+   browser only downloads a font when something uses it. */
+
+@font-face { font-family: "Righteous"; font-display: swap; src: url("/shared/vendor/fonts/righteous-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Nixie One"; font-display: swap; src: url("/shared/vendor/fonts/nixie-one-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Shrikhand"; font-display: swap; src: url("/shared/vendor/fonts/shrikhand-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Bungee"; font-display: swap; src: url("/shared/vendor/fonts/bungee-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Orbitron"; font-weight: 400 900; font-display: swap; src: url("/shared/vendor/fonts/orbitron-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Oswald"; font-weight: 400 700; font-display: swap; src: url("/shared/vendor/fonts/oswald-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Archivo Black"; font-weight: 400 900; font-display: swap; src: url("/shared/vendor/fonts/archivo-black-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "VT323"; font-weight: 400 700; font-display: swap; src: url("/shared/vendor/fonts/vt323-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-weight: 400; font-display: swap; src: url("/shared/vendor/fonts/Figtree-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Figtree"; font-weight: 500 700; font-display: swap; src: url("/shared/vendor/fonts/Figtree-SemiBold.ttf") format("truetype"); }
+
+/* ------------------------------------------------------------------ Graphite (the original)
+   A 1970s desk instrument that ended up on a spaceship: graphite body, keycaps, a green LCD. */
+:root, [data-theme="graphite"] {
+  color-scheme: dark;
+  --color-background: #1e1c1a; --color-well: #11100f; --color-panel: #26231f;
+  --color-raised: #3b3732; --color-raised-edge: #2a2723; --color-line: #3a3631; --color-key-hover: #46413b;
+  --color-text: #ece5d6; --color-text-muted: #a39a8a; --color-text-dim: #6e665b;
+  --color-cream: #e4dccb; --color-signal: #ff6a13; --color-accent: #f2c230; --color-playhead: #e8322b;
+  --color-good: #62a05a; --color-warning: #f2c230; --color-problem: #ff5a3c; --color-blue: #7fa9d9;
+  --color-lcd: #c9e27a; --color-lcd-off: #26301a; --color-camera-2: #6e8fae;
+  --font-ui: "Jost", "Futura", "Avenir Next", system-ui, sans-serif; --font-display: var(--font-ui);
+  --font-segments: "DSEG14", "Jost", monospace; --font-lcd: "DSEG7", "Jost", monospace;
+  --body-size: 15px;
+  --radius: 10px; --radius-small: 6px; --radius-panel: 16px; --radius-big-key: 22px;
+  --texture: none;
+  --key-depth: 0 2px 0 var(--color-raised-edge), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --well-depth: inset 0 2px 6px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.04);
+  --panel-depth: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --float-shadow: 0 0 0 1px var(--color-line), 0 20px 60px rgba(0, 0, 0, 0.6);
+  --backdrop: rgba(8, 7, 6, 0.78); --tabbar-bg: #141210; --led-off: #3a3631;
+  --color-plate: #2b2824; --color-plate-text: #c9c0ae; --plate-muted: #a39a8a; --plate-dim: #6e665b;
+  --plate-depth: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 0 rgba(0, 0, 0, 0.5);
+  --emblem-bg: linear-gradient(#141412, #1a1917); --emblem-color: #a9a9a4;
+  --grille: radial-gradient(circle, #0c0b0a 0 1.1px, transparent 1.5px) 0 0 / 4.5px 4.5px, #2b2824;
+  --lcd-bg: linear-gradient(#0f140a, #151c0d); --lcd-label: #8d9a68; --lcd-best: #e8ff9c;
+  --segments-lit: #c9e27a; --segments-unlit: #26301a; --segments-glow: 0 0 8px rgba(201, 226, 122, 0.35);
+  --segments-rec-bg: linear-gradient(#1a0a08, #22100c); --segments-rec-unlit: #3a1410; --segments-rec-lit: #ff5a45;
+  --segments-rec-glow: 0 0 10px rgba(255, 90, 69, 0.55);
+  --segments-weight: 700; --segments-size: 20px; --segments-spacing: 2px;
+  --signal-text: #1a0d05; --signal-edge: #a8410a; --signal-hover: #ff7d33;
+  --rec-bg: #d42b24; --rec-edge: #7e130e; --rec-text: #fff1e8;
+  --stop-bg: #e4dccb; --stop-edge: #9d9584; --stop-text: #1e1c1a;
+  --live-bg: #5f84ab; --live-edge: #34506e; --live-text: #f4f1ea;
+  --chip-running-bg: #24364a; --chip-running-text: #e9f2ff; --chip-error-bg: #4a1712; --chip-error-text: #ffd9d2;
+}
+
+/* ------------------------------------------------------------------ Space Age '66
+   Mod: cream and tangerine, avocado and teal, op-art rings on the wall, Futura for the
+   words, Righteous for the names, and the rig's state in orange Nixie tubes. */
+[data-theme="sixties"] {
+  color-scheme: light;
+  --color-background: #f2e7cf; --color-well: #e7d8b6; --color-panel: #fbf5e6;
+  --color-raised: #efe3c8; --color-raised-edge: #cdb98f; --color-line: #dccaa2; --color-key-hover: #e8d9b8;
+  --color-text: #2b1f16; --color-text-muted: #75614b; --color-text-dim: #a48f72;
+  --color-cream: #3a2a1e; --color-signal: #e8622c; --color-accent: #2a8a8f; --color-playhead: #e0452b;
+  --color-good: #5f7f1f; --color-warning: #c27c0e; --color-problem: #cc3a1c; --color-blue: #2a8a8f;
+  --color-lcd: #ff9a3c; --color-lcd-off: transparent; --color-camera-2: #2a8a8f;
+  --font-ui: "Jost", "Futura", system-ui, sans-serif; --font-display: "Righteous", "Jost", sans-serif;
+  --font-segments: "Nixie One", "Jost", sans-serif; --font-lcd: "Nixie One", "Jost", sans-serif;
+  --body-size: 15px;
+  --radius: 14px; --radius-small: 9px; --radius-panel: 26px; --radius-big-key: 34px;
+  --texture:
+    radial-gradient(circle, transparent 0 7px, rgba(214, 110, 40, 0.11) 7px 9px, transparent 9px 14px,
+                    rgba(42, 138, 143, 0.10) 14px 16px, transparent 16px) 0 0 / 36px 36px,
+    radial-gradient(circle, transparent 0 7px, rgba(214, 110, 40, 0.07) 7px 9px, transparent 9px) 18px 18px / 36px 36px;
+  --key-depth: 0 2px 0 var(--color-raised-edge), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --well-depth: inset 0 2px 4px rgba(90, 60, 20, 0.18), inset 0 0 0 1px rgba(90, 60, 20, 0.1);
+  --panel-depth: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 2px 8px rgba(90, 60, 20, 0.1);
+  --float-shadow: 0 0 0 1px var(--color-line), 0 18px 50px rgba(90, 60, 20, 0.25);
+  --backdrop: rgba(43, 31, 22, 0.55); --tabbar-bg: #fbf5e6; --led-off: #d8c7a2;
+  --color-plate: #3a2a1e; --color-plate-text: #f2e7cf; --plate-muted: #cdb98f; --plate-dim: #a48f72;
+  --plate-depth: 0 1px 0 rgba(255, 255, 255, 0.6);
+  --emblem-bg: #3a2a1e; --emblem-color: #ff9a3c;
+  --grille: radial-gradient(circle, #e8622c 0 1.4px, transparent 1.8px) 0 0 / 5px 5px, #2b1f16;
+  --lcd-bg: radial-gradient(ellipse at 50% 130%, #4a230c, #170c06 70%); --lcd-label: #d39a66; --lcd-best: #ffd9a8;
+  --segments-lit: #ffa24a; --segments-unlit: transparent;
+  --segments-glow: 0 0 4px rgba(255, 140, 40, 0.9), 0 0 14px rgba(255, 90, 20, 0.6);
+  --segments-rec-bg: radial-gradient(ellipse at 50% 130%, #5a160a, #1c0805 70%); --segments-rec-unlit: transparent; --segments-rec-lit: #ff6a3a;
+  --segments-rec-glow: 0 0 4px rgba(255, 90, 40, 0.95), 0 0 16px rgba(255, 50, 20, 0.7);
+  --segments-weight: 400; --segments-size: 24px; --segments-spacing: 3px;
+  --signal-text: #fff7ec; --signal-edge: #a8401a; --signal-hover: #f07440;
+  --rec-bg: #e4572e; --rec-edge: #9c3216; --rec-text: #fff6ea;
+  --stop-bg: #fbf5e6; --stop-edge: #cdb98f; --stop-text: #2b1f16;
+  --live-bg: #2a8a8f; --live-edge: #165456; --live-text: #f4fbf9;
+  --chip-running-bg: #cfe6e3; --chip-running-text: #14494b; --chip-error-bg: #f6d0c4; --chip-error-text: #7a2410;
+}
+:root[data-theme="sixties"] .big-key .key-name { font-weight: 400; font-size: 32px; letter-spacing: 0; }
+:root[data-theme="sixties"] .brand-name { font-weight: 400; font-size: 20px; letter-spacing: 0.01em; }
+
+/* ------------------------------------------------------------------ Groove '74
+   A hi-fi in a walnut cabinet: woodgrain, a sunset stripe across the top, mustard and rust,
+   Shrikhand for the names and a teal vacuum-fluorescent display. */
+[data-theme="seventies"] {
+  color-scheme: dark;
+  --color-background: #2b1a10; --color-well: #1a0f09; --color-panel: #3a2416;
+  --color-raised: #59381f; --color-raised-edge: #2a170c; --color-line: #5a3a22; --color-key-hover: #6a4426;
+  --color-text: #f6e4c3; --color-text-muted: #c9a77d; --color-text-dim: #8a6a4a;
+  --color-cream: #f0c24a; --color-signal: #e5762a; --color-accent: #f0c24a; --color-playhead: #e2452a;
+  --color-good: #a3b84a; --color-warning: #f0c24a; --color-problem: #ff6a3d; --color-blue: #5fc8d8;
+  --color-lcd: #5ff5d0; --color-lcd-off: rgba(95, 245, 208, 0.07); --color-camera-2: #e09a4a;
+  --font-ui: "Jost", "Futura", system-ui, sans-serif; --font-display: "Shrikhand", "Jost", serif;
+  --font-segments: "DSEG14", "Jost", monospace; --font-lcd: "DSEG7", "Jost", monospace;
+  --body-size: 15px;
+  --radius: 12px; --radius-small: 8px; --radius-panel: 20px; --radius-big-key: 28px;
+  --texture:
+    linear-gradient(#5a2a14 0 5px, #b5441f 5px 10px, #e5762a 10px 15px, #f0c24a 15px 20px, transparent 20px) 0 0 / 100% 20px no-repeat,
+    repeating-linear-gradient(91deg, rgba(0, 0, 0, 0.2) 0 1px, transparent 1px 7px, rgba(255, 190, 140, 0.035) 7px 10px,
+                              transparent 10px 19px, rgba(0, 0, 0, 0.12) 19px 21px, transparent 21px 34px),
+    repeating-linear-gradient(89.4deg, transparent 0 13px, rgba(0, 0, 0, 0.1) 13px 14px, transparent 14px 47px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.18), transparent 20%, transparent 80%, rgba(0, 0, 0, 0.18));
+  --key-depth: 0 2px 0 var(--color-raised-edge), inset 0 1px 0 rgba(255, 220, 180, 0.1);
+  --well-depth: inset 0 2px 6px rgba(0, 0, 0, 0.65), inset 0 0 0 1px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 220, 180, 0.06);
+  --panel-depth: inset 0 1px 0 rgba(255, 220, 180, 0.07), 0 2px 10px rgba(0, 0, 0, 0.35);
+  --float-shadow: 0 0 0 1px var(--color-line), 0 20px 60px rgba(0, 0, 0, 0.6);
+  --backdrop: rgba(20, 10, 5, 0.8); --tabbar-bg: #1a0f09; --led-off: #4a2e1a;
+  --color-plate: #1a0f09; --color-plate-text: #f0c24a; --plate-muted: #c9a77d; --plate-dim: #8a6a4a;
+  --plate-depth: inset 0 1px 0 rgba(255, 220, 180, 0.06), 0 1px 0 rgba(0, 0, 0, 0.5);
+  --emblem-bg: #1a0f09; --emblem-color: #f0c24a;
+  --grille: radial-gradient(circle, #0d0705 0 1.2px, transparent 1.6px) 0 0 / 4.5px 4.5px, #6a4426;
+  --lcd-bg: linear-gradient(#06110f, #0b1a17); --lcd-label: #6fb8a5; --lcd-best: #c8fff2;
+  --segments-lit: #5ff5d0; --segments-unlit: rgba(95, 245, 208, 0.08); --segments-glow: 0 0 8px rgba(95, 245, 208, 0.6);
+  --segments-rec-bg: linear-gradient(#1a0806, #250c08); --segments-rec-unlit: #3a1208; --segments-rec-lit: #ff6a3d;
+  --segments-rec-glow: 0 0 10px rgba(255, 106, 61, 0.6);
+  --segments-weight: 700; --segments-size: 20px; --segments-spacing: 2px;
+  --signal-text: #2b1205; --signal-edge: #9a4512; --signal-hover: #f08a40;
+  --rec-bg: #c8402a; --rec-edge: #6e1e10; --rec-text: #fff0dc;
+  --stop-bg: #f0c24a; --stop-edge: #8e6312; --stop-text: #2b1a10;
+  --live-bg: #7b8f35; --live-edge: #45521a; --live-text: #f8f2dc;
+  --chip-running-bg: #1d3a38; --chip-running-text: #c9fff2; --chip-error-bg: #4a160c; --chip-error-text: #ffd8c8;
+}
+:root[data-theme="seventies"] .hub { padding-top: 30px; }
+:root[data-theme="seventies"] .big-key .key-name { font-weight: 400; font-size: 34px; letter-spacing: 0; }
+:root[data-theme="seventies"] .brand-name { font-weight: 400; font-size: 21px; letter-spacing: 0; }
+:root[data-theme="seventies"] .dialog h2 { font-weight: 400; }
+
+/* ------------------------------------------------------------------ Memphis '84
+   Milan in the eighties: confetti on white, black outlines, hard offset shadows, pastel keys,
+   Bungee for the names, and a grey-green Casio LCD with dark segments. */
+[data-theme="eighties"] {
+  color-scheme: light;
+  --color-background: #fdf8ee; --color-well: #ffffff; --color-panel: #ffffff;
+  --color-raised: #ffffff; --color-raised-edge: #111111; --color-line: #111111; --color-key-hover: #fff3c4;
+  --color-text: #111111; --color-text-muted: #4a4a4a; --color-text-dim: #8a8a8a;
+  --color-cream: #111111; --color-signal: #ff5c8a; --color-accent: #3ec1d3; --color-playhead: #ff3b4e;
+  --color-good: #1f9e58; --color-warning: #d99a00; --color-problem: #e0283f; --color-blue: #3ec1d3;
+  --color-lcd: #1d2418; --color-lcd-off: rgba(29, 36, 24, 0.08); --color-camera-2: #2aa9bb;
+  --font-ui: "Jost", "Futura", system-ui, sans-serif; --font-display: "Bungee", "Jost", sans-serif;
+  --font-segments: "DSEG14", "Jost", monospace; --font-lcd: "DSEG7", "Jost", monospace;
+  --body-size: 15px;
+  --radius: 6px; --radius-small: 4px; --radius-panel: 8px; --radius-big-key: 10px;
+  --texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cg fill='none' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22q6-8 12 0t12 0t12 0' stroke='%23111'/%3E%3Cpath d='M86 14h16l-8 13z' fill='%23ffd23f' stroke='%23111' stroke-width='2'/%3E%3Cpath d='M66 66l10 10M76 66l-10 10' stroke='%233ec1d3'/%3E%3Cpath d='M82 116q5-7 10 0t10 0t10 0' stroke='%233ec1d3'/%3E%3Crect x='18' y='62' width='11' height='11' stroke='%23ff5c8a' transform='rotate(20 23 67)'/%3E%3Cpath d='M118 70a8 8 0 0 1 16 0' stroke='%23111' stroke-width='2.5'/%3E%3C/g%3E%3Ccircle cx='112' cy='42' r='6' fill='%23ff5c8a'/%3E%3Ccircle cx='34' cy='108' r='3' fill='%23111'/%3E%3Ccircle cx='52' cy='40' r='2.5' fill='%23111'/%3E%3Ccircle cx='130' cy='130' r='3' fill='%23ffd23f'/%3E%3C/svg%3E") 0 0 / 140px 140px;
+  --key-depth: 3px 3px 0 #111111, inset 0 0 0 2px #111111;
+  --well-depth: inset 0 0 0 2px #111111;
+  --panel-depth: 0 0 0 2px #111111, 5px 5px 0 #111111;
+  --float-shadow: 0 0 0 2px #111111, 7px 7px 0 #111111;
+  --backdrop: rgba(17, 17, 17, 0.45); --tabbar-bg: #ffffff; --led-off: #dddddd;
+  --color-plate: #111111; --color-plate-text: #fdf8ee; --plate-muted: #cfcfcf; --plate-dim: #9a9a9a;
+  --plate-depth: 3px 3px 0 #ff5c8a;
+  --emblem-bg: #ffd23f; --emblem-color: #111111;
+  --grille: repeating-linear-gradient(45deg, #ff5c8a 0 3px, #ffd23f 3px 6px, #3ec1d3 6px 9px);
+  --lcd-bg: linear-gradient(#c6d0ad, #b2bd95); --lcd-label: #3a4430; --lcd-best: #000000;
+  --segments-lit: #1d2418; --segments-unlit: rgba(29, 36, 24, 0.08); --segments-glow: none;
+  --segments-rec-bg: linear-gradient(#ffc2cd, #ffa3b5); --segments-rec-unlit: rgba(0, 0, 0, 0.07); --segments-rec-lit: #111111;
+  --segments-rec-glow: none;
+  --segments-weight: 700; --segments-size: 20px; --segments-spacing: 2px;
+  --signal-text: #111111; --signal-edge: #111111; --signal-hover: #ff7aa0;
+  --rec-bg: #ff4f5e; --rec-edge: #111111; --rec-text: #111111;
+  --stop-bg: #ffd23f; --stop-edge: #111111; --stop-text: #111111;
+  --live-bg: #3ec1d3; --live-edge: #111111; --live-text: #111111;
+  --chip-running-bg: #d4f3f7; --chip-running-text: #0b4b54; --chip-error-bg: #ffd6dc; --chip-error-text: #8a0f22;
+}
+:root[data-theme="eighties"] .big-key { border: 3px solid #111; box-shadow: 6px 6px 0 #111 !important; }
+:root[data-theme="eighties"] .big-key:active:not(:disabled) { transform: translate(5px, 5px); box-shadow: 1px 1px 0 #111 !important; }
+:root[data-theme="eighties"] .big-key.rec { background-image: radial-gradient(rgba(17, 17, 17, 0.22) 1.6px, transparent 2px); background-size: 12px 12px; }
+:root[data-theme="eighties"] .big-key.stop { background-image: repeating-linear-gradient(-45deg, rgba(17, 17, 17, 0.12) 0 2px, transparent 2px 9px); }
+:root[data-theme="eighties"] .big-key .key-name { font-weight: 400; font-size: 28px; letter-spacing: 0; }
+:root[data-theme="eighties"] .brand-name { font-weight: 400; letter-spacing: 0.02em; }
+:root[data-theme="eighties"] .key.signal { box-shadow: 3px 3px 0 #111, inset 0 0 0 2px #111; }
+:root[data-theme="eighties"] .views { box-shadow: inset 0 0 0 2px #111; }
+:root[data-theme="eighties"] .view-key[aria-current] { color: #fdf8ee; }
+
+/* ------------------------------------------------------------------ Neon 2077
+   Cyberpunk: deep violet night, a cyan and magenta grid under scanlines, cut corners,
+   Orbitron for the names and a slanted magenta display. */
+[data-theme="neon"] {
+  color-scheme: dark;
+  --color-background: #07040f; --color-well: #04020a; --color-panel: rgba(18, 10, 38, 0.86);
+  --color-raised: #1c1238; --color-raised-edge: #0a0618; --color-line: #2e2258; --color-key-hover: #2a1a52;
+  --color-text: #e8f6ff; --color-text-muted: #8fa3cc; --color-text-dim: #5b5f8a;
+  --color-cream: #00f0ff; --color-signal: #ff2bd6; --color-accent: #00f0ff; --color-playhead: #ff2b6b;
+  --color-good: #39ff9a; --color-warning: #ffe14d; --color-problem: #ff3b6b; --color-blue: #00f0ff;
+  --color-lcd: #ff2bd6; --color-lcd-off: rgba(255, 43, 214, 0.08); --color-camera-2: #00e5ff;
+  --font-ui: "Jost", system-ui, sans-serif; --font-display: "Orbitron", "Jost", sans-serif;
+  --font-segments: "DSEG14", "Jost", monospace; --font-lcd: "DSEG7", "Jost", monospace;
+  --body-size: 15px;
+  --radius: 4px; --radius-small: 3px; --radius-panel: 6px; --radius-big-key: 4px;
+  --texture:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.028) 0 1px, transparent 1px 3px),
+    linear-gradient(rgba(0, 240, 255, 0.08) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(90deg, rgba(255, 43, 214, 0.08) 1px, transparent 1px) 0 0 / 44px 44px,
+    radial-gradient(ellipse at 0% 0%, rgba(255, 43, 214, 0.25), transparent 55%),
+    radial-gradient(ellipse at 100% 100%, rgba(0, 240, 255, 0.2), transparent 55%);
+  --key-depth: inset 0 0 0 1px rgba(0, 240, 255, 0.5), 0 0 10px rgba(0, 240, 255, 0.15);
+  --well-depth: inset 0 0 0 1px rgba(255, 43, 214, 0.35), inset 0 0 18px rgba(255, 43, 214, 0.08);
+  --panel-depth: inset 0 0 0 1px rgba(0, 240, 255, 0.28), 0 0 24px rgba(0, 240, 255, 0.07);
+  --float-shadow: 0 0 0 1px rgba(0, 240, 255, 0.45), 0 0 40px rgba(255, 43, 214, 0.25);
+  --backdrop: rgba(4, 2, 10, 0.82); --tabbar-bg: rgba(7, 4, 15, 0.94); --led-off: #241a40;
+  --color-plate: #0d0820; --color-plate-text: #ff2bd6; --plate-muted: #8fa3cc; --plate-dim: #5b5f8a;
+  --plate-depth: inset 0 0 0 1px rgba(255, 43, 214, 0.4);
+  --emblem-bg: #04020a; --emblem-color: #00f0ff;
+  --grille: repeating-linear-gradient(90deg, #ff2bd6 0 2px, transparent 2px 4px), #0d0820;
+  --lcd-bg: linear-gradient(#0a0418, #120726); --lcd-label: #ff7be6; --lcd-best: #b0fbff;
+  --segments-lit: #ff2bd6; --segments-unlit: rgba(255, 43, 214, 0.08);
+  --segments-glow: 0 0 6px #ff2bd6, 0 0 18px rgba(255, 43, 214, 0.6);
+  --segments-rec-bg: linear-gradient(#1a0410, #26061a); --segments-rec-unlit: rgba(255, 43, 107, 0.1); --segments-rec-lit: #ff2b6b;
+  --segments-rec-glow: 0 0 8px #ff2b6b, 0 0 20px rgba(255, 43, 107, 0.6);
+  --segments-weight: 700; --segments-size: 20px; --segments-spacing: 2px;
+  --signal-text: #12001a; --signal-edge: #8a0f73; --signal-hover: #ff5ce0;
+  --rec-bg: #ff2bd6; --rec-edge: #7a0d66; --rec-text: #12001a;
+  --stop-bg: #00f0ff; --stop-edge: #006b73; --stop-text: #001417;
+  --live-bg: #7a3cff; --live-edge: #3b1a8a; --live-text: #f1eaff;
+  --chip-running-bg: #082b3a; --chip-running-text: #b0fbff; --chip-error-bg: #3a0820; --chip-error-text: #ffc2d6;
+}
+:root[data-theme="neon"] .big-key {
+  box-shadow: none !important;
+  clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 22px 100%, 0 calc(100% - 22px));
+}
+:root[data-theme="neon"] .big-key .key-name { font-size: 22px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+:root[data-theme="neon"] .brand-name { font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: #00f0ff; text-shadow: 0 0 10px rgba(0, 240, 255, 0.6); }
+:root[data-theme="neon"] .segments { transform: skewX(-8deg); }
+@media (max-width: 720px) { :root[data-theme="neon"] .brand-name { font-size: 13px; letter-spacing: 0.04em; } }
+:root[data-theme="neon"] .dialog h2, :root[data-theme="neon"] .panel h2 { text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* ------------------------------------------------------------------ Grand Budapest
+   A pink hotel lobby: striped wallpaper, framed panels, raspberry, lobby-boy purple and
+   gold, everything in Futura capitals, and the rig's state on a brass plaque. */
+[data-theme="budapest"] {
+  color-scheme: light;
+  --color-background: #f0bcc4; --color-well: #f6dcd8; --color-panel: #fdf1ea;
+  --color-raised: #f5e1d8; --color-raised-edge: #c99a9a; --color-line: #d9a9ad; --color-key-hover: #f0d4c8;
+  --color-text: #3d1a2c; --color-text-muted: #7c4a5e; --color-text-dim: #a87e8c;
+  --color-cream: #5b2342; --color-signal: #b4344d; --color-accent: #c08a2a; --color-playhead: #c2273d;
+  --color-good: #4f7f4e; --color-warning: #b07612; --color-problem: #c2273d; --color-blue: #6c8fb3;
+  --color-lcd: #e8c170; --color-lcd-off: transparent; --color-camera-2: #6c8fb3;
+  --font-ui: "Jost", "Futura", system-ui, sans-serif; --font-display: "Jost", "Futura", sans-serif;
+  --font-segments: "Jost", "Futura", sans-serif; --font-lcd: "Jost", "Futura", sans-serif;
+  --body-size: 15px;
+  --radius: 4px; --radius-small: 2px; --radius-panel: 4px; --radius-big-key: 6px;
+  --texture:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.2) 0 16px, transparent 16px 32px),
+    repeating-linear-gradient(90deg, transparent 0 15px, rgba(150, 40, 70, 0.14) 15px 16px, transparent 16px 31px, rgba(150, 40, 70, 0.14) 31px 32px);
+  --key-depth: 0 2px 0 var(--color-raised-edge), inset 0 0 0 1px rgba(91, 35, 66, 0.25);
+  --well-depth: inset 0 0 0 1px rgba(91, 35, 66, 0.25);
+  --panel-depth: 0 0 0 3px #fdf1ea, 0 0 0 4px #c99a9a, 0 4px 14px 4px rgba(91, 35, 66, 0.12);
+  --float-shadow: 0 0 0 1px #c99a9a, 0 18px 50px rgba(61, 26, 44, 0.3);
+  --backdrop: rgba(61, 26, 44, 0.5); --tabbar-bg: #fdf1ea; --led-off: #e3c3c3;
+  --color-plate: #5b2342; --color-plate-text: #e8c170; --plate-muted: #e6c3cf; --plate-dim: #c99aae;
+  --plate-depth: 0 0 0 2px #fdf1ea, 0 0 0 3px #c99a9a;
+  --emblem-bg: #5b2342; --emblem-color: #e8c170;
+  --grille: repeating-linear-gradient(90deg, #e8c170 0 2px, #5b2342 2px 4px);
+  --lcd-bg: linear-gradient(#6a2a4e, #4e1c38); --lcd-label: #e8c170; --lcd-best: #fff0c8;
+  --segments-lit: #ecc878; --segments-unlit: transparent; --segments-glow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  --segments-rec-bg: linear-gradient(#a3263f, #861d33); --segments-rec-unlit: transparent; --segments-rec-lit: #ffe6b0;
+  --segments-rec-glow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  --segments-weight: 600; --segments-size: 16px; --segments-spacing: 0.28em;
+  --signal-text: #fff3ec; --signal-edge: #6e1a2c; --signal-hover: #c4445d;
+  --rec-bg: #b4344d; --rec-edge: #6e1a2c; --rec-text: #fff3ec;
+  --stop-bg: #f4e3c1; --stop-edge: #c4a876; --stop-text: #3d1a2c;
+  --live-bg: #8e6aa0; --live-edge: #553a64; --live-text: #fbf3ff;
+  --chip-running-bg: #dbe6f2; --chip-running-text: #2e4b6a; --chip-error-bg: #f5cfd5; --chip-error-text: #7a1426;
+}
+:root[data-theme="budapest"] .brand-name,
+:root[data-theme="budapest"] .view-key,
+:root[data-theme="budapest"] .panel h2,
+:root[data-theme="budapest"] .dialog h2,
+:root[data-theme="budapest"] .take h3 { text-transform: uppercase; letter-spacing: 0.14em; }
+:root[data-theme="budapest"] .brand-name { font-size: 15px; }
+:root[data-theme="budapest"] .view-key { font-size: 12px; }
+:root[data-theme="budapest"] .big-key { justify-items: center; text-align: center; }
+:root[data-theme="budapest"] .big-key .key-name { font-size: 20px; text-transform: uppercase; letter-spacing: 0.24em; }
+:root[data-theme="budapest"] .segments { box-shadow: 0 0 0 2px #e8c170, 0 0 0 4px #5b2342; }
+
+/* ------------------------------------------------------------------ Paper
+   Even less than Graphite: ink on paper, hairlines, no shadows, one red for recording. */
+[data-theme="paper"] {
+  color-scheme: light;
+  --color-background: #f7f6f2; --color-well: #efede7; --color-panel: #ffffff;
+  --color-raised: #ffffff; --color-raised-edge: #d9d6ce; --color-line: #e3e0d8; --color-key-hover: #f2f0eb;
+  --color-text: #161616; --color-text-muted: #6d6a64; --color-text-dim: #a3a09a;
+  --color-cream: #161616; --color-signal: #161616; --color-accent: #2f6fde; --color-playhead: #e5372b;
+  --color-good: #2e8b57; --color-warning: #b7791f; --color-problem: #d93025; --color-blue: #5a7fa8;
+  --color-lcd: #161616; --color-lcd-off: transparent; --color-camera-2: #5a7fa8;
+  --font-ui: "Figtree", system-ui, sans-serif; --font-display: "Figtree", system-ui, sans-serif;
+  --font-segments: "Figtree", system-ui, sans-serif; --font-lcd: "Figtree", system-ui, sans-serif;
+  --body-size: 15px;
+  --radius: 8px; --radius-small: 6px; --radius-panel: 12px; --radius-big-key: 14px;
+  --texture: none;
+  --key-depth: inset 0 0 0 1px #dedbd3;
+  --well-depth: none;
+  --panel-depth: inset 0 0 0 1px #e8e5de;
+  --float-shadow: 0 0 0 1px #e3e0d8, 0 12px 40px rgba(0, 0, 0, 0.08);
+  --backdrop: rgba(247, 246, 242, 0.82); --tabbar-bg: rgba(255, 255, 255, 0.96); --led-off: #e3e0d8;
+  --color-plate: transparent; --color-plate-text: #6d6a64; --plate-muted: #a3a09a; --plate-dim: #c3c0b9;
+  --plate-depth: none;
+  --emblem-bg: transparent; --emblem-color: #161616;
+  --grille: radial-gradient(circle, #161616 0 1px, transparent 1.4px) 0 0 / 5px 5px;
+  --lcd-bg: transparent; --lcd-label: #6d6a64; --lcd-best: #2e8b57;
+  --segments-lit: #161616; --segments-unlit: transparent; --segments-glow: none;
+  --segments-rec-bg: transparent; --segments-rec-unlit: transparent; --segments-rec-lit: #e5372b; --segments-rec-glow: none;
+  --segments-weight: 600; --segments-size: 15px; --segments-spacing: 0.16em;
+  --signal-text: #ffffff; --signal-edge: transparent; --signal-hover: #3a3a3a;
+  --rec-bg: #ffffff; --rec-edge: transparent; --rec-text: #161616;
+  --stop-bg: #ffffff; --stop-edge: transparent; --stop-text: #161616;
+  --live-bg: #ffffff; --live-edge: transparent; --live-text: #161616;
+  --chip-running-bg: #e8eef6; --chip-running-text: #2a4a70; --chip-error-bg: #fbe4e2; --chip-error-text: #8a1c14;
+}
+:root[data-theme="paper"] .big-key { box-shadow: inset 0 0 0 1px #dedbd3 !important; }
+:root[data-theme="paper"] .big-key:active:not(:disabled) { transform: none; background: #f2f0eb; }
+:root[data-theme="paper"] .big-key .key-name { font-weight: 500; }
+:root[data-theme="paper"] .big-key .key-led { display: none; }
+:root[data-theme="paper"] .big-key.rec .key-glyph { color: #e5372b; opacity: 1; }
+:root[data-theme="paper"] .big-key.rec.lit { background: #e5372b; color: #fff; box-shadow: none !important; }
+:root[data-theme="paper"] .big-key.rec.lit .key-glyph { color: #fff; }
+:root[data-theme="paper"] .big-key.live.lit { background: #161616; color: #fff; }
+:root[data-theme="paper"] .segments { padding-inline: 0; }
+:root[data-theme="paper"] .brand-icon { box-shadow: none; }
+:root[data-theme="paper"] .views { box-shadow: none; }
+:root[data-theme="paper"] .model-plate { padding-left: 0; }
+
+/* ------------------------------------------------------------------ Blue Note '59
+   A jazz sleeve: black, a halftone wash of blue, flat colour blocks, condensed capitals,
+   and the rig's state printed white on a blue band. */
+[data-theme="bluenote"] {
+  color-scheme: dark;
+  --color-background: #0e0e10; --color-well: #070708; --color-panel: #17171b;
+  --color-raised: #26262c; --color-raised-edge: #0a0a0c; --color-line: #2c2c33; --color-key-hover: #33333a;
+  --color-text: #f3efe4; --color-text-muted: #a9a59a; --color-text-dim: #6c6a64;
+  --color-cream: #f3efe4; --color-signal: #1f5fff; --color-accent: #f2b705; --color-playhead: #e2412f;
+  --color-good: #6fbf73; --color-warning: #f2b705; --color-problem: #ff5a3c; --color-blue: #4f7fff;
+  --color-lcd: #f3efe4; --color-lcd-off: transparent; --color-camera-2: #4f7fff;
+  --font-ui: "Jost", "Futura", system-ui, sans-serif; --font-display: "Oswald", "Jost", sans-serif;
+  --font-segments: "Oswald", "Jost", sans-serif; --font-lcd: "Oswald", "Jost", sans-serif;
+  --body-size: 15px;
+  --radius: 3px; --radius-small: 2px; --radius-panel: 3px; --radius-big-key: 3px;
+  --texture:
+    radial-gradient(circle, rgba(31, 95, 255, 0.24) 0 1.3px, transparent 1.7px) 0 0 / 7px 7px,
+    radial-gradient(ellipse at 100% 0%, rgba(31, 79, 209, 0.4), transparent 60%);
+  --key-depth: none;
+  --well-depth: inset 0 0 0 1px #2c2c33;
+  --panel-depth: none;
+  --float-shadow: 0 0 0 1px #2c2c33, 0 20px 60px rgba(0, 0, 0, 0.7);
+  --backdrop: rgba(0, 0, 0, 0.82); --tabbar-bg: #0e0e10; --led-off: #2c2c33;
+  --color-plate: #1f4fd1; --color-plate-text: #f3efe4; --plate-muted: #cdd8ff; --plate-dim: #9fb2f0;
+  --plate-depth: none;
+  --emblem-bg: #1f4fd1; --emblem-color: #f3efe4;
+  --grille: linear-gradient(90deg, #f3efe4 0 34%, #f2b705 34% 67%, #e2412f 67%);
+  --lcd-bg: #1f4fd1; --lcd-label: #cdd8ff; --lcd-best: #f2b705;
+  --segments-lit: #f3efe4; --segments-unlit: transparent; --segments-glow: none;
+  --segments-rec-bg: #e2412f; --segments-rec-unlit: transparent; --segments-rec-lit: #ffffff; --segments-rec-glow: none;
+  --segments-weight: 600; --segments-size: 21px; --segments-spacing: 0.06em;
+  --signal-text: #ffffff; --signal-edge: #0f2f99; --signal-hover: #3a74ff;
+  --rec-bg: #e2412f; --rec-edge: #8c2015; --rec-text: #ffffff;
+  --stop-bg: #f3efe4; --stop-edge: #9f9b90; --stop-text: #0e0e10;
+  --live-bg: #1f4fd1; --live-edge: #0f2a80; --live-text: #ffffff;
+  --chip-running-bg: #13265e; --chip-running-text: #dfe7ff; --chip-error-bg: #4a1712; --chip-error-text: #ffd9d2;
+}
+:root[data-theme="bluenote"] .big-key { box-shadow: none !important; }
+:root[data-theme="bluenote"] .big-key .key-name { font-size: 40px; text-transform: uppercase; letter-spacing: 0.01em; }
+:root[data-theme="bluenote"] .brand-name,
+:root[data-theme="bluenote"] .panel h2,
+:root[data-theme="bluenote"] .dialog h2 { font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.04em; }
+:root[data-theme="bluenote"] .brand-name { font-size: 21px; }
+
+/* ------------------------------------------------------------------ Sound System
+   A dub sound system: black speaker-grille steel, a red, gold and green stripe, heavy
+   capitals and an amber display. */
+[data-theme="dub"] {
+  color-scheme: dark;
+  --color-background: #161614; --color-well: #070707; --color-panel: #1d1c19;
+  --color-raised: #2c2a25; --color-raised-edge: #0e0d0b; --color-line: #34312b; --color-key-hover: #3a372f;
+  --color-text: #f2ead6; --color-text-muted: #b0a68e; --color-text-dim: #6d6655;
+  --color-cream: #f5c518; --color-signal: #d7261e; --color-accent: #f5c518; --color-playhead: #ff3b2e;
+  --color-good: #3fbf5f; --color-warning: #f5c518; --color-problem: #ff4a3a; --color-blue: #6fb3ff;
+  --color-lcd: #ffb000; --color-lcd-off: rgba(255, 176, 0, 0.08); --color-camera-2: #f5c518;
+  --font-ui: "Jost", "Futura", system-ui, sans-serif; --font-display: "Archivo Black", "Jost", sans-serif;
+  --font-segments: "DSEG14", "Jost", monospace; --font-lcd: "DSEG7", "Jost", monospace;
+  --body-size: 15px;
+  --radius: 8px; --radius-small: 5px; --radius-panel: 12px; --radius-big-key: 14px;
+  --texture:
+    linear-gradient(#d7261e 0 5px, #f5c518 5px 10px, #1f8f3a 10px 15px, transparent 15px) 0 0 / 100% 15px no-repeat,
+    radial-gradient(circle, #050505 0 2px, transparent 2.6px) 0 0 / 10px 10px,
+    radial-gradient(circle, #050505 0 2px, transparent 2.6px) 5px 5px / 10px 10px,
+    radial-gradient(ellipse at 50% 30%, rgba(255, 255, 255, 0.05), transparent 70%);
+  --key-depth: 0 2px 0 var(--color-raised-edge), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --well-depth: inset 0 2px 6px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 255, 255, 0.04);
+  --panel-depth: inset 0 0 0 1px #2e2c27, 0 4px 14px rgba(0, 0, 0, 0.5);
+  --float-shadow: 0 0 0 1px var(--color-line), 0 20px 60px rgba(0, 0, 0, 0.7);
+  --backdrop: rgba(0, 0, 0, 0.82); --tabbar-bg: #0c0c0b; --led-off: #34312b;
+  --color-plate: #000000; --color-plate-text: #f5c518; --plate-muted: #b0a68e; --plate-dim: #6d6655;
+  --plate-depth: inset 0 0 0 1px #2e2c27;
+  --emblem-bg: #000000; --emblem-color: #f5c518;
+  --grille: linear-gradient(#d7261e 0 34%, #f5c518 34% 67%, #1f8f3a 67%);
+  --lcd-bg: linear-gradient(#120b00, #1a1000); --lcd-label: #c08a2a; --lcd-best: #ffe08a;
+  --segments-lit: #ffb000; --segments-unlit: rgba(255, 176, 0, 0.08); --segments-glow: 0 0 8px rgba(255, 176, 0, 0.55);
+  --segments-rec-bg: linear-gradient(#1a0503, #240806); --segments-rec-unlit: #3a0e08; --segments-rec-lit: #ff3b2e;
+  --segments-rec-glow: 0 0 10px rgba(255, 59, 46, 0.6);
+  --segments-weight: 700; --segments-size: 20px; --segments-spacing: 2px;
+  --signal-text: #fff3e8; --signal-edge: #7a120d; --signal-hover: #ea3a2e;
+  --rec-bg: #d7261e; --rec-edge: #7a120d; --rec-text: #fff3e8;
+  --stop-bg: #f5c518; --stop-edge: #8e700a; --stop-text: #121211;
+  --live-bg: #1f8f3a; --live-edge: #0e4f1e; --live-text: #f2fff4;
+  --chip-running-bg: #2a2410; --chip-running-text: #ffe9a8; --chip-error-bg: #4a120c; --chip-error-text: #ffd6cf;
+}
+:root[data-theme="dub"] .hub { padding-top: 26px; }
+:root[data-theme="dub"] .big-key .key-name { font-weight: 400; font-size: 27px; text-transform: uppercase; letter-spacing: 0; }
+:root[data-theme="dub"] .brand-name { font-weight: 400; font-size: 17px; text-transform: uppercase; letter-spacing: 0.02em; }
+:root[data-theme="dub"] .dialog h2 { font-weight: 400; text-transform: uppercase; }
+
+/* ------------------------------------------------------------------ Phosphor
+   A green-screen terminal: one colour, scanlines, a glow on every letter, square corners,
+   VT323 for everything; the selected thing is drawn in inverse video. */
+[data-theme="phosphor"] {
+  color-scheme: dark;
+  --color-background: #020a05; --color-well: #010603; --color-panel: rgba(4, 20, 10, 0.9);
+  --color-raised: #082010; --color-raised-edge: #000000; --color-line: #145a2a; --color-key-hover: #0f3a1e;
+  --color-text: #4dff7c; --color-text-muted: #2fbf58; --color-text-dim: #1d8a3c;
+  --color-cream: #4dff7c; --color-signal: #4dff7c; --color-accent: #b8ffcc; --color-playhead: #ff6b4a;
+  --color-good: #4dff7c; --color-warning: #e6ff4d; --color-problem: #ff6b4a; --color-blue: #8affc8;
+  --color-lcd: #4dff7c; --color-lcd-off: rgba(77, 255, 124, 0.06); --color-camera-2: #4dff7c;
+  --font-ui: "VT323", ui-monospace, monospace; --font-display: "VT323", ui-monospace, monospace;
+  --font-segments: "VT323", ui-monospace, monospace; --font-lcd: "VT323", ui-monospace, monospace;
+  --body-size: 17px;
+  --radius: 0px; --radius-small: 0px; --radius-panel: 0px; --radius-big-key: 0px;
+  --texture:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.4) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at 50% 40%, rgba(77, 255, 124, 0.09), transparent 70%);
+  --key-depth: inset 0 0 0 1px #2fbf58;
+  --well-depth: inset 0 0 0 1px #145a2a;
+  --panel-depth: inset 0 0 0 1px #145a2a;
+  --float-shadow: 0 0 0 1px #2fbf58, 0 0 40px rgba(77, 255, 124, 0.15);
+  --backdrop: rgba(0, 0, 0, 0.86); --tabbar-bg: #010603; --led-off: #0f3a1e;
+  --color-plate: transparent; --color-plate-text: #2fbf58; --plate-muted: #1d8a3c; --plate-dim: #146a2e;
+  --plate-depth: none;
+  --emblem-bg: transparent; --emblem-color: #4dff7c;
+  --grille: #4dff7c;
+  --lcd-bg: transparent; --lcd-label: #2fbf58; --lcd-best: #ccffd9;
+  --segments-lit: #4dff7c; --segments-unlit: transparent; --segments-glow: 0 0 6px rgba(77, 255, 124, 0.7);
+  --segments-rec-bg: transparent; --segments-rec-unlit: transparent; --segments-rec-lit: #ff6b4a;
+  --segments-rec-glow: 0 0 6px rgba(255, 107, 74, 0.7);
+  --segments-weight: 400; --segments-size: 30px; --segments-spacing: 2px;
+  --signal-text: #010603; --signal-edge: #000000; --signal-hover: #8affab;
+  --rec-bg: #031208; --rec-edge: #000000; --rec-text: #4dff7c;
+  --stop-bg: #031208; --stop-edge: #000000; --stop-text: #4dff7c;
+  --live-bg: #031208; --live-edge: #000000; --live-text: #4dff7c;
+  --chip-running-bg: #0f3a1e; --chip-running-text: #b8ffcc; --chip-error-bg: #3a120a; --chip-error-text: #ffb8a8;
+}
+/* VT323 is small for its size: font-size-adjust scales it (and every px size on the page) up to a readable height. */
+:root[data-theme="phosphor"] body { text-shadow: 0 0 5px rgba(77, 255, 124, 0.45); font-size-adjust: 0.48; }
+:root[data-theme="phosphor"] .big-key { box-shadow: inset 0 0 0 1px #2fbf58 !important; }
+:root[data-theme="phosphor"] .big-key.lit, :root[data-theme="phosphor"] .big-key:active:not(:disabled) { background: #4dff7c; color: #010603; text-shadow: none; }
+:root[data-theme="phosphor"] .big-key .key-name { font-weight: 400; font-size: 40px; text-transform: uppercase; }
+:root[data-theme="phosphor"] .brand-name { font-weight: 400; font-size: 24px; text-transform: uppercase; }
+:root[data-theme="phosphor"] .brand-name::after { content: "_"; animation: blink 1.1s steps(1) infinite; }
+:root[data-theme="phosphor"] .view-key[aria-current], :root[data-theme="phosphor"] .segmented button[aria-pressed="true"] { text-shadow: none; }
+:root[data-theme="phosphor"] .key.signal { text-shadow: none; }
+:root[data-theme="phosphor"] .segments { padding-inline: 4px; }
+:root[data-theme="phosphor"] :is(.views, .view-key, .key, .round-key, .segmented, .segmented button, .device-led, .chip, .dialog, .theme-menu, .theme-option, .still, .field select, .field input) { border-radius: 0; }
