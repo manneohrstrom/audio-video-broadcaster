@@ -16,6 +16,7 @@ hubd_lamp:
     ready: {dim: 0}      # user, 2026-11-16: off when nothing is happening
     ingest_done: {dim: 0}   # user, 2026-11-16: no purple "safe to eject" either
     ingest: {rgb: [150, 0, 255]}   # user, 2026-11-16: ingest pulses purple, not cyan
+    recording: {dim: 85, pulse: true, period_s: 2.5}   # user, 2026-11-20: a touch dimmer, breathing
 # Hub mic (scratch.py): mixer set before every recording. C-Media "USB PnP Sound Device":
 # Mic 0-16 (6 = about 9 dB: loud claps near the hub just below clipping, 2026-11-16).
 hubd_scratch:

@@ -72,7 +72,7 @@ Without it the video window shows enlarged strip thumbnails and says so. (HTTPS 
 
 ## Recording light (smart bulb)
 
-hubd drives a LocalBytes RGB bulb from the rig state (`hub/hubd/lamp.py`, Phase 4 C1): off when nothing is happening (ready; user, 2026-11-16), amber arming, red recording, blue live, pulsing purple ingest running (user, 2026-11-16), off again when ingest is done (the purple "safe to eject" look is switched off; user, 2026-11-16), flashing red error (camera offline, REC failed, new dropped frames, drive full or needing repair). The bulb is only ever told what to show; if it's off or unreachable, hubd logs it once and carries on.
+hubd drives a LocalBytes RGB bulb from the rig state (`hub/hubd/lamp.py`, Phase 4 C1): off when nothing is happening (ready; user, 2026-11-16), amber arming, red recording (at 85 %, breathing slowly; user, 2026-11-20), blue live, pulsing purple ingest running (user, 2026-11-16), off again when ingest is done (the purple "safe to eject" look is switched off; user, 2026-11-16), flashing red error (camera offline, REC failed, new dropped frames, drive full or needing repair). The bulb is only ever told what to show; if it's off or unreachable, hubd logs it once and carries on.
 
 Setting it up (once):
 1. Join the bulb to the studio Wi-Fi (its own setup AP: Tasmota `tasmota-XXXX`, ESPHome a captive portal), then open `http://<bulb-ip>/` to see which firmware it runs.
