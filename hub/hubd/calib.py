@@ -41,13 +41,16 @@ def _inner(rect, keep=0.6):
 
 def measure(jpeg, card):
     """jpeg: bytes. Returns {"found": [marker ids], "marker_px", "grey": [r, g, b], "grey_spread",
-    "patches": {name: [r, g, b]}} in 8-bit sRGB as the device encoded it, or found=[] if no card."""
+    "patches": {name: [r, g, b]}} in 8-bit sRGB as the device encoded it, or found=[] if no card.
+    Always "clipped": the share of the whole picture that's blown out (any channel at 250 or
+    more), for the calibration's highlight check."""
     cv2, np, det = _cv2()
     im = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
     if im is None:
         raise ValueError("not an image")
     corners, ids, _ = det.detectMarkers(im)
-    out = {"found": [], "size": [im.shape[1], im.shape[0]]}
+    out = {"found": [], "size": [im.shape[1], im.shape[0]],
+           "clipped": round(float((im[::4, ::4].max(axis=2) >= 250).mean()), 4)}
     if ids is None:
         return out
     src, dst, sides = [], [], []

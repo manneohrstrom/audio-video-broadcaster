@@ -10,9 +10,11 @@ import calibrate  # noqa: E402
 import hubd  # noqa: E402
 from test_hubd import FakeRig  # noqa: E402
 
-# A camera under warm light: the card's grey gives these raw linear values per unit of
-# gain (red strong, blue weak), before the colour gains (green's is 1).
-RAW = (0.0440, 0.0210, 0.0076)
+# A camera under the studio's warm light: the card's grey gives these raw linear values per
+# unit of gain (blue weak), before the colour gains (green's is 1). They need cam1's colour
+# gains of 2026-11-19 (red 1.083, blue 5.157) to read neutral: about 2200 K. (Until
+# 2026-11-20 red was 0.044, a light no real one is like: about 1600 K.)
+RAW = (0.0210 / 1.083, 0.0210, 0.0210 / 5.157)
 
 
 # The colour matrix after the colour gains mixes the channels (raising red lowers green),
@@ -26,20 +28,41 @@ def picture(gain, awb, raw=RAW, ccm=CCM):
     return [round(min(255.0, 255 * min(1.0, max(v, 0.0)) ** (1 / 2.2)), 1) for v in lin]
 
 
-def run(gain, awb, raw=RAW, rounds=calibrate.ROUNDS):
-    """The calibrator's loop against the simulated camera."""
+def run(gain, awb, raw=RAW, rounds=calibrate.ROUNDS, warm=False):
+    """The calibrator's loop against the simulated camera (warm: aim at warm_target, as
+    the Calibrator does; otherwise neutral)."""
+    neutral = (1.0, 1.0)
     grey = picture(gain, awb, raw)
     prev = (list(awb), grey)
-    g, wb, ok = calibrate.next_settings(grey, gain, awb)
+    sens = (calibrate.SENS, calibrate.SENS)
+    target = calibrate.warm_target(grey, awb)[:2] if warm else neutral
+    g, wb, ok = calibrate.next_settings(grey, gain, awb, target=target)
     for _ in range(rounds):
         grey = picture(g, wb, raw)
-        if calibrate.good(grey, ok):
+        target = calibrate.warm_target(grey, wb)[:2] if warm else neutral
+        if calibrate.good(grey, ok, target):
             break
         cur = (list(wb), grey)
         sens = (calibrate.sensitivity(prev, cur, 0), calibrate.sensitivity(prev, cur, 1))
         prev = cur
-        g, wb, ok = calibrate.next_settings(grey, g, wb, sens)
+        g, wb, ok = calibrate.next_settings(grey, g, wb, sens, target)
     return g, wb, ok, picture(g, wb, raw)
+
+
+def studio_raw(neutral_awb, level=0.021):
+    """Raw grey values per unit of gain for a light that needs these colour gains to be neutral."""
+    return (level / neutral_awb[0], level, level / neutral_awb[1])
+
+
+def ratios(grey):
+    return calibrate.ratios(grey)
+
+
+def aimed(gain, awb, raw=RAW, brightness=True):
+    """True if the simulated camera at these settings reads the grey on its warm target
+    (brightness=False: its colour only)."""
+    grey = picture(gain, awb, raw)
+    return calibrate.good(grey, brightness, calibrate.warm_target(grey, awb)[:2])
 
 
 class MathTest(unittest.TestCase):
@@ -48,6 +71,8 @@ class MathTest(unittest.TestCase):
             g, wb, ok, grey = run(4.0, start)
             self.assertTrue(ok, start)
             self.assertTrue(calibrate.good(grey), (start, grey, wb))
+            g, wb, ok, grey = run(4.0, start, warm=True)
+            self.assertTrue(calibrate.good(grey, ok, calibrate.warm_target(grey, wb)[:2]), (start, grey, wb))
 
     def test_plain_step_would_diverge(self):
         # Guard for the bug of 2026-11-16: with the colour matrix, sensitivity 1 overshoots.
@@ -67,6 +92,63 @@ class MathTest(unittest.TestCase):
     def test_clipped_reading_steps_down(self):
         g, _, _ = calibrate.next_settings([255, 255, 255], 10.0, [1.5, 1.5])
         self.assertEqual(g, 5.0)
+
+    def test_light_kelvin_follows_the_cameras_curve(self):
+        for kelvin, red, blue in calibrate.CT_CURVE:
+            self.assertAlmostEqual(calibrate.light_kelvin([red, blue]), kelvin, delta=1)
+        # Between points, and past the warm end: the four cameras' calibrations of 2026-11-19.
+        self.assertTrue(3000 < calibrate.light_kelvin([1.45, 2.8]) < 3650)
+        for awb in ([1.083, 5.157], [1.013, 5.048], [1.076, 5.032], [0.976, 5.318]):
+            self.assertTrue(1950 < calibrate.light_kelvin(awb) < 2250, awb)
+
+    def test_warmth_by_colour_temperature(self):
+        self.assertEqual(calibrate.warmth(5000), 0)
+        self.assertEqual(calibrate.warmth(6500), 0)
+        self.assertAlmostEqual(calibrate.warmth(calibrate.ANCHOR_K), 1)
+        self.assertTrue(0 < calibrate.warmth(3500) < calibrate.warmth(2750) < 1)
+        self.assertEqual(calibrate.warmth(1000), calibrate.MAX_WARM)
+
+    def test_warm_light_stays_warm_like_the_pixel(self):
+        # The studio's bulbs (cam1's neutral gains, 2026-11-19): the grey ends up as warm as
+        # the Pixel 9a read it, not neutral, with less blue gain and more red than neutral.
+        raw = studio_raw([1.083, 5.157])
+        g, wb, ok, grey = run(8.0, [1.5, 3.0], raw, warm=True)
+        rg, bg = ratios(grey)
+        self.assertAlmostEqual(rg, calibrate.ANCHOR_RG, delta=0.06)
+        self.assertAlmostEqual(bg, calibrate.ANCHOR_BG, delta=0.04)
+        _, neutral_wb, _, neutral_grey = run(8.0, [1.5, 3.0], raw)
+        self.assertTrue(calibrate.good(neutral_grey))
+        self.assertGreater(wb[0], neutral_wb[0])
+        self.assertLess(wb[1], neutral_wb[1])
+
+    def test_daylight_stays_neutral(self):
+        raw = studio_raw([2.142, 1.695])            # 5715 K, the curve's coolest point
+        g, wb, ok, grey = run(4.0, [1.5, 1.5], raw, warm=True)
+        self.assertTrue(calibrate.good(grey), grey)
+
+    def test_warmth_zero_is_the_old_neutral_calibration(self):
+        old = calibrate.WARMTH
+        calibrate.WARMTH = 0.0
+        try:
+            _, _, _, grey = run(8.0, [1.5, 3.0], studio_raw([1.083, 5.157]), warm=True)
+            self.assertTrue(calibrate.good(grey), grey)
+        finally:
+            calibrate.WARMTH = old
+
+    def test_protect_highlights_steps_down_until_little_is_blown_out(self):
+        seen = []
+
+        def measure(gain):
+            seen.append(gain)
+            return {"clipped": gain * 0.0025}
+        gain, lowered = calibrate.Calibrator.protect_highlights(32.0, {"clipped": 0.08}, measure)
+        self.assertTrue(lowered)
+        self.assertLessEqual(gain * 0.0025, calibrate.CLIP_MAX)
+        self.assertEqual(seen, [24.0, 18.0, 13.5])
+        self.assertEqual(calibrate.Calibrator.protect_highlights(8.0, {"clipped": 0.01}, measure), (8.0, False))
+        # Never more than CLIP_ROUNDS stills, never below gain 1.
+        gain, _ = calibrate.Calibrator.protect_highlights(4.0, {"clipped": 1.0}, lambda g: {"clipped": 1.0})
+        self.assertEqual(gain, 1.266)
 
     def test_card_problems(self):
         self.assertIn("closer", calibrate.card_problem({"marker_px": 10, "grey_spread": 1}))
@@ -109,8 +191,78 @@ class CalibratorTest(unittest.TestCase):
                 return {"found": []}
             st = body["settings"]
             g, wb = (12.0, [1.9, 2.6]) if body["auto"] else (st["gain"], st["awb_gains"])
-            return {"found": [0, 1], "marker_px": 80, "grey_spread": 2.0, "grey": picture(g, wb), "patches": {}}
+            self.gains_seen.append(g)
+            return {"found": [0, 1], "marker_px": 80, "grey_spread": 2.0, "grey": picture(g, wb), "patches": {},
+                    "clipped": self.clip_per_gain * g}
+        self.clip_per_gain = 0.0         # share of the picture blown out per unit of gain
+        self.gains_seen = []
         cal._measure = measure
+
+    def test_lowers_the_gain_to_keep_the_highlights(self):
+        # Like cam1 on 2026-11-20: the card's brightness would blow out much of the room.
+        cal = self.hub.calibrator
+        self.clip_per_gain = 0.008        # 7.2 % blown out at the card's gain (9)
+        cal.page_open()
+        cal.tick()
+        s = self.hub.cam_settings["cam1"]
+        self.assertLessEqual(self.clip_per_gain * s["gain"], calibrate.CLIP_MAX)
+        self.assertEqual(s["gain"], self.gains_seen[-1])                 # the last still had it
+        rec = json.load(open(os.path.join(self.cfg["state_dir"], "calibration.json")))["cam1"]
+        self.assertTrue(rec["highlights_limited"] and rec["light_ok"], rec)
+        st = cal.status()["devices"]["cam1"]
+        self.assertTrue(st["highlights_limited"])
+        self.assertIsNone(st["message"])                                 # not a warning
+        self.assertTrue(aimed(s["gain"], s["awb_gains"], brightness=False))   # darker, colour as aimed
+
+    def calibrated(self, cam, kelvin, awb, at=None, gain=10.0):
+        cal = self.hub.calibrator
+        self.now[0] = at or self.now[0] + 60
+        cal.save(cam, gain, awb, True, {"grey": [130, 119, 103], "patches": {}}, 3, True, (1.2, 0.76, kelvin))
+
+    def test_a_camera_whose_card_saw_other_light_follows_the_others(self):
+        # 2026-11-20: cam4's card by the door caught daylight.
+        self.calibrated("cam2", 2050, [1.09, 4.376])
+        self.calibrated("cam1", 2150, [1.203, 4.465])
+        self.calibrated("cam3", 2100, [1.107, 4.615])
+        self.calibrated("cam4", 2900, [1.426, 3.168], gain=8.777)
+        s = self.hub.cam_settings
+        self.assertEqual(s["cam4"]["awb_gains"], [1.107, 4.465])          # the others' median
+        self.assertEqual(s["cam4"]["gain"], 8.777)                         # its own brightness
+        self.assertEqual(s["cam1"]["awb_gains"], [1.203, 4.465])           # the others keep theirs
+        rec = self.hub.calibrator.records["cam4"]
+        self.assertEqual(rec["following"], ["cam1", "cam2", "cam3"])
+        self.assertEqual(rec["own_awb_gains"], [1.426, 3.168])
+        msg = self.hub.calibrator.status()["devices"]["cam4"]["message"]
+        self.assertIn("2900", msg)
+        self.assertIn("2100", msg)
+        # Shown the card again in the same light as the others: its own gains again.
+        self.calibrated("cam4", 2150, [1.15, 4.4])
+        self.assertEqual(s["cam4"]["awb_gains"], [1.15, 4.4])
+        self.assertIsNone(self.hub.calibrator.records["cam4"].get("following"))
+
+    def test_the_odd_one_out_also_when_it_was_calibrated_first(self):
+        self.calibrated("cam4", 2900, [1.426, 3.168])
+        self.assertEqual(self.hub.cam_settings["cam4"]["awb_gains"], [1.426, 3.168])   # nothing to compare yet
+        self.calibrated("cam1", 2150, [1.2, 4.4])
+        self.calibrated("cam2", 2100, [1.1, 4.5])
+        self.assertEqual(self.hub.cam_settings["cam4"]["awb_gains"], [1.15, 4.45])
+
+    def test_no_odd_one_out_when_the_others_disagree_or_are_old(self):
+        self.calibrated("cam1", 2150, [1.2, 4.4])
+        self.calibrated("cam2", 3200, [1.5, 2.9])
+        self.calibrated("cam4", 2900, [1.426, 3.168])
+        self.assertEqual(self.hub.cam_settings["cam4"]["awb_gains"], [1.426, 3.168])
+        # Calibrations from another session (older than SESSION_S) don't count.
+        self.calibrated("cam3", 2900, [1.4, 3.2], at=self.now[0] + calibrate.SESSION_S + 60)
+        self.assertEqual(self.hub.cam_settings["cam3"]["awb_gains"], [1.4, 3.2])
+
+    def test_highlights_fine_leaves_the_gain(self):
+        cal = self.hub.calibrator
+        self.clip_per_gain = 0.0001
+        cal.page_open()
+        cal.tick()
+        rec = json.load(open(os.path.join(self.cfg["state_dir"], "calibration.json")))["cam1"]
+        self.assertFalse(rec["highlights_limited"])
 
     def test_shows_waiting_until_a_page_is_open(self):
         cal = self.hub.calibrator
@@ -127,9 +279,11 @@ class CalibratorTest(unittest.TestCase):
         self.assertEqual(st["devices"]["cam2"]["status"], "waiting")
         self.assertEqual(st["seq"], 1)
         s = self.hub.cam_settings["cam1"]
-        self.assertTrue(calibrate.good(picture(s["gain"], s["awb_gains"])))
+        self.assertTrue(aimed(s["gain"], s["awb_gains"]))
         rec = json.load(open(os.path.join(self.cfg["state_dir"], "calibration.json")))["cam1"]
         self.assertTrue(rec["converged"] and rec["light_ok"])
+        self.assertTrue(rec["light_k"] and rec["warm_target"][0] >= 1 and rec["warm_target"][1] <= 1, rec)
+        self.assertEqual(st["devices"]["cam1"]["light_k"], rec["light_k"])
         self.assertIn("card_even", rec)
         # Settings go out with the next take, and the take log keeps the card readings.
         self.hub.rec()
@@ -314,6 +468,6 @@ class LiveCalibrationTest(unittest.TestCase):
         st = cal.status()["devices"]["cam1"]
         self.assertEqual(st["status"], "calibrated")
         ls = self.rig.st["cam1"]["live_settings"]
-        self.assertTrue(calibrate.good(picture(ls["gain"], ls["awb_gains"])))
+        self.assertTrue(aimed(ls["gain"], ls["awb_gains"]))
         self.assertEqual(self.hub.cam_settings["cam1"]["gain"], ls["gain"])    # kept for the next take too
         self.assertFalse(any(p == "/snapshot" for n, p, b in self.rig.bodies if n == "cam1"))

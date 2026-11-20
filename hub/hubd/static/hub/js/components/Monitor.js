@@ -12,7 +12,9 @@ function CalibrationLine({ entry, watching, phone }) {
   if (!entry) return null;
   const at = entry.at ? when(entry.at) : "";
   const values = phone ? ` · ISO ${entry.iso} · ${entry.k} K`
-    : entry.gain ? ` · gain ${entry.gain.toFixed(1)} · WB ${entry.awb_gains.map(x => x.toFixed(2)).join("/")}` : "";
+    : entry.gain ? ` · gain ${entry.gain.toFixed(1)} · WB ${entry.awb_gains.map(x => x.toFixed(2)).join("/")}`
+      + (entry.light_k ? ` · light ≈ ${entry.light_k} K` : "")
+      + (entry.highlights_limited ? " · gain lowered to keep the highlights" : "") : "";
   let text, tone = "";
   if (entry.status === "calibrating") { text = "calibrating…"; tone = "warn"; }
   else if (entry.at && (phone || entry.status === "calibrated" || entry.status === "waiting")) {
