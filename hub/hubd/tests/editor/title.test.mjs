@@ -81,11 +81,14 @@ test("a long title gets smaller until it fits; a normal one is 83 px", () => {
   assert.ok(letterPositions(long, size, CARD_TRACKING, advance).width <= 1632);
 });
 
-test("the sequence: black, the brand, the dissolve, the title, the video, the strip", () => {
+test("the sequence: black, the brand, black, the title, the video, the strip", () => {
   const at = t => opacitiesAt(titles[0], t);
   assert.deepEqual(at(0), { black: 1, brand: 0, title: 0, strip: 0 });
   assert.equal(at(2).brand, 1);
-  assert.ok(at(4).brand > 0 && at(4).title > 0);           // dissolving
+  assert.equal(at(2.9).brand, 1);
+  assert.ok(at(3.5).brand > 0 && at(3.5).brand < 1 && at(3.5).title === 0);   // fading out alone
+  assert.equal(at(4).brand, 0);
+  assert.ok(at(4.5).title > 0 && at(4.5).title < 1);   // then the title fades in
   assert.equal(at(6).title, 1);
   assert.equal(at(9).title, 0);
   assert.equal(at(9).black, 1);

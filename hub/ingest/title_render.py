@@ -3,7 +3,7 @@
 With the title on, every video opens the same way, timed from the start of the video:
 
   1. from black, "BROCKLEY LIVE" fades in (Outfit Bold, 83 px, letters 33 % apart, cream);
-  2. it dissolves into the song's title (the same style, in the title's colour);
+  2. it fades out to black, and the song's title fades in (the same style, in the title's colour);
   3. the title fades out, the video fades in from black, and a strip along the bottom
      (black at 50 %) shows the lines below the title (who's playing), left-aligned, in cream, Outfit Bold,
      smaller, no extra letter spacing, as typed; after a while it dissolves out.
@@ -39,7 +39,8 @@ DETAIL_MAX_WIDTH = 1632
 
 # The sequence, in seconds from the start of the video.
 BRAND_IN = (0.0, 1.0)             # fades in from black
-CARDS_DISSOLVE = (3.5, 1.0)       # "BROCKLEY LIVE" dissolves into the title: start, length
+BRAND_OUT = (3.0, 1.0)            # "BROCKLEY LIVE" fades out to black: start, length (user, 2026-11-21: a little shorter)
+TITLE_IN = (4.0, 1.0)             # then the title fades in from black (not a dissolve between them)
 TITLE_OUT = (8.0, 1.0)            # the title fades out: start, length
 VIDEO_IN = (9.0, 1.5)             # the video fades in from black: start, length
 DETAILS_IN = 10.0                 # the strip starts dissolving in
@@ -200,13 +201,12 @@ def opacities_at(title, t):
     (linear): {"black", "brand", "title", "strip"}. The editor's preview follows these."""
     if not is_shown(title):
         return {"black": 0.0, "brand": 0.0, "title": 0.0, "strip": 0.0}
-    dissolve_start, dissolve = CARDS_DISSOLVE
     out_start, out = TITLE_OUT
     strip_out = details_end_s(title) - DETAILS_FADE
     return {
         "black": 1.0 - _ramp(t, *VIDEO_IN),
-        "brand": _ramp(t, *BRAND_IN) * (1.0 - _ramp(t, dissolve_start, dissolve)),
-        "title": _ramp(t, dissolve_start, dissolve) * (1.0 - _ramp(t, out_start, out)) if title_text(title) else 0.0,
+        "brand": _ramp(t, *BRAND_IN) * (1.0 - _ramp(t, *BRAND_OUT)),
+        "title": _ramp(t, *TITLE_IN) * (1.0 - _ramp(t, out_start, out)) if title_text(title) else 0.0,
         "strip": _ramp(t, DETAILS_IN, DETAILS_FADE) * (1.0 - _ramp(t, strip_out, DETAILS_FADE)) if lines_below(title) else 0.0,
     }
 
@@ -222,12 +222,11 @@ def sequence_cards(title, work_dir, fonts_dir):
     """The cards as PNG files in work_dir with where and when they show:
     [(path, x, y, fade_chain)], in drawing order."""
     letters = Letters(fonts_dir)
-    dissolve_start, dissolve = CARDS_DISSOLVE
     out_start, out = TITLE_OUT
     cards = [
-        ("title-brand.png", card_image(letters, BRAND_TEXT, CREAM), fade_chain(BRAND_IN[0], BRAND_IN[1], dissolve_start, dissolve)),
+        ("title-brand.png", card_image(letters, BRAND_TEXT, CREAM), fade_chain(BRAND_IN[0], BRAND_IN[1], BRAND_OUT[0], BRAND_OUT[1])),
         ("title-title.png", card_image(letters, title_text(title), title.get("colour") or CREAM),
-         fade_chain(dissolve_start, dissolve, out_start, out)),
+         fade_chain(TITLE_IN[0], TITLE_IN[1], out_start, out)),
         ("title-strip.png", strip_image(letters, lines_below(title)),
          fade_chain(DETAILS_IN, DETAILS_FADE, details_end_s(title) - DETAILS_FADE, DETAILS_FADE)),
     ]

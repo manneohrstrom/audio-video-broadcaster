@@ -175,7 +175,7 @@ A second step (a tab, after the cut is done): **what's the vibe of this video?**
 **Rebuilt as a title sequence (user, 2026-11-21).** With the title on, every video opens the same way, timed from the video's start (the music plays underneath; the border and the standard title are to be decided later):
 
 1. **From black, "BROCKLEY LIVE" fades in** (0-1 s): Outfit Bold (Google Fonts, SIL OFL; user's pick), 83 px in the 1920×1080 picture, letters 33 % of the size apart, capitals, always cream (`#f3ead8`), centred.
-2. **It dissolves into the title** (3.5-4.5 s): the same style, in the title's colour (any colour; cream by default). A title too wide for 1632 px gets smaller until it fits. It fades out at 8-9 s.
+2. **It fades out to black (3-4 s), then the title fades in** (4-5 s; user, 2026-11-21: the brand a little shorter, no dissolve between them): the same style, in the title's colour (any colour; cream by default). A title too wide for 1632 px gets smaller until it fits. It fades out at 8-9 s.
 3. **The video fades in from black** (9-10.5 s), and at 10 s **a strip along the bottom** (black at 50 %) dissolves in (0.7 s) with the lines below the title (who's playing), left-aligned 144 px from the left edge (user, 2026-11-21), cream, Outfit Bold 38 px, no extra spacing, as typed. After "Names stay for" (3-20 s on the slider, 6 s by default) it dissolves out.
 
 - **The Brockley Live logo** (the brand frame's) fades in 1 s after the strip is gone (or after the video is in, with no names), or 5 s into the video when the sequence is off.

@@ -1,7 +1,7 @@
 // The title sequence in the preview (user, 2026-11-21; docs/editor-plan.md section 5b), timed
 // from the start of the video:
 //   1. from black, "BROCKLEY LIVE" fades in (Outfit Bold, 83 px, letters 33 % apart, cream);
-//   2. it dissolves into the song's title (the same style, in the title's colour);
+//   2. it fades out to black, then the song's title fades in (the same style, in the title's colour);
 //   3. the title fades out, the video fades in from black, and a strip along the bottom
 //      (black at 50 %) shows the lines below the title, left-aligned, in cream, smaller, as typed; after
 //      "Names stay for" seconds it dissolves out.
@@ -31,7 +31,8 @@ export const DETAIL_MAX_WIDTH = 1632;
 
 // The sequence, in seconds from the start of the video: [start, length].
 export const BRAND_IN = [0, 1];
-export const CARDS_DISSOLVE = [3.5, 1];
+export const BRAND_OUT = [3, 1];         // fades out to black (user, 2026-11-21: a little shorter)
+export const TITLE_IN = [4, 1];          // then the title fades in from black
 export const TITLE_OUT = [8, 1];
 export const VIDEO_IN = [9, 1.5];
 export const DETAILS_IN = 10;
@@ -97,8 +98,8 @@ export function opacitiesAt(title, t) {
   const stripOut = detailsEndSeconds(title) - DETAILS_FADE;
   return {
     black: 1 - ramp(t, ...VIDEO_IN),
-    brand: ramp(t, ...BRAND_IN) * (1 - ramp(t, ...CARDS_DISSOLVE)),
-    title: titleText(title) ? ramp(t, ...CARDS_DISSOLVE) * (1 - ramp(t, ...TITLE_OUT)) : 0,
+    brand: ramp(t, ...BRAND_IN) * (1 - ramp(t, ...BRAND_OUT)),
+    title: titleText(title) ? ramp(t, ...TITLE_IN) * (1 - ramp(t, ...TITLE_OUT)) : 0,
     strip: linesBelow(title).length ? ramp(t, DETAILS_IN, DETAILS_FADE) * (1 - ramp(t, stripOut, DETAILS_FADE)) : 0,
   };
 }

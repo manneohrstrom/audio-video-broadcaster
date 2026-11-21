@@ -78,8 +78,8 @@ class TitleSequenceTest(unittest.TestCase):
         self.assertGreater(red, blue + 10)                      # cream, not white
         self.assertLess(frame[~lit].max(), 140)                 # black around it (anti-aliased edges aside)
 
-    def test_the_dissolve_shows_both_and_the_title_in_its_colour(self):
-        self.assertGreater((self.frames[4.0].sum(axis=2) > 100).sum(), 0)
+    def test_black_between_the_cards_then_the_title_in_its_colour(self):
+        self.assertLess(self.frames[4.0].max(), 40)
         frame = self.frames[6.0]
         lit = frame.sum(axis=2) > 300
         red, green, blue = np.median(frame[lit], axis=0)
