@@ -284,7 +284,7 @@ class Audio:
             except AudioError:
                 doc = {"songs": []}
             out["songs"] = [{"id": s["id"], "name": s["name"], "current": s["current"], "versions": [
-                {"version": v["version"], "filename": v["filename"], "complete": bool(v.get("complete")),
+                {"version": v["version"], "filename": v["filename"], "original_name": v.get("original_name") or v["filename"], "complete": bool(v.get("complete")),
                  "bytes": v["bytes"], "received": v.get("received", v["bytes"]), "duration_s": v.get("duration_s"),
                  "on_drive": "%s/v%d/%s" % (s["id"], v["version"], v["filename"]) in on_drive,
                  "synced": os.path.exists(os.path.join(self.root, take, s["id"], "v%d" % v["version"], "sync.json")),

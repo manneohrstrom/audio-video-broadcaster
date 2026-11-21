@@ -32,6 +32,8 @@ export const setPhoneMount = (phoneId, mount) => request("POST", `/api/phone/${e
 export const identifyPhone = phoneId => request("POST", `/api/phone/${encodeURIComponent(phoneId)}/identify`, {});
 /** Reload a phone's page (only between takes): the tripod page starts its camera by itself. */
 export const reloadPhone = phoneId => request("POST", `/api/phone/${encodeURIComponent(phoneId)}/reload`, {});
+/** Delete a take: its folder on the drive and what the hub keeps for it (refused while anything runs for it). */
+export const deleteTake = take => request("POST", `/api/takes/${encodeURIComponent(take)}/delete`, {});
 export const requestSync = (take, song, version) => request("POST", "/api/sync", { take, song, version });
 
 // Bounce uploads (hub/hubd/audio.py)

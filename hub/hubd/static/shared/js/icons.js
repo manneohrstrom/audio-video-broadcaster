@@ -46,6 +46,8 @@ const PATHS = {
   camera: () => html`<path d="M4 8h3l1.5-2h7L17 8h3v11H4z" /><circle cx="12" cy="13" r="3.5" /><circle cx="17.5" cy="10.5" r="0.6" fill="currentColor" />`,
   phone: () => html`<rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M10.5 18.5h3" /><circle cx="12" cy="6" r="0.7" fill="currentColor" />`,
   ingest: () => html`<path d="M12 3v11m-4-4 4 4 4-4" /><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />`,
+  download: () => html`<path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5" /><path d="M5 19.5h14" />`,
+  trash: () => html`<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13" /><path d="M10 11v5.5M14 11v5.5" />`,
   eject: () => html`<path d="M5 14 12 6l7 8z" /><path d="M5 18.5h14" />`,
   note: () => html`<path d="M9 17V5l10-2v12" /><circle cx="6.5" cy="17" r="2.5" /><circle cx="16.5" cy="15" r="2.5" />`,
   pencil: () => html`<path d="M4 20l1-4L16 5l3 3L8 19z" /><path d="M14 7l3 3" />`,

@@ -44,7 +44,7 @@ import youtube_upload  # noqa: E402
 import drive_records  # noqa: E402
 import motion  # noqa: E402
 
-VERSION = "0.26.0"
+VERSION = "0.27.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -695,6 +695,8 @@ class Ingest:
                 self.queue_render(doc)
             elif c == "sync":
                 self.queue_sync(doc)
+            elif c == "delete_take":
+                self.queue_delete(doc)
             elif c == "thumbs":              # the editor opened a take without thumbnails: don't wait 30 min
                 self.manual = True
                 take = (self.state.get("takes") or {}).get(doc.get("take") or "")
@@ -1028,12 +1030,79 @@ class Ingest:
         (self.state.get("audio") or {}).pop(take_id, None)
         (self.state.get("videos") or {}).pop(take_id, None)
         ((self.state.get("drive_index") or {}).get("takes") or {}).pop(take_id, None)
+        for kind in ("thumbs", "proxies", "beats", "motion"):        # failures keyed "<take>/<camera or song>"
+            failed = self.state.get(kind + "_failed") or {}
+            for key in [k for k in failed if k.startswith(take_id + "/")]:
+                del failed[key]
         hubd_state = self.cfg["hubd_state_dir"]
-        for folder in (os.path.join(self.cfg["thumbs_dir"], take_id), os.path.join(self.cfg["proxies_dir"], take_id),
-                       os.path.join(hubd_state, "waveforms", take_id), os.path.join(hubd_state, "edits", take_id),
-                       os.path.join(self.cfg["audio_dir"], take_id)):
+        folders = [os.path.join(self.cfg["thumbs_dir"], take_id), os.path.join(self.cfg["proxies_dir"], take_id),
+                   os.path.join(hubd_state, "waveforms", take_id), os.path.join(hubd_state, "edits", take_id),
+                   os.path.join(self.cfg["audio_dir"], take_id), os.path.join(self.work, take_id)]
+        if self.cfg.get("phones_dir"):
+            folders.append(os.path.join(self.cfg["phones_dir"], take_id))   # left only if ingest stopped half way
+        for folder in folders:
             shutil.rmtree(folder, ignore_errors=True)
+        self.forget_finished_uploads(take_id)
         sys.stderr.write("take %s removed: %s\n" % (take_id, why))
+
+    def forget_finished_uploads(self, take_id):
+        """hub-upload's records of the take's finished (or failed) YouTube uploads. The videos
+        stay on the channel; unfinished uploads are left alone (hubd refuses to delete a take
+        while one is still going)."""
+        spool = self.cfg.get("youtube_spool_dir")
+        for name in sorted(os.listdir(spool)) if spool and os.path.isdir(spool) else []:
+            if not (name.startswith(take_id + "_") and name.endswith(".json")):
+                continue
+            record = youtube_upload.read_record(spool, name[:-len(".json")])
+            if record and record.get("status") in youtube_upload.WAITING:
+                continue
+            for leftover in (name, name[:-len(".json")] + ".mp4"):
+                try:
+                    os.remove(os.path.join(spool, leftover))
+                except OSError:
+                    pass
+
+    # -- takes deleted on the hub page ("delete take")
+    def queue_delete(self, doc):
+        """hubd has checked the take can go (ingested, on this drive, nothing running for it).
+        The delete itself waits for a quiet rig (run_deletes)."""
+        take = (self.state.get("takes") or {}).get(doc.get("take") or "")
+        if take is not None and TAKE_RE.match(doc["take"]):
+            take.update(deleting=True, delete_error=None)
+            self.save()
+
+    def run_deletes(self):
+        """Delete the takes asked for: their folder on the drive, then everything the hub keeps
+        for them (forget_take). Waits while the rig is busy or the drive is out."""
+        doomed = sorted(t for t, take in (self.state.get("takes") or {}).items() if take.get("deleting"))
+        if not doomed or self.rig_busy() or not self.drive.present() or self.state.get("drive") == "ejected":
+            return []
+        deleted = []
+        for take_id in doomed:
+            try:
+                self.delete_take(take_id)
+                deleted.append(take_id)
+            except (RuntimeError, OSError) as e:
+                self.state["takes"][take_id].update(deleting=False, delete_error=str(e)[-300:])
+                sys.stderr.write("delete %s: %s\n" % (take_id, e))
+        self.save()
+        return deleted
+
+    def delete_take(self, take_id):
+        take = self.state["takes"][take_id]
+        drive_id = self.drive.filesystem_id()
+        if take.get("drive_id") and take["drive_id"] != drive_id:
+            raise RuntimeError("the take is on another drive")
+        folder = self.take_folder(take_id)
+        # Renamed first, so a drive pulled half way leaves no half take that looks real
+        # (index_drive only reads folders named like takes); a leftover goes on the next try.
+        doomed = os.path.join(os.path.dirname(folder), ".deleting-" + os.path.basename(folder))
+        with self.writing():
+            if os.path.isdir(folder):
+                os.replace(folder, doomed)
+            if os.path.isdir(doomed):
+                shutil.rmtree(doomed)
+        self.forget_take(take_id, "deleted on the hub page")
 
     def look_at_drive(self):
         """While the rig is idle, every removed_check_s and whenever a different drive is
@@ -1919,6 +1988,7 @@ class Ingest:
         if self.state.get("drive") == "ejected" and self.drive.present():
             self.state["drive"] = None           # plugged back in
         self.state["drive_free_gb"] = self.drive_free()
+        self.run_deletes()                  # quick: a quiet rig and the drive are enough
         if self.syncs_ready():              # needs neither the drive nor 30 min idle, only a quiet rig
             self.run_syncs()
         beats_work = self.beats_pending()   # the same: the bounces are staged on the hub

@@ -755,5 +755,59 @@ class DriveViewTest(unittest.TestCase):
         self.assertEqual(len(takes), 3)
 
 
+class DeleteTakeTest(unittest.TestCase):
+    """The archive's "delete take": hubd checks, hub-ingest deletes (ingest.run_deletes)."""
+
+    TAKE = "20261119-201500"
+
+    def setUp(self):
+        cfg = hubd.load_config(None)
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        cfg.update(state_dir=self.tmp, ingest_dir=os.path.join(self.tmp, "ingest"), client_head_start_s=0,
+                   sync_timeout_s=1, youtube_spool_dir=os.path.join(self.tmp, "uploads"))
+        self.hub = hubd.Hub(cfg, nodes=FakeRig(cfg["nodes"]), sleep=lambda s: None)
+        self.state = {"takes": {self.TAKE: {"complete": True, "drive_id": "SSD", "cam1": {"done": ["marked"]}}},
+                      "drive_index": {"drive_id": "SSD", "present": True, "takes": {self.TAKE: {}}}}
+        self.write_state()
+
+    def write_state(self):
+        os.makedirs(self.hub.cfg["ingest_dir"], exist_ok=True)
+        with open(os.path.join(self.hub.cfg["ingest_dir"], "state.json"), "w") as f:
+            json.dump(self.state, f)
+
+    def test_a_finished_take_on_the_drive_is_handed_to_ingest_and_shows_as_deleting(self):
+        self.hub.names.set("takes", self.TAKE, "Sunday jam")
+        self.assertEqual(self.hub.request_delete_take(self.TAKE), {"take": self.TAKE, "queued": "delete_take"})
+        self.assertTrue(self.hub.ingest_state()["takes"][self.TAKE]["deleting"])
+        self.assertEqual(self.hub.snapshot()["names"]["takes"], {})
+
+    def refused(self):
+        with self.assertRaises(hubd.Refused) as cm:
+            self.hub.request_delete_take(self.TAKE)
+        return cm.exception.reasons
+
+    def test_refused_while_anything_runs_for_it(self):
+        self.state["renders"] = {self.TAKE + "/track-1:edit": {"status": "rendering"},
+                                 "20261118-100000/track-1:edit": {"status": "rendering"}}       # another take's
+        self.state["syncs"] = {self.TAKE + "/track-1/v1": {"status": "synced"}}
+        self.write_state()
+        os.makedirs(self.hub.cfg["youtube_spool_dir"])
+        with open(os.path.join(self.hub.cfg["youtube_spool_dir"], self.TAKE + "_track-1_video1.json"), "w") as f:
+            json.dump({"status": "uploading"}, f)
+        self.assertEqual(self.refused(), ["a video is being made", "a video is still uploading to YouTube"])
+
+    def test_refused_for_takes_in_flight_or_on_another_drive(self):
+        self.state["takes"][self.TAKE]["complete"] = False
+        self.write_state()
+        self.assertIn("still being ingested", self.refused()[0])
+        self.state["takes"][self.TAKE]["complete"] = True
+        self.state["drive_index"]["present"] = False
+        self.write_state()
+        self.assertEqual(self.refused(), ["its drive isn't plugged in"])
+        with self.assertRaises(ValueError):
+            self.hub.request_delete_take("../etc")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -118,6 +118,16 @@ function RoughNote({ camera }) {
   return html` <span class="warn" title=${tip}>· ${rough.length} rough section${rough.length > 1 ? "s" : ""}, ${seconds < 60 ? seconds.toFixed(1) + " s" : fmtDur(seconds)}</span>`;
 }
 
+/** A download key: the file itself (same origin, so the browser keeps the given name). */
+function Download({ href, name, what, disabled, tip }) {
+  if (disabled) return html`<span class="key small off download" title=${tip}><${Icon} name="download" size=${14} /></span>`;
+  return html`<a class="key small download" href=${href} download=${name} title=${"Download " + what}
+                 aria-label=${"Download " + what}><${Icon} name="download" size=${14} /></a>`;
+}
+
+/** "Sunday jam - Blue in Green - video 3.mp4"; the take's date when it has no name. */
+const videoFileName = (takeLabel, song, video) => `${takeLabel} - ${song.name} - video ${video.number}.mp4`;
+
 const editorLink = (take, song, version, mode) =>
   `/editor/?take=${encodeURIComponent(take)}&song=${encodeURIComponent(song)}&v=${version}${mode ? "&mode=" + mode : ""}`;
 
@@ -151,7 +161,7 @@ function SyncState({ take, song, version, say, refresh }) {
 /** Where a staged file stands with the drive: on it, being copied now, or waiting. */
 const copyingTo = (activity, take) => activity && activity.kind === "audio" && activity.take === take;
 
-function SongGroup({ take, song, say, refresh, openDialog, activity }) {
+function SongGroup({ take, song, say, refresh, openDialog, activity, names, driveOk }) {
   const findingBeats = v => activity && activity.kind === "beats" && activity.take === take
     && activity.song === song.id && activity.version === "v" + v.version;
   const done = song.versions.filter(v => v.complete);
@@ -169,7 +179,9 @@ function SongGroup({ take, song, say, refresh, openDialog, activity }) {
           : html`<span class="key off" title="The bounce has to be synced to the take first"><${Icon} name="pencil" size=${16} />edit video</span>`}
       </div>
       <div class="bounces">
-        ${done.map(v => html`<span class="bounce">bounce v${v.version} <${SyncState} take=${take} song=${song.id} version=${v} say=${say} refresh=${refresh} />
+        ${done.map(v => html`<span class="bounce">bounce v${v.version}
+          <${Download} href=${`/media-audio/${take}/${song.id}/v${v.version}`} name=${v.original_name || v.filename} what=${`bounce v${v.version} (${v.original_name || v.filename})`} />
+          <${SyncState} take=${take} song=${song.id} version=${v} say=${say} refresh=${refresh} />
           ${findingBeats(v) && html`<span class="sync"><span class="spinner"></span> finding the beats</span>`}
           ${!v.on_drive && html`<small>· ${copyingTo(activity, take) ? "copying to the drive" : "waiting for ingest"}</small>`}</span>`)}
         ${uploading.length > 0 && html`<span class="bounce warn">v${uploading.map(v => v.version).join(", v")} uploading…</span>`}
@@ -178,7 +190,9 @@ function SongGroup({ take, song, say, refresh, openDialog, activity }) {
       ${(song.videos || []).slice().reverse().map(video => html`
         <div class="video-version">
           <button class="key small" onClick=${() => openDialog({ kind: "player", take, file: video.file })}>▶ watch</button>
-          video ${video.number} <small>· bounce v${video.bounce_version}${video.length_s ? " · " + fmtDur(video.length_s) : ""}</small>
+          video ${video.number} <small>· bounce v${video.bounce_version}${video.length_s ? " · " + fmtDur(video.length_s) : ""}${video.bytes ? " · " + fmtBytes(video.bytes) : ""}</small>
+          <${Download} href=${`/media/${take}/${video.file}`} name=${videoFileName(takeName(names, take) || take.slice(0, 4) + "-" + take.slice(4, 6) + "-" + take.slice(6, 8), song, video)}
+                       what=${`video ${video.number}`} disabled=${!driveOk} tip="The STUDIO drive isn't in the hub" />
           ${video.youtube && video.youtube.status === "done" && html`
             <a class="key small" href=${video.youtube.studio_url || video.youtube.url} target="_blank" rel="noopener"
                title="Private on the channel: open it in YouTube Studio to check it and publish">On YouTube</a>`}
@@ -186,7 +200,7 @@ function SongGroup({ take, song, say, refresh, openDialog, activity }) {
     </div>`;
 }
 
-function Songs({ id, take, say, refresh, openDialog, activity }) {
+function Songs({ id, take, say, refresh, openDialog, activity, names, driveOk }) {
   const songs = (take.audio || {}).songs || [];
   if (!take.recorded && !songs.length) return null;
   return html`
@@ -195,7 +209,8 @@ function Songs({ id, take, say, refresh, openDialog, activity }) {
         ${take.recorded && html`<button class="key small" onClick=${() => openDialog({ kind: "audio", take: id })}>♪ add a bounce</button>`}
       </div>
       ${songs.length
-        ? songs.map(song => html`<${SongGroup} key=${song.id} take=${id} song=${song} say=${say} refresh=${refresh} openDialog=${openDialog} activity=${activity} />`)
+        ? songs.map(song => html`<${SongGroup} key=${song.id} take=${id} song=${song} say=${say} refresh=${refresh} openDialog=${openDialog}
+                                           activity=${activity} names=${names} driveOk=${driveOk && !take.drive_absent} />`)
         : html`<p class="note">No bounce yet. Drop in the mix of a song to edit and render its video.</p>`}
     </div>`;
 }
@@ -230,8 +245,17 @@ function WaitingTake({ id, take, queued, names, ...rest }) {
         ${!dropped && html` · <span class="good">no dropped frames</span>`}</p>
       <${Problems} recorded=${recorded} />
       <${HubMic} id=${id} take=${take} activity=${rest.activity} />
-      <${Songs} id=${id} take=${take} ...${rest} />
+      <${Songs} id=${id} take=${take} names=${names} ...${rest} />
     </article>`;
+}
+
+/** The foot of an ingested take: "delete take", or how its delete is going. */
+function TakeFoot({ id, take, openDialog }) {
+  if (take.deleting) return html`<div class="take-foot">being deleted from the drive and the hub (waits while recording)</div>`;
+  return html`<div class="take-foot">
+    ${take.delete_error && html`<span class="bad">couldn't delete it: ${take.delete_error}</span>`}
+    <button class="key small quiet" disabled=${take.drive_absent} title=${take.drive_absent ? "Its drive isn't plugged in" : "Delete the take from the drive and the hub"}
+            onClick=${() => openDialog({ kind: "delete-take", take: id })}><${Icon} name="trash" size=${14} />delete take</button></div>`;
 }
 
 function TakeCard({ id, take, paused, driveOk, names, ...rest }) {
@@ -252,9 +276,10 @@ function TakeCard({ id, take, paused, driveOk, names, ...rest }) {
   const onDrive = cameras.reduce((sum, [, v]) => sum + (v.mov_bytes || 0), 0);
   const toPull = cameras.reduce((sum, [, v]) => sum + ((v.done || []).includes("written") ? 0 : v.src_bytes || 0), 0);
   const size = [onDrive ? fmtBytes(onDrive) + " on drive" : "", toPull ? fmtBytes(toPull) + " from cameras" : ""].filter(Boolean).join(" + ");
-  const tone = take.drive_absent ? "absent" : allDone ? "done" : failed ? "error" : active ? "active" : "";
+  const tone = take.drive_absent || take.deleting ? "absent" : allDone ? "done" : failed ? "error" : active ? "active" : "";
   const led = { done: "green", error: "red", active: "blue", absent: "off" }[tone] || "amber";
-  const state = take.drive_absent ? html`<span class="take-state">drive not plugged in</span>`
+  const state = take.deleting ? html`<span class="take-state"><span class="spinner"></span> deleting</span>`
+    : take.drive_absent ? html`<span class="take-state">drive not plugged in</span>`
     : allDone ? html`<span class="take-state good">✓ done</span>` : failed ? html`<span class="take-state bad">needs attention</span>`
     : active ? html`<span class="take-state">${etas.length ? fmtEta(Math.max(...etas)) + " left" : "working"}</span>`
     : ingested ? html`<span class="take-state">getting it ready for the editor</span>` : html`<span class="take-state">queued</span>`;
@@ -277,7 +302,8 @@ function TakeCard({ id, take, paused, driveOk, names, ...rest }) {
                 onClick=${() => rest.openDialog({ kind: "player", take: id, camera: c, cameras: playable,
                                                   labels: Object.fromEntries(playable.map(p => [p, label(p)])) })}>▶ ${label(c)}</button>`)}</div>`}
       <${HubMic} id=${id} take=${take} activity=${rest.activity} />
-      <${Songs} id=${id} take=${take} ...${rest} />
+      <${Songs} id=${id} take=${take} names=${names} driveOk=${driveOk} ...${rest} />
+      ${take.complete && html`<${TakeFoot} id=${id} take=${take} openDialog=${rest.openDialog} />`}
     </article>`;
 }
 
@@ -312,7 +338,7 @@ export function Archive({ ingest, status: rig, act, say, refreshIngest, openDial
       </div>
       ${takes.length === 0 && html`<p class="empty">Nothing here yet. Go make some noise.</p>`}
       ${takes.slice().reverse().map(([id, take]) => notIngested(take)
-        ? html`<${WaitingTake} key=${id} id=${id} take=${take} queued=${camerasOf(take).length > 0 && (running || paused)} ...${shared} />`
+        ? html`<${WaitingTake} key=${id} id=${id} take=${take} queued=${camerasOf(take).length > 0 && (running || paused)} driveOk=${driveOk} ...${shared} />`
         : html`<${TakeCard} key=${id} id=${id} take=${take} paused=${paused} driveOk=${driveOk} ...${shared} />`)}
     </section>`;
 }

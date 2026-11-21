@@ -34,7 +34,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.45.0"
+VERSION = "0.46.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -978,6 +978,9 @@ class Hub:
                     "phone": True, "uploading": not done}
                 if done:
                     takes[tid]["recorded"]["length_s"] = max(takes[tid]["recorded"]["length_s"], m.get("duration_s") or 0)
+        for tid in self.deletes_asked():
+            if tid in takes:
+                takes[tid].update(deleting=True, delete_error=None)
         st["drive_view"] = drive_view(takes, index)
         st["takes"] = dict(sorted(takes.items())[-limit:])
         copied = st.get("audio") or {}
@@ -1087,6 +1090,67 @@ class Hub:
                 return None, 503
             time.sleep(0.25)
         return (p, None) if os.path.isfile(p) else (None, 404)
+
+    def delete_blockers(self, take_id):
+        """Why the take can't be deleted now ([] if it can). Only takes on the drive that's
+        plugged in, with nothing running for them: copies on the cameras are deleted by the
+        cameras once verified, so a take still in ingest would only come back."""
+        if self.rig_busy():
+            return ["not while a take or live session is running"]
+        st = self.read_ingest_file()
+        take = (st.get("takes") or {}).get(take_id)
+        if take is None:
+            return ["the hub doesn't have this take (not ingested yet?)"]
+        if not take.get("complete"):
+            return ["it's still being ingested: delete it when ingest is done"]
+        index = st.get("drive_index") or {}
+        if not index.get("present") or take_id not in (index.get("takes") or {}):
+            return ["its drive isn't plugged in"]
+        reasons = []
+        for jobs, what in ((st.get("renders") or {}, "a video is being made"), (st.get("syncs") or {}, "a bounce is syncing")):
+            if any(k.startswith(take_id + "/") and j.get("status") in ("queued", "rendering", "paused", "checking",
+                                                                        "writing", "syncing")
+                   for k, j in jobs.items()):
+                reasons.append(what)
+        try:
+            songs = self.audio.list(take_id).get("songs") or []
+        except ValueError:                           # not in the take log (adopted from a drive): no uploads here
+            songs = []
+        if any(not v.get("complete") for song in songs for v in song["versions"]):
+            reasons.append("a bounce is still uploading")
+        spool = self.cfg["youtube_spool_dir"]
+        for name in sorted(os.listdir(spool)) if os.path.isdir(spool) else []:
+            if name.startswith(take_id + "_") and name.endswith(".json"):
+                record = self.youtube_upload(name[:-len(".json")]) or {}
+                if record.get("status") not in (None, "done", "error"):
+                    reasons.append("a video is still uploading to YouTube")
+                    break
+        return reasons
+
+    def request_delete_take(self, take_id):
+        """The hub page's "delete take": the take's folder on the drive (cameras, bounces, videos,
+        edits) and everything the hub keeps for it. Done by hub-ingest, which mounts the drive
+        read-write (ingest.run_deletes). Videos already on YouTube stay there."""
+        if not audio.TAKE.match(take_id or ""):
+            raise ValueError("bad take id")
+        reasons = self.delete_blockers(take_id)
+        if reasons:
+            raise Refused(reasons)
+        self.names.set("takes", take_id, "")
+        return self.ingest_command("delete_take", take=take_id)
+
+    def deletes_asked(self):
+        """Takes with a delete command hub-ingest hasn't picked up yet (shown as deleting at once)."""
+        folder = os.path.join(self.cfg["ingest_dir"], "commands")
+        out = set()
+        for name in os.listdir(folder) if os.path.isdir(folder) else []:
+            if name.endswith("-delete_take.json"):
+                try:
+                    with open(os.path.join(folder, name)) as f:
+                        out.add(json.load(f).get("take"))
+                except (OSError, ValueError):
+                    pass
+        return out
 
     def ingest_command(self, cmd, **fields):
         d = os.path.join(self.cfg["ingest_dir"], "commands")
@@ -1255,6 +1319,7 @@ class Handler(BaseHTTPRequestHandler):
     P_PHONE_DO = re.compile(r"^/api/phone/([^/]+)/(identify|reload)$")
     P_PHONE_ME = re.compile(r"^/api/phone/me/([^/]+)$")
     P_AUDIO = re.compile(r"^/api/audio/(\d{8}-\d{6})$")
+    P_TAKE_DELETE = re.compile(r"^/api/takes/(\d{8}-\d{6})/delete$")
     P_EDITOR = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})$")
     P_EDITOR_RENDER = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/render$")
     P_EDITOR_SYNC = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/sync$")
@@ -1595,6 +1660,9 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 v = b.get("version")
                 return self._send(200, h.audio.choose(m.group(1), m.group(2), int(v) if v is not None else None))
+            m = self.P_TAKE_DELETE.match(self.path)
+            if m:                                  # the archive's "delete take"
+                return self._send(200, h.request_delete_take(m.group(1)))
             if self.path == "/api/names":          # {"kind": "cameras" | "takes", "id", "name"}
                 return self._send(200, h.names.set(b.get("kind"), b.get("id"), b.get("name")))
             if self.path == "/api/rec":

@@ -21,6 +21,7 @@ import { Archive } from "./Archive.js";
 import { Cameras } from "./Cameras.js";
 import { QrDialog } from "./QrDialog.js";
 import { AudioDialog } from "./AudioDialog.js";
+import { DeleteTakeDialog } from "./DeleteTakeDialog.js";
 import { Player } from "./Player.js";
 import { useCalibrationChime } from "../chime.js";
 import { notIngested } from "../takes.js";
@@ -89,7 +90,7 @@ export function App() {
   const [view, setView] = useState(viewFromHash());
   const [message, setMessage] = useState(null);           // { text, error }
   const [busy, setBusy] = useState(false);
-  const [dialog, setDialog] = useState(null);             // { kind: "qr" | "audio" | "player", ... }
+  const [dialog, setDialog] = useState(null);             // { kind: "qr" | "audio" | "player" | "delete-take", ... }
   const [unreachable, setUnreachable] = useState(false);
   const [quote] = useState(pickQuote);                    // a new one on every reload
   const [themeChoice, setThemeChoice] = useState(savedChoice);   // the grille on the plate (themes.js): "daily" or a theme
@@ -179,6 +180,9 @@ export function App() {
       </footer>
       ${dialog && dialog.kind === "qr" && html`<${QrDialog} onClose=${() => setDialog(null)} />`}
       ${dialog && dialog.kind === "audio" && html`<${AudioDialog} take=${dialog.take} names=${status && status.names} onClose=${() => { setDialog(null); refreshIngest(); }} onChange=${refreshIngest} />`}
+      ${dialog && dialog.kind === "delete-take" && ingest && (ingest.takes || {})[dialog.take] && html`
+        <${DeleteTakeDialog} id=${dialog.take} take=${ingest.takes[dialog.take]} names=${status && status.names} onClose=${() => setDialog(null)}
+                             onDeleted=${() => { setDialog(null); say("Deleting the take."); refreshIngest(); }} />`}
       ${dialog && dialog.kind === "player" && html`<${Player} ...${dialog} names=${status && status.names} onSwitch=${next => setDialog({ ...dialog, ...next })} onClose=${() => setDialog(null)} />`}
     </div>`;
 }

@@ -190,6 +190,11 @@ code { font-size: 13px; color: var(--color-text-muted); }
 .sync.good { color: var(--color-good); }
 .video-version { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .video-version small { color: var(--color-text-muted); }
+.download { padding: 4px 7px; }
+.take-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; font-size: 13px; }
+.key.small.quiet { background: transparent; box-shadow: none; color: var(--color-text-muted); }
+.key.small.quiet:hover:not(:disabled) { color: var(--color-problem); }
+.key.danger { background: var(--chip-error-bg); color: var(--chip-error-text); font-weight: 600; }
 
 .good { color: var(--color-good); }
 .warn { color: var(--color-warning); }
@@ -214,7 +219,7 @@ code { font-size: 13px; color: var(--color-text-muted); }
 .field select, .field input[type=text] { font: inherit; font-size: 15px; color: var(--color-text); background: var(--color-well); border: 0; border-radius: 10px; padding: 10px 12px; box-shadow: var(--well-depth); }
 .field input[type=file] { color: var(--color-text-muted); }
 .song-list p { margin: 4px 0; font-size: 13px; }
-.dialog-keys { display: flex; justify-content: flex-end; }
+.dialog-keys { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 
 /* -- footer */
 .plate-row { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; }

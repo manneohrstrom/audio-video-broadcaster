@@ -11,6 +11,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import ingest  # noqa: E402
+import youtube_upload  # noqa: E402
 
 TAKE = "20261114-202934"
 WC0 = 1794688178_123456789          # some first-frame wall clock (ns)
@@ -1280,6 +1281,54 @@ class RemovedTakesTest(Base):
         for folder in ("thumbs", "proxies", "hubd/edits", "audio"):
             self.assertFalse(os.path.exists(os.path.join(self.tmp, folder, TAKE)))
         self.assertEqual(self.ing.pending(), {})                 # the camera copy is verified: never pulled again
+
+    def ask_delete(self, take=TAKE):
+        with open(os.path.join(self.ing.cmd_dir, "%f-delete_take.json" % time.time()), "w") as f:
+            json.dump({"cmd": "delete_take", "take": take}, f)
+
+    def test_delete_take_from_the_hub_page_removes_the_folder_and_the_hubs_copies(self):
+        self.ingest_one()
+        self.look()                                              # notes the drive the take is on
+        spool = self.ing.cfg["youtube_spool_dir"] = os.path.join(self.tmp, "uploads")
+        os.makedirs(spool)
+        for key, status in (("%s_track-1_video1" % TAKE, "done"), ("20261231-000000_track-1_video1", "done")):
+            youtube_upload.write_record(spool, {"key": key, "status": status})
+        self.ask_delete()
+        self.rig.busy = True                                     # waits for a quiet rig
+        self.ing.tick()
+        self.assertTrue(self.ing.state["takes"][TAKE]["deleting"])
+        self.assertTrue(os.path.isdir(self.folder()))
+        self.rig.busy = False
+        self.ing.tick()
+        self.assertFalse(os.path.exists(self.folder()))
+        self.assertEqual(os.listdir(os.path.dirname(self.folder())), [])     # no .deleting- leftover
+        self.assertNotIn(TAKE, self.ing.state["takes"])
+        self.assertEqual(self.ing.state["removed_takes"][TAKE]["why"], "deleted on the hub page")
+        for folder in ("thumbs", "proxies", "hubd/edits", "audio"):
+            self.assertFalse(os.path.exists(os.path.join(self.tmp, folder, TAKE)))
+        self.assertEqual(os.listdir(spool), ["20261231-000000_track-1_video1.json"])   # other takes' stay
+        self.assertEqual(self.ing.pending(), {})                 # the camera copy is verified: never pulled again
+
+    def test_a_delete_left_half_way_is_finished_next_time(self):
+        self.ingest_one()
+        self.look()
+        doomed = os.path.join(os.path.dirname(self.folder()), ".deleting-" + os.path.basename(self.folder()))
+        os.replace(self.folder(), doomed)                        # renamed, then the drive was pulled
+        self.ask_delete()
+        self.ing.tick()
+        self.assertFalse(os.path.exists(doomed))
+        self.assertNotIn(TAKE, self.ing.state["takes"])
+
+    def test_a_take_on_another_drive_is_not_deleted(self):
+        self.ingest_one()
+        self.look()
+        self.drive.uuid = "1TB-NEW-DRIVE"
+        self.ask_delete()
+        self.ing.handle_commands()
+        self.ing.run_deletes()
+        take = self.ing.state["takes"][TAKE]
+        self.assertFalse(take["deleting"])
+        self.assertEqual(take["delete_error"], "the take is on another drive")
 
     def test_another_drive_removes_nothing(self):
         self.ingest_one()

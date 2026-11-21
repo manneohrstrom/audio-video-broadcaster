@@ -104,7 +104,7 @@ After STOP the hub does everything; your only step is pressing Eject and moving 
 2. **Rewrap:** `ffmpeg -c copy` from raw H.264 to `.mov` at a fixed 30 fps, adding the shared start timecode and camera name. No re-encode, so it is quick on the Pi 5 (which has no hardware H.264 encoder, so it couldn't transcode cheaply anyway).
 3. **Verify:** the `.mov` frame count must match the node's manifest; dropped frames (gaps in `--save-pts`) are flagged in the UI. Counts can differ between cameras by a frame at the start, which is expected and not an error.
 4. **Delete from the node** as soon as verify passes and the take is on the drive (user decision 2026-11-17: simpler, and the cards stay nearly empty; the drive is then the only copy until it goes to the Mac). Until 2026-11-17 cameras kept verified takes until they needed the space. A take that fails verify stays on the camera and the UI says so.
-5. **Publish:** the take appears on the external drive as one folder with one `.mov` per camera. The hub never deletes from the drive; clearing old takes is your call, since you may be editing from it.
+5. **Publish:** the take appears on the external drive as one folder with one `.mov` per camera. The hub deletes from the drive only when you ask it to: **delete take** in the archive (user, 2026-11-21) removes one take's folder and everything the hub keeps for it, after a confirmation. Otherwise clearing old takes is your call, since you may be editing from it.
 
 | Getting it to the Mac | Your steps | Notes |
 | --- | --- | --- |
@@ -217,7 +217,7 @@ Four phases, each ending in something usable. Phase 1 is a go/no-go on the two r
      - **Acceptance test (user, 2026-11-15):** a real session with claps at regular intervals (say every 5 minutes), visible to all cameras and audible in the bounce. The claps are ground truth: the automatic scratch-mic match must agree with them within one frame at every clap, start to end. This also measures the audio interface's clock drift over a long take. Use the clap finder from the Phase 3 sync check (audio onsets, per-camera motion peaks), kept in the repo for this.
    - **Add media to a take from the web page** (added 2026-11-15): phone or handheld video, the DAW bounce, and stems. An "Add media" button on the hub page works from a phone or the DAW computer. Files land in the take's folder on `STUDIO` (`cameras/`, `handheld/`, `audio/`), so each take keeps all its media in one place.
      - The take is picked automatically from the file's recording time; the user confirms.
-     - Uploads go in resumable chunks (phone browsers drop uploads when the screen locks) and stream straight to disk (the hub has 1 GB of RAM). They pause during takes and live sessions, like ingest. The hub never deletes from the drive.
+     - Uploads go in resumable chunks (phone browsers drop uploads when the screen locks) and stream straight to disk (the hub has 1 GB of RAM). They pause during takes and live sessions, like ingest. The hub deletes from the drive only on the archive's "delete take".
      - Sync: handheld video with sound is matched by audio against the bounce (or the hub scratch mic), the same way as above, and gets the take's timecode. Phone clocks (about ±1 s) are used only to pick the take. Optionally conform variable-frame-rate phone video to 30 fps.
      - Same fallback: "needs sync" if the match isn't confident. Video without sound can't be synced automatically.
    - **Editing: our own AI-assisted editor** (user direction 2026-11-15).
