@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
-  cardSize, cardBaseline, letterPositions, stripLayout, opacitiesAt, logoStartSeconds, logoOpacityAt,
+  cardSize, cardBaseline, letterPositions, stripLayout, opacitiesAt, logoStartSeconds, logoOpacityAt, borderOpacityAt,
   isShown, titleText, linesBelow, CARD_TRACKING, CARD_SIZE,
 } from "../../static/editor/js/title/title-layout.js";
 
@@ -98,9 +98,13 @@ test("the sequence: black, the brand, black, the title, the video, the strip", (
   assert.deepEqual(opacitiesAt({ ...titles[0], on: false }, 2), { black: 0, brand: 0, title: 0, strip: 0 });
 });
 
-test("the logo: after the strip, after the video comes in, or 5 s into the video", () => {
-  assert.ok(Math.abs(logoStartSeconds(titles[0]) - (7.95 + 0.7 + 6 + 0.7 + 1)) < 1e-9);
-  assert.ok(Math.abs(logoStartSeconds({ ...titles[0], lines: [] }) - (6.95 + 1.5 + 1)) < 1e-9);
+test("border and logo: 2 s after the strip, or after the video comes in; without the sequence the logo at 5 s", () => {
+  assert.ok(Math.abs(logoStartSeconds(titles[0]) - (7.95 + 0.7 + 6 + 0.7 + 2)) < 1e-9);
+  assert.ok(Math.abs(logoStartSeconds({ ...titles[0], lines: [] }) - (6.95 + 1.5 + 2)) < 1e-9);
+  const start = logoStartSeconds(titles[0]);
+  assert.equal(borderOpacityAt(titles[0], start - 0.1), 0);
+  assert.ok(Math.abs(borderOpacityAt(titles[0], start + 0.5) - 0.5) < 1e-9);
+  assert.equal(borderOpacityAt({ ...titles[0], on: false }, 0), 1);              // no sequence: from the start
   assert.equal(logoStartSeconds(null, 20), 25);
   assert.equal(logoOpacityAt(null, 5.5), 0.5);
   assert.equal(logoOpacityAt(null, 600), 1);

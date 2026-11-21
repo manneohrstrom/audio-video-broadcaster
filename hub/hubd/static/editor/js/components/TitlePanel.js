@@ -6,7 +6,7 @@
 // video by hub/ingest/title_render.py.
 import { html } from "./html.js";
 import { formatSeconds } from "../time-format.js";
-import { MAX_CHARACTERS, MAX_LINES, CREAM, DETAILS_IN, VIDEO_IN } from "../title/title-layout.js";
+import { MAX_CHARACTERS, MAX_LINES, CREAM, DETAILS_IN, VIDEO_IN, BRAND_AFTER_SEQUENCE_SECONDS, LOGO_WITHOUT_TITLE_SECONDS } from "../title/title-layout.js";
 
 const COLOURS = [["#ffffff", "White"], [CREAM, "Cream"], ["#e8b15a", "Amber"], ["#c0182a", "Red"]];
 const MIN_SECONDS = 3;
@@ -65,7 +65,33 @@ export function TitlePanel({ store, transport }) {
           <button class="button small" onClick=${preview}>Play the opening</button>
         </div>
       </fieldset>
+      <${BorderAndLogo} store=${store} />
     </section>`;
+}
+
+/** The border and the Brockley Live logo on top of everything (user, 2026-11-21: here, not in the footer). */
+function BorderAndLogo({ store }) {
+  const when = store.title.on
+    ? `Both fade in ${BRAND_AFTER_SEQUENCE_SECONDS} s after the names strip is gone.`
+    : `The border is on from the start; the logo fades in ${LOGO_WITHOUT_TITLE_SECONDS} s into the video.`;
+  return html`
+    <div class="look-section">
+      <label class="title-switch" title="The border and the Brockley Live logo, on top of everything">
+        <input type="checkbox" checked=${store.branding} onChange=${event => store.setBranding(event.target.checked)} />
+        <span class="row-title">Border & logo</span>
+      </label>
+      <p class="look-hint">${when}</p>
+      <div class="title-field">
+        <span>Colour</span>
+        <div class="title-colours">
+          <input type="color" value=${store.brandingColour} disabled=${!store.branding}
+                 aria-label="Colour of the border and logo" title="Colour of the border and logo"
+                 onInput=${event => store.setBrandingColour(event.target.value)} />
+          ${store.branding && store.brandingColour !== "#ffffff" && html`
+            <button class="text-button" onClick=${() => store.setBrandingColour("#ffffff")}>back to white</button>`}
+        </div>
+      </div>
+    </div>`;
 }
 
 /** Where the rendered video starts and ends (store.inSeconds, store.outSeconds; keys I and O). */

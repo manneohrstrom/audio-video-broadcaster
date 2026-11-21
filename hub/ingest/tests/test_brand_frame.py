@@ -65,12 +65,20 @@ class BrandFrameTest(unittest.TestCase):
         self.assertGreater(lit(frames[185]), 0.1)                   # white letters
         self.assertGreater((frames[199][LOGO_BOX] < 150).mean(), 0.3)   # picture between them
 
-    def test_after_a_title_the_logo_waits(self):
+    def test_with_the_title_sequence_border_and_logo_wait(self):
         title = {"on": True, "text": "T", "lines": [], "colour": "#ffffff", "start_s": 0, "duration_s": 3.0}
-        # No names: the sequence is over when the video is in (8.45 s), the logo from 9.45 s.
-        frames = render({}, BRAND_DIR, self.folder, frames=315, wanted=(270, 314), title=title)
-        self.assertLess(lit(frames[270]), 0.01)
-        self.assertGreater(lit(frames[314]), 0.1)
+        # No names: the sequence is over when the video is in (8.45 s); border and logo fade in
+        # from 10.45 s over 1 s (user, 2026-11-21: 2 s after the strip is gone).
+        frames = render({}, BRAND_DIR, self.folder, frames=345, wanted=(270, 310, 329, 344), title=title)
+
+        def edges(luma):
+            return np.concatenate([luma[:20].ravel(), luma[-20:].ravel(), luma[20:-20, :20].ravel(), luma[20:-20, -20:].ravel()])
+        self.assertAlmostEqual(edges(frames[270]).mean(), GREY, delta=6)       # 9.0 s: no border yet
+        self.assertAlmostEqual(edges(frames[310]).mean(), GREY, delta=6)       # 10.33 s: still none
+        self.assertLess(lit(frames[310]), 0.01)
+        self.assertTrue(GREY + 30 < edges(frames[329]).mean() < 230)           # 10.97 s: half way in, all round
+        self.assertGreaterEqual(edges(frames[344]).min(), 225)                 # 11.47 s: in
+        self.assertGreater(lit(frames[344]), 0.1)                              # and the logo
 
     def test_without_effects_only_the_border_and_logo_change(self):
         plain = render({}, None, self.folder, frames=200, wanted=(199,))[199].astype(int)

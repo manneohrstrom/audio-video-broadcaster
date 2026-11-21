@@ -45,9 +45,10 @@ export const VIDEO_IN = [6.95, 1.5];
 export const DETAILS_IN = 7.95;
 export const DETAILS_FADE = 0.7;
 
-// The Brockley Live logo (the border is on from the start) fades in shortly after the
-// sequence, or at 5 s when there's no title (user, 2026-11-18). As title_render.logo_start_s.
-export const LOGO_AFTER_TITLE_SECONDS = 1;
+// The border and logo ("Border & logo"): with the title sequence, both fade in 2 s after the
+// strip is gone (or after the video is in, with no names) (user, 2026-11-21). Without it the
+// border is on from the start and the logo fades in at 5 s (user, 2026-11-18). As title_render.
+export const BRAND_AFTER_SEQUENCE_SECONDS = 2;
 export const LOGO_WITHOUT_TITLE_SECONDS = 5;
 export const LOGO_FADE_SECONDS = 1;
 export const MAX_LINES = 8;
@@ -76,14 +77,27 @@ export function detailsEndSeconds(title) {
   return DETAILS_IN + DETAILS_FADE + (title.duration_s ?? 6) + DETAILS_FADE;
 }
 
+/** When the sequence is over (seconds into the video): the strip gone, or with no names the video in. @param {Title} title */
+export function sequenceEndSeconds(title) {
+  return linesBelow(title).length ? detailsEndSeconds(title) : VIDEO_IN[0] + VIDEO_IN[1];
+}
+
 /**
  * When the logo starts fading in (song seconds); the video starts at `videoStartSeconds`.
  * @param {Title | null} title @param {number} [videoStartSeconds]
  */
 export function logoStartSeconds(title, videoStartSeconds = 0) {
   if (!isShown(title)) return videoStartSeconds + LOGO_WITHOUT_TITLE_SECONDS;
-  const end = linesBelow(title).length ? detailsEndSeconds(title) : VIDEO_IN[0] + VIDEO_IN[1];
-  return videoStartSeconds + end + LOGO_AFTER_TITLE_SECONDS;
+  return videoStartSeconds + sequenceEndSeconds(title) + BRAND_AFTER_SEQUENCE_SECONDS;
+}
+
+/**
+ * How visible the border is at song time `seconds`: with the sequence it fades in with the
+ * logo; without it, on from the start.
+ * @param {Title | null} title @param {number} seconds @param {number} [videoStartSeconds]
+ */
+export function borderOpacityAt(title, seconds, videoStartSeconds = 0) {
+  return isShown(title) ? logoOpacityAt(title, seconds, videoStartSeconds) : 1;
 }
 
 /**

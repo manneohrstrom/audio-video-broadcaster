@@ -130,10 +130,12 @@ class TitleGraphTest(unittest.TestCase):
         command = edit_render.encoder_command("b.wav", 0, 10, "o.mp4", {}, ".", title=dict(TITLE, on=False))
         self.assertNotIn("-filter_complex", command)
 
-    def test_the_logo_waits_for_the_strip(self):
-        self.assertAlmostEqual(title_render.logo_start_s(TITLE), 7.95 + 0.7 + 3 + 0.7 + 1)
-        self.assertAlmostEqual(title_render.logo_start_s(dict(TITLE, lines=[])), 6.95 + 1.5 + 1)
+    def test_border_and_logo_wait_for_the_strip(self):
+        self.assertAlmostEqual(title_render.logo_start_s(TITLE), 7.95 + 0.7 + 3 + 0.7 + 2)
+        self.assertAlmostEqual(title_render.border_start_s(TITLE), 7.95 + 0.7 + 3 + 0.7 + 2)
+        self.assertAlmostEqual(title_render.logo_start_s(dict(TITLE, lines=[])), 6.95 + 1.5 + 2)
         self.assertEqual(title_render.logo_start_s(None), 5)
+        self.assertIsNone(title_render.border_start_s(None))                 # no sequence: from the first frame
 
 
 if __name__ == "__main__":

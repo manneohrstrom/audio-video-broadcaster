@@ -95,8 +95,6 @@ a.button { text-decoration: none; color: var(--color-text); }
   -webkit-mask: url(/editor/brand/brand-logo.png) center / 100% 100% no-repeat;
   mask: url(/editor/brand/brand-logo.png) center / 100% 100% no-repeat;
 }
-.editor-footer .brand-colour { width: 28px; height: 22px; padding: 0; border: 1px solid var(--color-line); border-radius: 4px; background: none; cursor: pointer; }
-.editor-footer .brand-colour:disabled { opacity: 0.35; cursor: default; }
 .video-badge, .video-note, .video-hold {
   position: absolute; padding: 3px 10px; border-radius: var(--radius-key); background: rgba(17, 16, 15, 0.78);
   font-size: var(--font-size-small); pointer-events: none;
@@ -291,6 +289,7 @@ input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px va
 .title-colours .swatch { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 1px solid var(--color-line); cursor: pointer; }
 .title-colours .swatch.selected { outline: 2px solid var(--color-text); outline-offset: 2px; }
 .title-colours input[type=color] { width: 34px; height: 28px; padding: 0; border: 1px solid var(--color-line); border-radius: 4px; background: none; cursor: pointer; }
+.title-colours input[type=color]:disabled { opacity: 0.35; cursor: default; }
 .title-when { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .title-time { font: 500 15px var(--font-numbers); min-width: 4.5em; }
 .title-duration { grid-template-columns: 84px 1fr 48px; }

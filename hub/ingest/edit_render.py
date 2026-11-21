@@ -198,33 +198,50 @@ BRAND_LOGO = "brand-logo.png"
 BRAND_LOGO_BOX = "brand-logo.json"      # where the logo is in brand-logo.png: {x, y, w, h}
 
 
-def brand_overlay(graph, extra_inputs, brand_dir, colour="#ffffff", logo_start_s=title_render.LOGO_WITHOUT_TITLE_S):
-    """Put the brand frame on top of the finished picture, in `colour`: the border (all the
-    time) and the logo (fading in at logo_start_s, song seconds), two white 1920x1080 PNGs
+# The border's four edges, as crops of brand-border.png (x, y, w, h), for fading it in: the
+# frame is 20 px wide and the middle is fully transparent (checked 2026-11-21), so 40 px
+# strips hold all of it without overlapping.
+BORDER_EDGES = ((0, 0, 1920, 40), (0, 1040, 1920, 40), (0, 40, 40, 1000), (1880, 40, 40, 1000))
+
+
+def brand_overlay(graph, extra_inputs, brand_dir, colour="#ffffff", logo_start_s=title_render.LOGO_WITHOUT_TITLE_S,
+                  border_start_s=None):
+    """Put the brand frame on top of the finished picture, in `colour`: the border (from the
+    first frame, or with border_start_s fading in then) and the logo (fading in at
+    logo_start_s; seconds from the start of the video), two white 1920x1080 PNGs
     with transparency in brand_dir (hub/tools/make_brand_frame.py). The last step, after the
     look, its effects, the grain and the title, so nothing changes them. graph: the filter
     graph so far, ending in [video], or None.
     Each PNG is one frame, no -loop (a looping image input made ffmpeg decode copies ahead:
     +250 MB, 2026-11-16). The border: overlay repeats a finished input's last frame. The logo:
     the loop filter repeats its one frame (it holds just that one), timed at 30 fps for the fade;
-    only the logo's box goes through that (the full frame cost ~40 MB more on the hub)."""
+    only the logo's box goes through that (the full frame cost ~40 MB more on the hub). A fading
+    border goes the same way as its four edge strips (BORDER_EDGES), not the full frame."""
     with open(os.path.join(brand_dir, BRAND_LOGO_BOX)) as f:
         box = json.load(f)
     first = 2 + sum(1 for part in extra_inputs if part == "-i")
     extra_inputs = extra_inputs + ["-i", os.path.join(brand_dir, BRAND_BORDER), "-i", os.path.join(brand_dir, BRAND_LOGO)]
     tint = "" if colour.lower() == "#ffffff" else "," + brand_colour_filter(colour)
-    chains = [
-        "[%d:v]format=rgba%s[border]" % (first, tint),
-        "[%d:v]crop=%d:%d:%d:%d,format=rgba%s,loop=loop=-1:size=1,setpts=N/%d/TB,fade=t=in:st=%.4f:d=%.4f:alpha=1[logo]"
-        % (first + 1, box["w"], box["h"], box["x"], box["y"], tint, FPS, logo_start_s, title_render.LOGO_FADE_S),
-    ]
+    fade_in = "loop=loop=-1:size=1,setpts=N/%d/TB,fade=t=in:st=%%.4f:d=%.4f:alpha=1" % (FPS, title_render.LOGO_FADE_S)
+    chains = ["[%d:v]crop=%d:%d:%d:%d,format=rgba%s,%s[logo]"
+              % (first + 1, box["w"], box["h"], box["x"], box["y"], tint, fade_in % logo_start_s)]
     if graph:
         assert graph.endswith("[video]")
         chains.insert(0, graph[:-len("[video]")] + "[looked]")
         picture = "[looked]"
     else:
         picture = "[0:v]"
-    chains.append("%s[border]overlay=format=auto[bordered]" % picture)
+    if border_start_s is None:
+        chains.append("[%d:v]format=rgba%s[border]" % (first, tint))
+        chains.append("%s[border]overlay=format=auto[bordered]" % picture)
+    else:
+        edges = len(BORDER_EDGES)
+        chains.append("[%d:v]format=rgba%s,split=%d%s" % (first, tint, edges, "".join("[edge%d]" % i for i in range(edges))))
+        for i, (x, y, w, h) in enumerate(BORDER_EDGES):
+            chains.append("[edge%d]crop=%d:%d:%d:%d,%s[faded%d]" % (i, w, h, x, y, fade_in % border_start_s, i))
+            source = picture if i == 0 else "[edged%d]" % (i - 1)
+            target = "[bordered]" if i == edges - 1 else "[edged%d]" % i
+            chains.append("%s[faded%d]overlay=x=%d:y=%d:format=auto:eof_action=pass%s" % (source, i, x, y, target))
     chains.append("[bordered][logo]overlay=x=%d:y=%d:format=auto:shortest=1[video]" % (box["x"], box["y"]))
     return extra_inputs, ";".join(chains)
 
@@ -250,7 +267,8 @@ def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir="
             extra_inputs, graph = title_render.sequence_graph(graph, extra_inputs, title, work_dir, fonts_dir, FPS)
         if brand_dir:
             extra_inputs, graph = brand_overlay(graph, extra_inputs, brand_dir, brand_colour,
-                                                title_render.logo_start_s(title))
+                                                title_render.logo_start_s(title),
+                                                title_render.border_start_s(title))
         audio_input_end = command.index(bounce) + 1
         command[audio_input_end:audio_input_end] = extra_inputs
         at = command.index("-map")

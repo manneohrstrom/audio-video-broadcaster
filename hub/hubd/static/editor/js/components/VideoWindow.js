@@ -9,7 +9,7 @@ import { cutIndexAt } from "../edit-model.js";
 import { formatSeconds } from "../time-format.js";
 import { fullVideoAvailable } from "../media/video-player.js";
 import { LookRenderer } from "../look/look-renderer.js";
-import { drawCard, drawStrip, opacitiesAt, logoOpacityAt, titleText, linesBelow, BRAND_TEXT, BRAND_STYLE, CREAM, CARD_SIZE, DETAIL_SIZE, FONT_FAMILY } from "../title/title-layout.js";
+import { drawCard, drawStrip, opacitiesAt, logoOpacityAt, borderOpacityAt, titleText, linesBelow, BRAND_TEXT, BRAND_STYLE, CREAM, CARD_SIZE, DETAIL_SIZE, FONT_FAMILY } from "../title/title-layout.js";
 
 // Pictures are put together (camera, dissolve) on this hidden canvas, then shown through
 // the look (filter and effects) on the visible WebGL canvas.
@@ -30,6 +30,7 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
   const titleRef = useRef(null);
   const stripRef = useRef(null);
   const logoRef = useRef(null);
+  const borderRef = useRef(null);
 
   // The title sequence's cards: drawn again when the title changes (and once Outfit has
   // loaded); their opacities follow the playhead in the frame loop below.
@@ -92,9 +93,11 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
       const value = String(Math.round(opacity * 1000) / 1000);
       if (ref.current.style.opacity !== value) ref.current.style.opacity = value;
     }
-    if (logoRef.current) {                   // the logo fades in after the title (or at 5 s)
+    if (logoRef.current) {                   // the logo (and with the sequence the border) fades in after it, or the logo at 5 s
       const logoOpacity = String(logoOpacityAt(store.title, seconds, store.inSeconds));
       if (logoRef.current.style.opacity !== logoOpacity) logoRef.current.style.opacity = logoOpacity;
+      const borderOpacity = String(borderOpacityAt(store.title, seconds, store.inSeconds));
+      if (borderRef.current.style.opacity !== borderOpacity) borderRef.current.style.opacity = borderOpacity;
     }
     const shown = skimCamera || store.cameraAt(seconds);
     wrapperRef.current.style.setProperty("--frame-colour", skimCamera ? `var(--color-camera-${(shown.index % 6) + 1})` : "transparent");
@@ -115,7 +118,7 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
         <canvas class="title-layer" ref=${titleRef} width="1920" height="1080" aria-hidden="true"></canvas>
         <canvas class="title-layer" ref=${stripRef} width="1920" height="1080" aria-hidden="true"></canvas>
         ${store.branding && html`
-          <div class="brand-border" style=${{ background: store.brandingColour }}></div>
+          <div class="brand-border" ref=${borderRef} style=${{ background: store.brandingColour }}></div>
           <div class="brand-logo" ref=${logoRef} style=${{ background: store.brandingColour }}></div>`}
         ${store.step === "look" && html`<div class="video-hold">${store.comparing ? "Without the look" : "Press and hold to compare"}</div>`}
         <div class="video-badge" ref=${badgeRef}></div>

@@ -54,11 +54,12 @@ VIDEO_IN = (6.95, 1.5)            # the video fades in from black
 DETAILS_IN = 7.95                 # the strip starts dissolving in, 1 s after the video starts to
 DETAILS_FADE = 0.7                # its dissolve in, and the one out; it stays duration_s in between
 
-# The Brockley Live logo (the brand frame's logo; the border is on from the start) fades in
-# shortly after the sequence is over, or at 5 s when there's no title (user, 2026-11-18).
-LOGO_AFTER_TITLE_S = 1.0
+# The border and logo ("Border & logo"): with the title sequence, both fade in 2 s after the
+# strip is gone (or after the video is in, with no names) (user, 2026-11-21). Without it the
+# border is on from the start and the logo fades in at 5 s (user, 2026-11-18).
+BRAND_AFTER_SEQUENCE_S = 2.0
 LOGO_WITHOUT_TITLE_S = 5.0
-LOGO_FADE_S = 1.0
+LOGO_FADE_S = 1.0                 # the fade in of the logo, and with the sequence of the border too
 
 MAX_LINES = 8
 MAX_CHARACTERS = 80
@@ -85,11 +86,19 @@ def details_end_s(title):
     return DETAILS_IN + DETAILS_FADE + float(title.get("duration_s", 6)) + DETAILS_FADE
 
 
+def sequence_end_s(title):
+    """When the sequence is over: the strip gone, or with no names the video in."""
+    return details_end_s(title) if lines_below(title) else VIDEO_IN[0] + VIDEO_IN[1]
+
+
+def border_start_s(title):
+    """When the border starts fading in, or None: on from the first frame (no sequence)."""
+    return sequence_end_s(title) + BRAND_AFTER_SEQUENCE_S if is_shown(title) else None
+
+
 def logo_start_s(title):
     """When the logo starts fading in (seconds from the start of the video)."""
-    if is_shown(title):
-        return (details_end_s(title) if lines_below(title) else VIDEO_IN[0] + VIDEO_IN[1]) + LOGO_AFTER_TITLE_S
-    return LOGO_WITHOUT_TITLE_S
+    return sequence_end_s(title) + BRAND_AFTER_SEQUENCE_S if is_shown(title) else LOGO_WITHOUT_TITLE_S
 
 
 # -- layout: the same numbers as title-layout.js
