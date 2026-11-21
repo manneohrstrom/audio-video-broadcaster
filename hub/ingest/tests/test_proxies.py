@@ -17,8 +17,13 @@ class ProxyTest(unittest.TestCase):
         subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=30.011:duration=3",
                         "-c:v", "libx264", "-preset", "ultrafast", "-g", "60", "-output_ts_offset", "0.0015",
                         "-video_track_timescale", "90000", "-y", source], check=True)
-        result = proxies.make_proxy(source, os.path.join(tmp, "out", "cam.mp4"), poll_s=0.05)
+        seen, checked = [], []
+        result = proxies.make_proxy(source, os.path.join(tmp, "out", "cam.mp4"), poll_s=0.05, frames=len(proxies.frame_times(source)),
+                                    progress=seen.append, checking=lambda: checked.append(len(seen)))
         self.assertEqual(result["frames"], len(proxies.frame_times(source)))
+        self.assertTrue(seen and all(0 <= f <= 1 for f in seen) and seen == sorted(seen))   # the encode, as it goes
+        self.assertGreater(seen[-1], 0.9)
+        self.assertEqual(checked, [len(seen)])                                            # then the check, once
         self.assertLess(result["max_time_error_ms"], 0.5)
         keys = subprocess.run(["ffprobe", "-v", "error", "-skip_frame", "nokey", "-show_entries", "frame=pts_time",
                                "-of", "csv=p=0", os.path.join(tmp, "out", "cam.mp4")], capture_output=True, text=True).stdout.split()

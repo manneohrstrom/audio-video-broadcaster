@@ -695,6 +695,20 @@ class YouTubeTest(unittest.TestCase):
         self.assertEqual([c["take_name"] for c in self.commands()], [None, "Sunday jam"])
         self.assertEqual(self.hub.snapshot()["names"]["takes"], {"20261117-201741": "Sunday jam"})
 
+    def test_unfinished_uploads_are_listed_for_the_activity_strip(self):
+        self.assertEqual(self.hub.youtube_queue(), [])
+        os.makedirs(self.spool)
+        for key, status in (("a_song_video1", "done"), ("b_song_video2", "uploading"), ("c_song_video1", "error")):
+            with open(os.path.join(self.spool, key + ".json"), "w") as f:
+                json.dump({"key": key, "take": "20261117-201741", "song": "song", "video_number": 2, "status": status,
+                           "progress": 0.4, "metadata": {"snippet": {"title": "Blue in Green"}}}, f)
+        with open(os.path.join(self.spool, "broken.json"), "w") as f:
+            f.write("{")
+        queue = self.hub.youtube_queue()
+        self.assertEqual([(u["key"], u["status"], u["progress"], u["title"]) for u in queue],
+                         [("b_song_video2", "uploading", 0.4, "Blue in Green")])
+        self.assertEqual(self.hub.ingest_state()["uploads"], queue)
+
     def test_the_upload_comes_back_with_the_render(self):
         os.makedirs(os.path.join(self.tmp, "ingest"))
         with open(os.path.join(self.tmp, "ingest", "state.json"), "w") as f:

@@ -1101,10 +1101,15 @@ class ProxyStepTest(Base):
         os.makedirs(os.path.join(self.tmp, "audio", TAKE, "song", "v1"))
         open(os.path.join(self.tmp, "audio", TAKE, "song", "v1", "sync.json"), "w").close()   # editable
         self.rig.add_take("cam1")
-        made = []
+        made, seen = [], []
 
         def fake_make(source, destination, **kw):
             made.append(os.path.basename(destination))
+            seen.append(dict(self.ing.state["activity"]))            # what the hub page shows meanwhile
+            kw["progress"](0.5)
+            seen.append(dict(self.ing.state["activity"]))
+            kw["checking"]()
+            seen.append(dict(self.ing.state["activity"]))
             os.makedirs(os.path.dirname(destination), exist_ok=True)
             open(destination, "w").close()
         orig_proxy, orig_thumbs = ingest.proxies.make_proxy, ingest.thumbnails.make_thumbnails
@@ -1115,6 +1120,12 @@ class ProxyStepTest(Base):
             self.assertEqual(self.ing.tick(), "ingested")
             self.assertEqual(made, ["cam1.mp4"])
             self.assertEqual(self.ing.proxies_pending(), [])
+            self.assertEqual({k: seen[0][k] for k in ("kind", "take", "camera", "index", "count", "phase", "progress")},
+                             {"kind": "proxy", "take": TAKE, "camera": "cam1", "index": 1, "count": 1,
+                              "phase": "encoding", "progress": None})
+            self.assertEqual(seen[1]["progress"], 0.5)
+            self.assertEqual((seen[2]["phase"], seen[2]["progress"]), ("checking", None))
+            self.assertIsNone(self.ing.state["activity"])                   # cleared when the round is done
         finally:
             ingest.proxies.make_proxy, ingest.thumbnails.make_thumbnails = orig_proxy, orig_thumbs
 

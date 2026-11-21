@@ -27,6 +27,7 @@ import { notIngested } from "../takes.js";
 import { pickQuote } from "../quotes.js";
 import { applyTheme, saveChoice, savedChoice, themeFor } from "../themes.js";
 import { ThemePicker } from "./ThemePicker.js";
+import { Activity } from "./Activity.js";
 
 const VIEWS = [
   { id: "deck", label: "deck", icon: "deck" },
@@ -166,6 +167,7 @@ export function App() {
       </header>
       ${unreachable && html`<p class="banner error" role="alert">Can't reach the hub. Unplugged? Rebooting? Sulking? Trying again every second.</p>`}
       ${shown && html`<p class=${"banner" + (shown.error ? " error" : "")} role="status">${shown.text}</p>`}
+      <${Activity} status=${status} ingest=${ingest} go=${go} />
       <main class="view">
         ${sideBySide && html`<div class="studio"><${Deck} ...${context} /><${Archive} ...${context} /></div>`}
         ${!sideBySide && view === "deck" && html`<${Deck} ...${context} />`}

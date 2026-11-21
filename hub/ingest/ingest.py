@@ -44,7 +44,7 @@ import youtube_upload  # noqa: E402
 import drive_records  # noqa: E402
 import motion  # noqa: E402
 
-VERSION = "0.24.0"
+VERSION = "0.25.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -412,6 +412,7 @@ class Ingest:
                 if isinstance(cs, dict):
                     cs.update(step=None, progress=None, step_started=None)
         self.state["current"] = None
+        self.state["activity"] = None
         for job in (self.state.get("renders") or {}).values():      # interrupted by a restart
             if job.get("status") in ("rendering", "checking", "writing", "paused"):
                 job.update(status="queued", progress=None)
@@ -475,6 +476,35 @@ class Ingest:
         self.save()
 
     # -- progress and ETA (for the UI)
+    def doing(self, kind=None, **fields):
+        """What hub-ingest is working on besides the camera files themselves, for the hub
+        page's activity strip (user, 2026-11-21: every background job visible): kind is
+        proxy, thumbnails, motion, beats or audio, with take, camera, song, index and count
+        as they apply. None: nothing (camera ingest, renders and syncs have their own records)."""
+        with self.lock:
+            self.state["activity"] = (dict(fields, kind=kind, phase=fields.get("phase"), started=self.clock(),
+                                           progress=None, eta_s=None) if kind else None)
+        self.save()
+
+    def done_doing(self):
+        if self.state.get("activity"):
+            self.doing(None)
+
+    def doing_progress(self, fraction, phase=None):
+        """The current activity's progress (0-1) and time left; saved at most every 2 s."""
+        with self.lock:                # called from the encoder's progress thread too
+            act = self.state.get("activity")
+            if not act:
+                return
+            if phase:
+                act.update(phase=phase, progress=None, eta_s=None)
+            else:
+                act["progress"] = round(fraction, 3)
+                elapsed = self.clock() - act["started"]
+                act["eta_s"] = round(elapsed * (1 - fraction) / fraction) if fraction > 0.02 and elapsed > 5 else None
+        if phase or time.monotonic() - getattr(self, "_saved_at", 0) >= 2:
+            self.save()
+
     def begin(self, take_id, cam, step):
         cs = self.cam_state(take_id, cam)
         cs.update(step=step, progress=None, step_started=self.clock(), error=None)
@@ -939,8 +969,11 @@ class Ingest:
             free = self.drive.free_gb()
             if free is not None and free < need:
                 raise RuntimeError("drive full: %.1f GB free, need %.1f for audio" % (free, need))
+            count, index = sum(len(items) for items in todo.values()), 0
             for take_id, items in todo.items():
                 for rel, size, mtime_ns in items:
+                    index += 1
+                    self.doing("audio", take=take_id, file=os.path.basename(rel), index=index, count=count)
                     self._copy_audio_file(take_id, rel, size, mtime_ns)
         self.state["drive_free_gb"] = self.drive_free()
 
@@ -1194,9 +1227,10 @@ class Ingest:
     def make_thumbnails(self, pending):
         """Make thumbnails for each pending camera; pauses (raises) when the rig gets busy."""
         with self.reading_drive():
-            for take_id, camera_id in pending:
+            for index, (take_id, camera_id) in enumerate(pending):
                 if self.rig_busy():
                     raise Paused()
+                self.doing("thumbnails", take=take_id, camera=camera_id, index=index + 1, count=len(pending))
                 mov = os.path.join(self.take_folder(take_id), camera_id + ".mov")
                 out_dir = os.path.join(self.cfg["thumbs_dir"], take_id, camera_id)
                 try:
@@ -1242,12 +1276,16 @@ class Ingest:
             self.save(status="paused: rig busy" if busy else "ingesting")
             return busy
         with self.reading_drive():
-            for take_id, camera_id in pending:
+            for index, (take_id, camera_id) in enumerate(pending):
                 source = os.path.join(self.take_folder(take_id), camera_id + ".mov")
                 destination = os.path.join(self.cfg["proxies_dir"], take_id, camera_id + ".mp4")
-                self.save(step="proxy %s %s" % (take_id, camera_id))
+                self.state["step"] = "proxy %s %s" % (take_id, camera_id)
+                self.doing("proxy", take=take_id, camera=camera_id, index=index + 1, count=len(pending), phase="encoding")
+                camera = (self.state.get("takes") or {}).get(take_id, {}).get(camera_id) or {}
                 try:
-                    proxies.make_proxy(source, destination, should_pause=rig_is_busy, should_stop=self.eject_requested)
+                    proxies.make_proxy(source, destination, should_pause=rig_is_busy, should_stop=self.eject_requested,
+                                       frames=camera.get("frames_out") or camera.get("frames_cam"), progress=self.doing_progress,
+                                       checking=lambda: self.doing_progress(None, phase="checking"))
                 except InterruptedError:
                     return
                 except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as e:
@@ -1286,10 +1324,12 @@ class Ingest:
     def run_beat_analyses(self, pending, popen=subprocess.Popen, poll=0.5):
         """Analyse each pending bounce, one at a time, niced, in a separate process (it holds
         the decoded song in memory; hub-ingest itself stays small). Stops when the rig gets busy."""
-        for key, bounce, out_path in pending:
+        for index, (key, bounce, out_path) in enumerate(pending):
             if self.rig_busy():
                 return
-            self.save(step="beats %s" % key)
+            take_id, song, version = key.split("/")
+            self.state["step"] = "beats %s" % key
+            self.doing("beats", take=take_id, song=song, version=version, index=index + 1, count=len(pending))
             command = ["nice", "-n", "19", sys.executable, os.path.join(HERE, "beats.py"), bounce, out_path]
             process = popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             while process.poll() is None:
@@ -1326,11 +1366,12 @@ class Ingest:
     def measure_motion(self, pending):
         """Movement readings from each pending proxy's keyframes (cheap: a few seconds per
         camera-hour). Stops when the rig gets busy."""
-        for take_id, camera_id in pending:
+        for index, (take_id, camera_id) in enumerate(pending):
             if self.rig_busy():
                 raise Paused()
             proxy = os.path.join(self.cfg["proxies_dir"], take_id, camera_id + ".mp4")
-            self.save(step="motion %s %s" % (take_id, camera_id))
+            self.state["step"] = "motion %s %s" % (take_id, camera_id)
+            self.doing("motion", take=take_id, camera=camera_id, index=index + 1, count=len(pending))
             try:
                 motion.write_json(motion.motion_path(self.cfg["proxies_dir"], take_id, camera_id),
                                   motion.measure(proxy))
@@ -1844,7 +1885,10 @@ class Ingest:
             self.run_syncs()
         beats_work = self.beats_pending()   # the same: the bounces are staged on the hub
         if beats_work and not self.rig_busy():
-            self.run_beat_analyses(beats_work)
+            try:
+                self.run_beat_analyses(beats_work)
+            finally:
+                self.done_doing()
         self.look_at_drive()
         try:
             self.update_drive_records()     # small files: a quiet rig and the drive are enough
@@ -1900,6 +1944,7 @@ class Ingest:
             self.save(status="paused: rig busy")
             return "paused"
         finally:
+            self.done_doing()
             if not self.state.get("current"):
                 try:
                     self.settle_drive()

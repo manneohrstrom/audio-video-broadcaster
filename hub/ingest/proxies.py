@@ -19,6 +19,7 @@ Output: <proxies_dir>/<take>/<camera>.mp4 on the hub's SD card (hubd serves it a
 import os
 import signal
 import subprocess
+import threading
 import time
 
 WIDTH, HEIGHT = 960, 540
@@ -42,25 +43,41 @@ def frame_times(path, ffprobe="ffprobe"):
 
 
 def proxy_command(source, destination, ffmpeg="ffmpeg"):
-    return [ffmpeg, "-nostdin", "-v", "error", "-copyts", "-i", source, "-an",
+    return [ffmpeg, "-nostdin", "-v", "error", "-progress", "pipe:1", "-nostats", "-copyts", "-i", source, "-an",
             "-vf", "scale=%d:%d" % (WIDTH, HEIGHT),
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", QUALITY_CRF, "-g", str(KEYFRAME_EVERY_FRAMES),
             "-fps_mode", "passthrough", "-enc_time_base:v", "demux", "-video_track_timescale", "90000",
             "-movflags", "+faststart", "-f", "mp4", "-y", destination]
 
 
+def read_progress(stream, frames, report):
+    """ffmpeg's -progress lines as a fraction of the original's frames, to report(). By
+    frame count: with -copyts and the demuxer's time base, out_time stays at 0."""
+    for line in iter(stream.readline, b""):
+        if frames and line.startswith(b"frame="):
+            try:
+                report(min(1.0, max(0.0, int(line.split(b"=", 1)[1]) / frames)))
+            except ValueError:
+                pass
+
+
 def make_proxy(source, destination, should_pause=lambda: False, should_stop=lambda: False,
-               ffmpeg="ffmpeg", ffprobe="ffprobe", poll_s=1.0):
+               ffmpeg="ffmpeg", ffprobe="ffprobe", poll_s=1.0, frames=None, progress=lambda fraction: None,
+               checking=lambda: None):
     """Encode the proxy (niced). While should_pause() is true the encoder is suspended
     (SIGSTOP), so a take or live session gets the hub's CPU; should_stop() kills it and
-    raises InterruptedError (the proxy is made again later). Checks the frame times."""
+    raises InterruptedError (the proxy is made again later). Checks the frame times.
+    progress(fraction) follows the encode when the original's frame count is known; checking() is called
+    when the encode is done and the frame-time check (a minute or two) starts."""
     part = destination + ".part"
     os.makedirs(os.path.dirname(destination), exist_ok=True)
 
     def lower_priority():
         os.nice(19)
-    process = subprocess.Popen(proxy_command(source, part, ffmpeg), stdout=subprocess.DEVNULL,
+    process = subprocess.Popen(proxy_command(source, part, ffmpeg), stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, preexec_fn=lower_priority)
+    reader = threading.Thread(target=read_progress, args=(process.stdout, frames, progress), daemon=True)
+    reader.start()
     paused = False
     try:
         while process.poll() is None:
@@ -87,8 +104,11 @@ def make_proxy(source, destination, should_pause=lambda: False, should_stop=lamb
             os.remove(part)
         raise
     finally:
+        reader.join(timeout=5)
+        process.stdout.close()
         process.stderr.close()
 
+    checking()
     original, proxy = frame_times(source, ffprobe), frame_times(part, ffprobe)
     if len(original) != len(proxy):
         os.remove(part)

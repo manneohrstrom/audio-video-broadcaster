@@ -34,7 +34,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.42.0"
+VERSION = "0.43.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -993,7 +993,27 @@ class Hub:
                 self.add_youtube(tid, song, jobs.get("%s/%s:edit" % (tid, song["id"])) or {})
             if a:
                 t["audio"] = a
+        st["uploads"] = self.youtube_queue()
         return st
+
+    def youtube_queue(self):
+        """hub-upload's uploads that aren't finished yet (the hub page's activity strip)."""
+        out = []
+        try:
+            names = sorted(n for n in os.listdir(self.cfg["youtube_spool_dir"]) if n.endswith(".json"))
+        except OSError:
+            return out
+        for name in names:
+            try:
+                with open(os.path.join(self.cfg["youtube_spool_dir"], name)) as f:
+                    record = json.load(f)
+            except (OSError, ValueError):
+                continue
+            if isinstance(record, dict) and record.get("status") not in ("done", "error"):
+                item = {k: record.get(k) for k in ("key", "take", "song", "video_number", "status", "progress", "note")}
+                item["title"] = (((record.get("metadata") or {}).get("snippet")) or {}).get("title")
+                out.append(item)
+        return out
 
     def add_youtube(self, take, song, job):
         """The YouTube upload with the song's video render (a fourth step after Write to drive)
