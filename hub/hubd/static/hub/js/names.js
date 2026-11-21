@@ -1,5 +1,5 @@
 // The names the user gives cameras and takes (user, 2026-11-19; hub/hubd/names.py, in
-// /api/status as "names"). The id (cam1, pauls-pixel, 20261119-140512) stays the nickname:
+// /api/status as "names"). The id (cam1, phone-k7q2, 20261119-140512) stays the nickname:
 // shown small, in brackets, next to a name the user gave.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { html } from "shared/html.js";
@@ -36,6 +36,11 @@ export function nameWithId(given, fallback, id) {
 /** A name with its id in small brackets when the user named it. */
 export function Name({ given, fallback, id }) {
   return html`${given || fallback}${given && html` <small class="nick">(${id})</small>`}`;
+}
+
+/** A phone's colour dot, the same colour its screen shows (phones.py COLOURS). */
+export function PhoneColour({ colour }) {
+  return colour ? html`<i class="phone-colour" style=${{ background: colour.hex }} title=${colour.label} aria-hidden="true"></i>` : null;
 }
 
 /** A name that can be changed in place: the pencil (or a double click) opens a field;

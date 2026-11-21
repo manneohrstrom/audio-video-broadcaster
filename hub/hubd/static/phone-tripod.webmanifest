@@ -1,0 +1,15 @@
+{
+  "name": "Tripod camera",
+  "short_name": "Tripod cam",
+  "description": "A phone on a tripod as a studio camera: dark screen, set up from the hub page.",
+  "start_url": "/phone/tripod",
+  "scope": "/phone/tripod",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {"src": "/phone-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "/phone-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}

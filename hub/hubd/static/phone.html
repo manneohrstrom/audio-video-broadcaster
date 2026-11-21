@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1e1c1a">
 <title>Phone camera</title>
+<script>
+  // The tripod page (/phone/tripod, user 2026-11-21): this page, dark and quiet, for a phone
+  // left in a bracket on the power. Its name, identify and reload are on the hub page.
+  if (location.pathname === "/phone/tripod") {
+    document.documentElement.classList.add("tripod");
+    document.title = "Tripod camera";
+    document.head.appendChild(Object.assign(document.createElement("link"), {rel: "manifest", href: "/phone-tripod.webmanifest"}));
+  }
+</script>
 <!-- The same instrument as the hub page and the editor: tokens and fonts from static/shared. -->
 <link rel="stylesheet" href="/shared/styles/tokens.css">
 <style>
@@ -90,6 +99,32 @@
 
   #calflash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 0.12s; z-index: 50; }
   #calflash.on { opacity: 0.95; }
+
+  /* The phone's colour from the hub (which phone is which) */
+  #swatch.coloured { background: var(--phone-colour); }
+
+  /* "identify" on the hub page: the whole screen in the phone's colour, with its name */
+  #identify { position: fixed; inset: 0; z-index: 60; display: none; place-items: center; background: var(--phone-colour, #fff);
+              color: #000; font-size: clamp(28px, 9vw, 72px); font-weight: 700; text-align: center; padding: 20px; animation: pulse 0.8s ease-in-out infinite; }
+  #identify.on { display: grid; }
+  @keyframes pulse { 50% { opacity: 0.55; } }
+
+  /* Tripod page: black, nothing to press. The video stays full size (calibration and the hub's
+     stills read it; Chrome may pause a video it thinks is hidden), covered by the black screen. */
+  #tripod { display: none; }
+  html.tripod, html.tripod body { background: #000; }
+  html.tripod .controls, html.tripod #state { display: none; }
+  html.tripod .cam { display: block; }
+  html.tripod .viewfinder { position: fixed; inset: 0; }
+  html.tripod video { width: 100%; height: 100%; max-height: none; object-fit: contain; }
+  html.tripod #tripod { position: fixed; inset: 0; z-index: 10; display: grid; place-content: center; justify-items: center; gap: 12px;
+                        background: #000; color: #4a4642; letter-spacing: 0.04em; user-select: none; -webkit-user-select: none;
+                        touch-action: none; -webkit-tap-highlight-color: transparent; }
+  #tripod .dot { width: 22px; height: 22px; border-radius: 50%; background: var(--phone-colour, #2b2824); opacity: 0.4; transition: transform 3s linear; }
+  #tripod.rec .dot { box-shadow: 0 0 0 4px #000, 0 0 0 6px rgba(229, 72, 77, 0.55); }
+  #tripod.holding .dot { transform: scale(2.5); }
+  #thint { font-size: 13px; color: #3a3632; max-width: 80vw; text-align: center; }
+  #thint.err { color: #7a3a32; }
 </style>
 </head>
 <body>
@@ -97,11 +132,12 @@
   <div class="viewfinder">
     <video id="preview" muted playsinline autoplay></video>
     <span id="state">off</span>
+    <div id="tripod"><span class="dot"></span><span id="tname"></span><span id="thint"></span></div>
   </div>
   <div class="controls">
     <div class="who">
-      <span class="grille" aria-hidden="true"></span>
-      <input id="name" maxlength="24" placeholder="name, e.g. Paul's Pixel" autocomplete="off" aria-label="This phone's name">
+      <span class="grille" id="swatch" aria-hidden="true"></span>
+      <input id="name" maxlength="32" placeholder="name (optional), e.g. Paul's Pixel" autocomplete="off" aria-label="This phone's name">
       <button id="connect" class="main">start camera</button>
       <button id="disconnect" hidden title="Stop the camera, leave full screen and go back to the start">disconnect</button>
     </div>
@@ -133,24 +169,62 @@
     </div>
     <details><summary>first time on this phone</summary>
       <p class="dim">REC and STOP come from the hub. Keep this page in front, the screen on and the phone plugged in.</p>
+      <p class="dim">On a tripod for good? Open <a href="/phone/tripod">the tripod page</a> instead: a dark screen, named and
+      checked from the hub page. Hold it for 3 s to come back here.</p>
       <p class="dim">Chrome needs <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> set to
       <code id="origin"></code>, and the local-network permission.</p>
     </details>
   </div>
 </div>
+<div id="identify"><span id="iname"></span></div>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
 const PAGE = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => (b % 36).toString(36)).join("");
+const TRIPOD = document.documentElement.classList.contains("tripod");
+// The phone's id, made once and kept by Chrome (user, 2026-11-21): like a Pi camera's
+// hostname. Files are <id>.mov; the name people see is given on the hub page or below.
+const DEVICE = (() => {
+  const make = () => "phone-" + Array.from(crypto.getRandomValues(new Uint8Array(4)), b => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31]).join("");
+  try {
+    let id = localStorage.getItem("phone_device");
+    if (!/^phone-[a-z0-9]{4,8}$/.test(id || "")) { id = make(); localStorage.setItem("phone_device", id); }
+    return id;
+  } catch (e) { return make(); }
+})();
 const S = {
-  name: "", id: null, stream: null, track: null, state: "off", take: null, part: null, seq: 0, buf: [], bufFrames: [],
+  name: "", colour: null, nameEdited: false, starting: false, id: null, stream: null, track: null, state: "off", take: null, part: null, seq: 0, buf: [], bufFrames: [],
   encoded: 0, missing: 0, lastTs: null, pendingMeta: new Map(), encoder: null, encCfg: null, reader: null,
   clock: [], doneCmd: null, queue: [], uploaded: 0, bytesUp: 0, uploading: false, chunkDir: null,
   battery: null, lastErr: "", hidden: 0, wake: null, opfs: null, maxGapMs: 0, lastArr: null, locked: false,
   model: null, storageFreeGb: null, rig: null, hubOk: false, recStart: 0,
 };
 $("origin").textContent = location.origin;
-try { $("name").value = localStorage.getItem("phone_label") || ""; } catch (e) {}
+
+/** The name people see: the one given on the hub page, else the colour ("Blue phone"). */
+function shownName() { return S.name || (S.colour && S.colour.label) || DEVICE; }
+async function saveName(name) {
+  try {
+    const r = await fetch("/api/names", {method: "POST", body: JSON.stringify({kind: "cameras", id: DEVICE, name: name.trim()})});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    S.name = (j.cameras || {})[DEVICE] || ""; S.nameEdited = false;
+  } catch (e) { msg("Couldn't save the name: " + e.message, true); }
+}
+function applyColour(c) {
+  if (!c || (S.colour && S.colour.name === c.name)) return;
+  S.colour = c;
+  document.documentElement.style.setProperty("--phone-colour", c.hex);
+  $("swatch").classList.add("coloured"); $("swatch").title = c.label;
+  $("name").placeholder = c.label + ": name it here or on the hub";
+}
+let identifyOff = null;
+function identify() {           // "identify" on the hub page: on for as long as the hub asks, plus a moment
+  $("iname").textContent = shownName();
+  $("identify").classList.add("on");
+  clearTimeout(identifyOff);
+  identifyOff = setTimeout(() => $("identify").classList.remove("on"), 1500);
+}
 
 function msg(t, err) { $("msg").textContent = t || ""; $("msg").className = err ? "err" : ""; if (t) hublog({ev: "msg", t}); }
 function setState(s) {
@@ -182,20 +256,25 @@ async function pingBurst(n = 5) {
 function bestRtt() { const r = S.clock.slice(-10); return r.length ? Math.min(...r.map(c => c.rtt_ms)) : null; }
 
 // ---------- camera
+async function fullScreen() {
+  try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); await screen.orientation.lock("landscape"); } catch (e) {}
+}
 async function startCamera() {
-  S.name = $("name").value.trim();
-  if (!S.name) { msg("Give this phone a name first, e.g. Paul's Pixel.", true); $("name").focus(); return; }
-  try { localStorage.setItem("phone_label", S.name); } catch (e) {}
+  if (S.starting || S.state !== "off") return;
   if (!window.isSecureContext) { msg("Camera blocked: set the Chrome flag below to " + location.origin + ", then relaunch Chrome.", true); return; }
   if (!("MediaStreamTrackProcessor" in window) || !("VideoEncoder" in window)) { msg("This Chrome is too old (no WebCodecs). Update Chrome.", true); return; }
-  try { await document.documentElement.requestFullscreen(); await screen.orientation.lock("landscape"); } catch (e) {}
+  S.starting = true;
+  if (!TRIPOD && S.nameEdited) saveName($("name").value);
+  await fullScreen();               // needs a tap: the tripod page's camera may start without one
   try {
     S.stream = await navigator.mediaDevices.getUserMedia({audio: false, video: {
       facingMode: {ideal: "environment"}, width: {ideal: 1920}, height: {ideal: 1080}, frameRate: {ideal: 30, max: 30}}});
   } catch (e) { msg("Camera: " + e.name + " " + e.message, true); return; }
+  finally { S.starting = false; }
   S.track = S.stream.getVideoTracks()[0];
   $("preview").srcObject = S.stream;
-  $("name").disabled = true; $("connect").hidden = true; $("disconnect").hidden = false;
+  $("preview").play().catch(() => {});
+  $("connect").hidden = true; $("disconnect").hidden = false;
   setState("ready"); msg("");
   const ts = S.track.getSettings();
   if (ts.height > ts.width) msg("Video is portrait (" + ts.width + "×" + ts.height + "): turn the phone sideways and reload the page.", true);
@@ -224,7 +303,7 @@ async function disconnect() {
   Object.assign(S, {stream: null, track: null, wake: null, locked: false, lockedAtRec: false, id: null, hubOk: false, mount: null});
   S.cal = {inView: false, running: false};
   setState("off");
-  $("name").disabled = false; $("connect").hidden = false; $("disconnect").hidden = true;
+  $("connect").hidden = false; $("disconnect").hidden = true;
   $("stats").innerHTML = ""; calShow("");
   msg("Disconnected. Start the camera again to rejoin the rig.");
 }
@@ -494,7 +573,7 @@ async function pump() {
   } finally { S.uploading = false; }
 }
 function finishBody() {
-  return {label: S.name, clock: S.clock, settings: S.settingsAtRec, settings_end: S.track && S.track.getSettings(), encoder: S.encCfg, chunks: S.seq,
+  return {label: shownName(), clock: S.clock, settings: S.settingsAtRec, settings_end: S.track && S.track.getSettings(), encoder: S.encCfg, chunks: S.seq,
           info: {model: S.model, ua: navigator.userAgent, battery: S.battery && {level: S.battery.level, charging: S.battery.charging}},
           stats: {encoded: S.encoded, missing: S.missing, max_arrival_gap_ms: Math.round(S.maxGapMs), hidden: S.hidden, locked: S.locked}};
 }
@@ -526,11 +605,9 @@ async function finish(take, part, body, opfsName) {
   } catch (e) { msg("Couldn't finish take " + take + " on the hub (" + e.message + "); it's kept on the phone and retried.", true); }
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c])); }
-$("name").addEventListener("change", () => {      // renaming before a take
-  if (S.state !== "ready") return;
-  S.name = $("name").value.trim(); S.id = null;
-  try { localStorage.setItem("phone_label", S.name); } catch (e) {}
-});
+// The name only changes what people see (files keep the id), so it can change any time.
+$("name").addEventListener("input", () => { S.nameEdited = true; });
+$("name").addEventListener("change", () => saveName($("name").value));
 function hms(s) { s = Math.floor(s || 0); return [s / 3600 | 0, (s / 60 | 0) % 60, s % 60].map(x => String(x).padStart(2, "0")).join(":"); }
 
 // ---------- leftovers from a crash, reload or Wi-Fi drop: send them, then delete them here
@@ -565,8 +642,8 @@ async function uploadLeftovers() {
 
 // ---------- the hub tells this page what to do
 async function pollHub() {
-  if (S.state === "off") return;
-  const st = {phone: S.name, page: PAGE, state: S.state, take: S.take, part: S.part, frames: S.encoded, dropped: S.missing,
+  if (S.state === "off" && !TRIPOD) return;      // the tripod page checks in from the start: the hub can see and name it
+  const st = {device: DEVICE, mode: TRIPOD ? "tripod" : "handheld", page: PAGE, state: S.state, take: S.take, part: S.part, frames: S.encoded, dropped: S.missing,
               queue: S.queue.length, uploaded: S.uploaded, battery: S.battery && Math.round(S.battery.level * 100),
               charging: S.battery ? S.battery.charging : null, rtt_ms: bestRtt() && Math.round(bestRtt()),
               visible: document.visibilityState, done_cmd: S.doneCmd, err: S.lastErr, locked: S.locked, model: S.model,
@@ -576,11 +653,16 @@ async function pollHub() {
     const r = await fetch("/api/phone/poll", {method: "POST", body: JSON.stringify(st)});
     const j = await r.json();
     if (!r.ok) {
-      S.hubOk = false; msg(j.error || "hub refused", true);
-      if (S.state === "ready") { $("name").disabled = false; }     // e.g. name in use: let them change it
+      S.hubOk = false; S.hubRefused = true; msg(j.error || "hub refused", true);
       return;
     }
+    if (S.hubRefused) { S.hubRefused = false; msg(""); }
     S.hubOk = true; S.rig = j.rig; S.id = j.id;
+    S.name = j.name || "";
+    applyColour(j.colour);
+    if (!S.nameEdited && document.activeElement !== $("name")) $("name").value = S.name;
+    if (j.identify) identify();
+    if (j.reload && (S.state === "ready" || S.state === "off") && !S.queue.length) { location.reload(); return; }
     applyMount(j.mount);
     S.calWatch = !!j.calib_watch;
     if (j.snap && S.state === "ready") sendSnap().catch(e => hublog({ev: "snap_err", err: String(e)}));
@@ -603,7 +685,7 @@ setInterval(() => {
   if (S.state === "off") return;               // before the camera starts, and after disconnecting
   const rows = [
     ["hub", S.hubOk ? (S.rig && S.rig.state === "recording" ? "recording " + S.rig.take_id : "connected · " + (S.rig ? S.rig.state : "")) : "<b style='color:#f66'>not reachable</b>"],
-    ["name", esc(S.name) + (S.id ? ` <span class="dim">(files: ${S.id}.mov)</span>` : "")],
+    ["name", esc(shownName()) + ` <span class="dim">(files: ${DEVICE}.mov)</span>`],
     ["take", S.take ? S.take + (S.part && S.part !== S.id ? " · " + S.part : "") : "–"],
     ["frames", S.encoded + (S.missing ? `  (${S.missing} dropped)` : "")],
     ["upload", `${S.uploaded} pieces · ${(S.bytesUp / 1e6).toFixed(0)} MB${S.queue.length ? " · " + S.queue.length + " waiting" : ""}`],
@@ -614,6 +696,51 @@ setInterval(() => {
   if (S.lastErr) rows.push(["error", S.lastErr]);
   $("stats").innerHTML = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join("");
 }, 500);
+// A reload (by hand or from the hub) lets the next page take over at once, instead of being
+// refused as a second tab until this one has been quiet for a few seconds.
+addEventListener("pagehide", () => { try { navigator.sendBeacon("/api/phone/bye", JSON.stringify({device: DEVICE, page: PAGE})); } catch (e) {} });
+
+// ---------- the tripod page: a dark screen with the phone's colour and name, nothing else.
+// A tap starts the camera or goes full screen (Chrome needs one); holding 3 s goes to the
+// full page (only between takes). Everything else is on the hub page.
+if (TRIPOD) {
+  const screenFull = () => document.fullscreenElement || matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches;
+  setInterval(() => {
+    const err = $("msg").className === "err" ? $("msg").textContent : "";
+    $("tname").textContent = shownName();
+    $("tripod").classList.toggle("rec", S.state === "recording");
+    $("thint").className = err ? "err" : "";
+    $("thint").textContent = err || (S.state === "off" ? (S.starting ? "" : "tap to start the camera")
+      : !screenFull() ? "tap for full screen" : !S.hubOk ? "no hub" : "");
+  }, 500);
+  let hold = null;
+  const letGo = () => { clearTimeout(hold); hold = null; $("tripod").classList.remove("holding"); };
+  $("tripod").addEventListener("pointerdown", () => {
+    $("tripod").classList.add("holding");
+    hold = setTimeout(() => {
+      letGo();
+      if ((S.state === "ready" || S.state === "off") && !S.queue.length) location.href = "/phone";
+    }, 3000);
+  });
+  $("tripod").addEventListener("pointerup", () => {
+    if (!hold) return;
+    letGo();
+    if (S.state === "off") startCamera(); else if (!screenFull()) fullScreen();
+  });
+  $("tripod").addEventListener("pointercancel", letGo);
+}
+if (!TRIPOD) {                  // the handheld page checks in only once its camera starts: ask for colour and name now
+  fetch("/api/phone/me/" + DEVICE).then(r => r.json()).then(j => {
+    applyColour(j.colour);
+    if (S.state === "off") { S.name = j.name || ""; if (!S.nameEdited) $("name").value = S.name; }
+  }).catch(() => {});
+}
+if (TRIPOD) {
+  // Camera allowed before on this phone: start without waiting for a tap (after a reload from the hub).
+  (async () => {
+    try { if ((await navigator.permissions.query({name: "camera"})).state === "granted") startCamera(); } catch (e) {}
+  })();
+}
 
 // ---------- calibration by showing the card (Track B). While the hub watches (a hub page is
 // open) and this phone is idle, it reads a frame every ~1.5 s through the hub's card reader.

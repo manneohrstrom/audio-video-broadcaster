@@ -34,7 +34,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.41.0"
+VERSION = "0.42.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -342,6 +342,7 @@ class Hub:
             self.cam_settings = {}
         self.calibrator = calibrate.Calibrator(self, clock=clock)
         self.phones.calib_watch = self.calibrator.watching
+        self.phones.given_name = self.names.camera
         # Background work started from the poll loop (tests run it inline).
         self.spawn = lambda fn, *a: threading.Thread(target=fn, args=a, daemon=True).start()
         self.lamp = lamp.Lamp(cfg.get("lamp"), self.lamp_inputs, log)
@@ -488,7 +489,9 @@ class Hub:
     def phone_poll(self, body):
         with self.lock:
             rig = {"state": self.state, "take_id": (self.take or {}).get("take_id")}
-        return self.phones.poll(body, rig)
+        answer = self.phones.poll(body, rig)
+        answer["name"] = self.names.camera(answer["id"])     # given on the hub page, or None
+        return answer
 
     # -- take log
     def read_log(self):
@@ -1208,7 +1211,8 @@ class Hub:
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json",
                 ".css": "text/css", ".svg": "image/svg+xml", ".ico": "image/x-icon",
                 ".woff2": "font/woff2", ".ttf": "font/ttf", ".txt": "text/plain; charset=utf-8",   # editor fonts and their licences
-                ".png": "image/png"}                                           # the brand frame
+                ".png": "image/png",                                           # the brand frame
+                ".webmanifest": "application/manifest+json"}                   # the tripod page on the home screen
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1248,6 +1252,8 @@ class Handler(BaseHTTPRequestHandler):
     P_CAM_SETTINGS = re.compile(r"^/api/camera/(cam\d+)/settings$")
     P_PHONE_CALIB = re.compile(r"^/api/calib/phone/([^/]+)$")
     P_PHONE_MOUNT = re.compile(r"^/api/phone/([^/]+)/mount$")
+    P_PHONE_DO = re.compile(r"^/api/phone/([^/]+)/(identify|reload)$")
+    P_PHONE_ME = re.compile(r"^/api/phone/me/([^/]+)$")
     P_AUDIO = re.compile(r"^/api/audio/(\d{8}-\d{6})$")
     P_EDITOR = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})$")
     P_EDITOR_RENDER = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/render$")
@@ -1431,6 +1437,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, h.phones.have(*m.groups()))
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
+        m = self.P_PHONE_ME.match(self.path)
+        if m:                                      # a phone page before its camera starts: its colour and name
+            try:
+                return self._send(200, dict(h.phones.me(m.group(1)), name=h.names.camera(m.group(1))))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
         path, _, query = self.path.partition("?")
         m = self.P_SNAP.match(path)
         if m:
@@ -1453,7 +1465,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, got[0], "image/jpeg", {"X-Snap-Info": json.dumps({"age_s": round(time.time() - got[1], 1)})})
         if path in ("/", "/index.html", "/snap"): # the hub page (static/hub, Preact like the editor); /snap opens its focus view
             return self._app_static("hub", "index.html")
-        name = {"/phone": "phone.html"}.get(path, path.lstrip("/"))
+        name = {"/phone": "phone.html", "/phone/tripod": "phone.html"}.get(path, path.lstrip("/"))
         if "/" in name or name.startswith("."):
             return self._send(404, {"error": "not found"})
         p = os.path.join(h.cfg["static_dir"], name)
@@ -1535,6 +1547,8 @@ class Handler(BaseHTTPRequestHandler):
             b = self._body()
             if self.path == "/api/phone/poll":
                 return self._send(200, h.phone_poll(b))
+            if self.path == "/api/phone/bye":      # sendBeacon from a page going away
+                return self._send(200, h.phones.bye(b))
             m = self.P_FINISH.match(self.path)
             if m:
                 return self._send(200, h.phones.finish(m.group(1), m.group(2), b))
@@ -1554,6 +1568,9 @@ class Handler(BaseHTTPRequestHandler):
             m = self.P_PHONE_MOUNT.match(self.path)
             if m:
                 return self._send(200, h.phones.set_mount(m.group(1), b.get("mount")))
+            m = self.P_PHONE_DO.match(self.path)
+            if m:                                  # from the hub page: flash its screen, or reload its page
+                return self._send(200, getattr(h.phones, m.group(2))(m.group(1)))
             if self.path == "/api/render":
                 return self._send(200, h.request_render(b.get("take"), b.get("song"), b.get("version")))
             m = self.P_AUDIO_SONGS.match(self.path)

@@ -400,39 +400,39 @@ class PhoneCalibrationTest(unittest.TestCase):
         self.cfg.update(state_dir=tempfile.mkdtemp(), client_head_start_s=0, sync_timeout_s=1)
         self.rig = FakeRig(self.cfg["nodes"])
         self.hub = hubd.Hub(self.cfg, nodes=self.rig, clock=lambda: self.now[0], sleep=lambda s: None)
-        self.body = {"phone": "Paul's Pixel", "page": "abcdefgh1", "state": "ready"}
+        self.body = {"device": "phone-pp01", "page": "abcdefgh1", "state": "ready"}
 
     def test_poll_tells_the_phone_when_to_watch_and_its_mount(self):
         r = self.hub.phone_poll(self.body)
         self.assertEqual((r["calib_watch"], r["mount"]), (False, "tripod"))
         self.hub.calibrator.page_open()
         self.assertTrue(self.hub.phone_poll(self.body)["calib_watch"])
-        self.hub.phones.set_mount("pauls-pixel", "handheld")
+        self.hub.phones.set_mount("phone-pp01", "handheld")
         self.assertEqual(self.hub.phone_poll(self.body)["mount"], "handheld")
         with self.assertRaises(ValueError):
-            self.hub.phones.set_mount("pauls-pixel", "gimbal")
+            self.hub.phones.set_mount("phone-pp01", "gimbal")
         again = hubd.Hub(self.cfg, nodes=self.rig, sleep=lambda s: None)
-        self.assertEqual(again.phones.mounts, {"pauls-pixel": "handheld"})
+        self.assertEqual(again.phones.mounts, {"phone-pp01": "handheld"})
 
     def test_phone_reports_and_take_keeps_its_record(self):
         cal = self.hub.calibrator
         self.hub.phone_poll(self.body)
-        self.assertEqual(cal.status()["phones"]["pauls-pixel"]["status"], "waiting")
-        cal.phone_report("pauls-pixel", {"status": "calibrating", "message": "hold the card still"})
-        self.assertEqual(cal.status()["phones"]["pauls-pixel"]["status"], "calibrating")
+        self.assertEqual(cal.status()["phones"]["phone-pp01"]["status"], "waiting")
+        cal.phone_report("phone-pp01", {"status": "calibrating", "message": "hold the card still"})
+        self.assertEqual(cal.status()["phones"]["phone-pp01"]["status"], "calibrating")
         with self.assertRaises(ValueError):
-            cal.phone_report("pauls-pixel", {"status": "calibrated"})          # no record
-        cal.phone_report("pauls-pixel", {"status": "calibrated", "record": {
+            cal.phone_report("phone-pp01", {"status": "calibrated"})          # no record
+        cal.phone_report("phone-pp01", {"status": "calibrated", "record": {
             "iso": 170, "k": 2850, "light_ok": True, "grey": [120, 119, 118], "patches": {"white": [140, 139, 138]}}})
-        self.assertEqual(cal.status()["phones"]["pauls-pixel"]["message"], calibrate.UNEVEN_CARD)   # kept with the record
-        cal.phone_report("pauls-pixel", {"status": "calibrated", "record": {"iso": 170, "k": 2850, "light_ok": True}})
+        self.assertEqual(cal.status()["phones"]["phone-pp01"]["message"], calibrate.UNEVEN_CARD)   # kept with the record
+        cal.phone_report("phone-pp01", {"status": "calibrated", "record": {"iso": 170, "k": 2850, "light_ok": True}})
         st = cal.status()
-        self.assertEqual((st["seq"], st["phones"]["pauls-pixel"]["iso"]), (2, 170))   # two reports
+        self.assertEqual((st["seq"], st["phones"]["phone-pp01"]["iso"]), (2, 170))   # two reports
         self.hub.poll_once()
         self.hub.rec()
         self.hub.phone_poll(self.body)          # the phone is told to record
         s = self.hub.stop()
-        self.assertEqual(s["calibration"]["phone:pauls-pixel"]["k"], 2850)
+        self.assertEqual(s["calibration"]["phone:phone-pp01"]["k"], 2850)
 
 
 class LiveCalibrationTest(unittest.TestCase):

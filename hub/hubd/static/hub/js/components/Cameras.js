@@ -13,7 +13,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { html } from "shared/html.js";
 import { Icon } from "shared/icons.js";
 import { focusDistance, focusParts, shownMode } from "../format.js";
-import { EditableName, Name, givenCameraName } from "../names.js";
+import { identifyPhone } from "../api.js";
+import { EditableName, Name, PhoneColour, givenCameraName } from "../names.js";
 
 // Focus is stored as libcamera's lens position (dioptres, 1 / metres) and shown in metres.
 // The nudges step in dioptres too: the same step moves far focus a lot in metres and near
@@ -218,9 +219,11 @@ function PhoneStill({ id, phone, shotRequest, names, say, refreshStatus }) {
       <${Picture} still=${still} />
       <footer class="tile-bar">
         <i class="led green" aria-hidden="true"></i>
-        <b><${EditableName} kind="cameras" id=${id} given=${givenCameraName(names, id)} fallback=${phone.label || id}
+        <b><${PhoneColour} colour=${phone.colour} /><${EditableName} kind="cameras" id=${id} given=${givenCameraName(names, id)} fallback=${phone.label || id}
                             say=${say} onSaved=${refreshStatus} /></b>
-        <span class="tile-note">phone${still ? ` · ${(phone.status || {}).locked ? "settings locked" : "not locked"} · ${still.info.age_s} s old` : ""}</span>
+        <span class="tile-note">${phone.mode === "tripod" ? "tripod phone" : "phone"}${still ? ` · ${(phone.status || {}).locked ? "settings locked" : "not locked"} · ${still.info.age_s} s old` : ""}</span>
+        <button class="key small" onClick=${() => identifyPhone(id).catch(error => say(error.message, true))}
+                title="Flash this phone's screen in its colour, to find it">identify</button>
       </footer>
     </article>`;
 }

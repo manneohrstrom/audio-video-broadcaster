@@ -10,6 +10,9 @@ state on every poll, never by REC/STOP waiting on them:
 So a phone that opens late, reloads, or loses Wi-Fi for a while catches up by
 itself, and phones never block or slow REC/STOP.
 
+Two pages, one phone: /phone (handheld, the full page) and /phone/tripod (a dark screen
+for a phone left in a bracket, set up from the hub page: name, identify, reload).
+
 Footage: the page uploads ~2 s chunks (H.264 Annex B + frame timestamps) while it
 records, to <phones_dir>/<take>/<phone>/chunks/. At finish the chunks are joined
 into the Pi camera layout (video.h264, video.pts, manifest.json) and deleted.
@@ -21,26 +24,17 @@ import shutil
 import threading
 import time
 
-# A phone has a free-text label ("Paul's Pixel") and an id made from it for folders
-# and file names ("pauls-pixel" -> pauls-pixel.mov). A rejoin mid-take records a
-# new part: pauls-pixel-part2, -part3 …
-LABEL_MAX = 24
-NAME = re.compile(r"^(?!cam\d+$)[a-z0-9](?:[a-z0-9-]{0,22}[a-z0-9])?$")
+# A phone is known by a device id it makes once and keeps in the browser ("phone-k7q2"),
+# like a Pi camera by its hostname (user, 2026-11-21): files are phone-k7q2.mov, and the
+# name people see is given on the hub page (names.py). Each phone also gets a colour from
+# the hub, shown on its screen and on the hub page, to tell identical phones apart. A
+# rejoin mid-take records a new part: phone-k7q2-part2, -part3 …
+DEVICE = re.compile(r"^phone-[a-z0-9]{4,8}$")
 PART = re.compile(r"^(?!cam\d+$)[a-z0-9](?:[a-z0-9-]{0,22}[a-z0-9])?(-part\d{1,2})?$")
-
-
-def phone_id(label):
-    """Folder/file id for a label: lower case, letters and digits, '-' between words.
-    Apostrophes vanish ("Paul's" -> "pauls"). Raises PhoneError if nothing usable is left."""
-    label = (label or "").strip()
-    if not label or len(label) > LABEL_MAX:
-        raise PhoneError("name must be 1–%d characters" % LABEL_MAX)
-    s = re.sub(r"['’`]", "", label.lower())
-    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
-    s = re.sub(r"-part\d+$", "", s)
-    if not NAME.match(s or ""):
-        raise PhoneError("pick a name with some letters or digits (and not camN)")
-    return s
+COLOURS = [("blue", "#3e8ef7"), ("orange", "#f7882f"), ("green", "#3fb950"), ("pink", "#e85aad"),
+           ("yellow", "#e3c234"), ("purple", "#9b6cf0"), ("cyan", "#22b8cf"), ("red", "#e5484d")]
+MODES = ("handheld", "tripod")
+IDENTIFY_S = 6.0               # "identify" on the hub page flashes the phone's screen this long
 TAKE = re.compile(r"^\d{8}-\d{6}$")
 PAGE = re.compile(r"^[A-Za-z0-9]{8,40}$")
 NOMINAL_MS = 1000 / 30.0
@@ -201,40 +195,73 @@ class Phones:
         self.min_hours = cfg["checks"]["min_free_hours"]
         self.clock = clock
         self.lock = threading.Lock()
-        self.phones = {}        # name -> {"page", "seen", "status", "cmd"}
+        self.phones = {}        # device id -> {"page", "seen", "status", "cmd", "mode"}
         self.cmd_id = 0
         self.recorded = {}      # take_id -> set of phone names sent "rec"
         self.uploaded = {}      # take_id -> video bytes received (record-time estimate)
         self.snaps = {}         # name -> (jpeg, time): latest still for the snapshot page
         self.snap_wanted = 0.0  # phones send a still on their next poll until then
         self.calib_watch = lambda: False    # set by hubd: is the hub watching for the card?
+        self.given_name = lambda name: None  # set by hubd: the name given on the hub page
         self.mounts_path = os.path.join(self.dir, "mounts.json")
         try:
             with open(self.mounts_path) as f:
                 self.mounts = json.load(f)  # name -> "tripod" | "handheld"
         except (OSError, ValueError):
             self.mounts = {}
+        self.devices_path = os.path.join(self.dir, "devices.json")
+        try:
+            with open(self.devices_path) as f:
+                self.devices = json.load(f)     # device id -> {"colour": "blue"}
+        except (OSError, ValueError):
+            self.devices = {}
+        self.identify_until = {}    # device id -> time: flash its screen until then
         os.makedirs(self.dir, exist_ok=True)
 
     # -- registry
     def _online(self, p, now):
         return now - p["seen"] < self.seen_s
 
+    def _colour(self, name):
+        """The phone's colour, given once and kept: the first one no other phone has (then
+        the least used, if there are more phones than colours). Call with the lock held."""
+        dev = self.devices.get(name)
+        if not dev or dev.get("colour") not in dict(COLOURS):
+            used = [d.get("colour") for d in self.devices.values()]
+            colour = min((c for c, _ in COLOURS), key=lambda c: (used.count(c), [n for n, _ in COLOURS].index(c)))
+            dev = self.devices[name] = {"colour": colour}
+            write_json(self.devices_path, self.devices)
+        return dev["colour"]
+
+    def _colour_info(self, name):
+        """{"name": "blue", "hex": "#…", "label": "Blue phone"} for a known phone, else None.
+        Call with the lock held."""
+        c = (self.devices.get(name) or {}).get("colour")
+        if c not in dict(COLOURS):
+            return None
+        return {"name": c, "hex": dict(COLOURS)[c], "label": c.capitalize() + " phone"}
+
     def poll(self, body, rig):
         """One poll from a phone page. rig: {"state", "take_id"} from the hub.
         Returns {"cmd": {...} or None, "rig": rig, "hub_ns": now}."""
-        label, page = (body.get("phone") or "").strip(), body.get("page", "")
-        name = phone_id(label)
+        name, page = body.get("device") or "", body.get("page", "")
+        if not DEVICE.match(name):
+            raise PhoneError("bad device id: reload the phone page")
         if not PAGE.match(page):
             raise PhoneError("bad page id")
+        mode = body.get("mode") if body.get("mode") in MODES else "handheld"
         now = self.clock()
         with self.lock:
             p = self.phones.get(name)
-            if p and p["page"] != page and self._online(p, now):
-                raise PhoneError("“%s” is already in use by another phone; pick another name" % p["label"])
+            if p and p["page"] != page and self._online(p, now) and not p.get("released"):
+                raise PhoneError("this phone's page is already open in another tab: close one")
             if not p or p["page"] != page:
                 p = self.phones[name] = {"page": page, "cmd": None}
-            p["seen"], p["status"], p["label"] = now, body, label
+                if mode == "tripod" and self.mounts.get(name) != "tripod":   # a tripod page means focus locked
+                    self.mounts[name] = "tripod"
+                    write_json(self.mounts_path, self.mounts)
+            self._colour(name)
+            p["seen"], p["status"], p["mode"] = now, body, mode
             if p["cmd"] and body.get("done_cmd") == p["cmd"]["id"]:
                 p["cmd"] = None
             want = self._wanted(name, body, rig)
@@ -248,9 +275,52 @@ class Phones:
                 p["cmd"] = None     # stale: the phone can't act on it any more
             want_snap = (now < self.snap_wanted and rig.get("state") == "idle"
                          and self.snaps.get(name, (None, 0))[1] < self.snap_wanted - SNAP_WINDOW_S)
+            reload = bool(p.pop("reload", False))
+            if reload:
+                p["released"] = True        # its next page may take over at once
             return {"id": name, "cmd": p["cmd"], "rig": rig, "hub_ns": time.time_ns(), "snap": want_snap,
-                    "mount": self.mounts.get(name, "tripod"),
+                    "mount": self.mounts.get(name, "tripod"), "colour": self._colour_info(name),
+                    "identify": now < self.identify_until.get(name, 0), "reload": reload,
                     "calib_watch": rig.get("state") == "idle" and self.calib_watch()}
+
+    def me(self, name):
+        """Its colour, for a page that hasn't started its camera (and isn't on the hub page yet)."""
+        if not DEVICE.match(name or ""):
+            raise PhoneError("bad device id")
+        with self.lock:
+            self._colour(name)
+            return {"id": name, "colour": self._colour_info(name)}
+
+    def bye(self, body):
+        """The page is going away (reload, closed): its next page may take over at once."""
+        name, page = body.get("device") or "", body.get("page", "")
+        with self.lock:
+            p = self.phones.get(name)
+            if p and p["page"] == page:
+                p["released"] = True
+        return {"ok": True}
+
+    def identify(self, name):
+        """Flash the phone's screen in its colour for a few seconds (which one is it?)."""
+        with self.lock:
+            if name not in self.phones:
+                raise PhoneError("no such phone")
+            self.identify_until[name] = self.clock() + IDENTIFY_S
+        return {"ok": True, "seconds": IDENTIFY_S}
+
+    def reload(self, name):
+        """Reload the phone's page on its next poll: only while it's ready with nothing to
+        upload, so a take is never cut short. The tripod page starts its camera by itself."""
+        now = self.clock()
+        with self.lock:
+            p = self.phones.get(name)
+            if not p or not self._online(p, now):
+                raise PhoneError("that phone isn't connected")
+            st = p["status"] or {}
+            if st.get("state") not in ("ready", "off") or st.get("queue"):
+                raise PhoneError("not now: the phone is %s" % (st.get("state") if st.get("state") not in ("ready", "off") else "still uploading"))
+            p["reload"] = True
+        return {"ok": True}
 
     def names(self):
         """Phones seen in the last two minutes (the hub page lists them)."""
@@ -326,7 +396,9 @@ class Phones:
             for n, p in sorted(live.items()):
                 online = self._online(p, now)
                 st = p["status"] or {}
-                out[n] = {"label": p.get("label", n), "online": online, "age_s": round(now - p["seen"], 1), "status": st,
+                colour = self._colour_info(n)
+                out[n] = {"label": colour["label"] if colour else n, "colour": colour, "mode": p.get("mode"),
+                          "online": online, "age_s": round(now - p["seen"], 1), "status": st,
                           "mount": self.mounts.get(n, "tripod"),
                           "problems": self.problems(n, st, free_gb, n_on) if online else []}
             return out
@@ -334,7 +406,8 @@ class Phones:
     def problems(self, name, st, free_gb, n_phones):
         """Warnings only: a phone never blocks REC."""
         p = []
-        name = st.get("phone") or name
+        colour = self._colour_info(name)
+        name = self.given_name(name) or (colour["label"] if colour else name)
         if st.get("state") not in ("ready", "recording"):
             p.append("%s camera not started" % name)
         if st.get("charging") is False:

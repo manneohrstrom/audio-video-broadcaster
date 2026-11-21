@@ -623,15 +623,15 @@ class SnapshotTest(unittest.TestCase):
 
     def test_phone_stills(self):
         ph = self.hub.phones
-        body = {"phone": "Paul's Pixel", "page": "abcdefgh1", "state": "ready"}
+        body = {"device": "phone-pp01", "page": "abcdefgh1", "state": "ready"}
         self.assertFalse(self.hub.phone_poll(body)["snap"])
         ph.want_snaps()
         self.assertTrue(self.hub.phone_poll(body)["snap"])
         with self.assertRaises(ValueError):
-            ph.put_snap("pauls-pixel", b"not a jpeg")
-        ph.put_snap("pauls-pixel", b"\xff\xd8x")
+            ph.put_snap("phone-pp01", b"not a jpeg")
+        ph.put_snap("phone-pp01", b"\xff\xd8x")
         self.assertFalse(self.hub.phone_poll(body)["snap"])     # got it: don't ask again
-        self.assertEqual(ph.get_snap("pauls-pixel")[0], b"\xff\xd8x")
+        self.assertEqual(ph.get_snap("phone-pp01")[0], b"\xff\xd8x")
 
 
 class SyncRequestTest(unittest.TestCase):

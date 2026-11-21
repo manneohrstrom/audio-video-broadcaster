@@ -28,6 +28,10 @@ export const rigAction = (path, body = {}) => request("POST", path, body);
 /** Name a camera or take ("" goes back to the default). Resolves with every name. */
 export const saveName = (kind, id, name) => request("POST", "/api/names", { kind, id, name });
 export const setPhoneMount = (phoneId, mount) => request("POST", `/api/phone/${encodeURIComponent(phoneId)}/mount`, { mount });
+/** Flash a phone's screen in its colour for a few seconds: which one is it? */
+export const identifyPhone = phoneId => request("POST", `/api/phone/${encodeURIComponent(phoneId)}/identify`, {});
+/** Reload a phone's page (only between takes): the tripod page starts its camera by itself. */
+export const reloadPhone = phoneId => request("POST", `/api/phone/${encodeURIComponent(phoneId)}/reload`, {});
 export const requestSync = (take, song, version) => request("POST", "/api/sync", { take, song, version });
 
 // Bounce uploads (hub/hubd/audio.py)
