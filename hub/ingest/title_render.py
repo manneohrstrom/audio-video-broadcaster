@@ -5,7 +5,7 @@ With the title on, every video opens the same way, timed from the start of the v
   1. from black, "BROCKLEY LIVE" fades in (Outfit Bold, 83 px, letters 33 % apart, cream);
   2. it dissolves into the song's title (the same style, in the title's colour);
   3. the title fades out, the video fades in from black, and a strip along the bottom
-     (black at 50 %) shows the lines below the title (who's playing) in cream, Outfit Bold,
+     (black at 50 %) shows the lines below the title (who's playing), left-aligned, in cream, Outfit Bold,
      smaller, no extra letter spacing, as typed; after a while it dissolves out.
 
 The music plays from the start of the video underneath (set the video's start a little
@@ -29,12 +29,13 @@ CARD_TRACKING = 0.33              # letter spacing, as a fraction of the size (u
 CARD_MAX_WIDTH = 1632             # a longer title gets a smaller size until it fits (144 px each side)
 CAP_HEIGHT = 0.706                # Outfit's capitals, as a fraction of the size (centring)
 
-DETAIL_SIZE = 38                  # the strip's text (user: much smaller)
+DETAIL_SIZE = 38                  # the strip's text (user: much smaller), left-aligned at DETAIL_LEFT
 DETAIL_LINE_SPACING = 54          # baseline to baseline
 STRIP_PADDING = 30                # strip edge to the top of the first capitals, and last baseline to the edge
 STRIP_DESCENT = 10                # extra room under the last baseline for descenders
 STRIP_ALPHA = 0.5                 # the strip's black (user: 50 %)
-DETAIL_MAX_WIDTH = 1760
+DETAIL_LEFT = 144                 # the strip's text starts here (user, 2026-11-21: left-aligned)
+DETAIL_MAX_WIDTH = 1632
 
 # The sequence, in seconds from the start of the video.
 BRAND_IN = (0.0, 1.0)             # fades in from black
@@ -172,7 +173,7 @@ def card_image(letters, text, colour):
 
 
 def strip_image(letters, lines):
-    """(image, x, y): the strip along the bottom with the lines, centred, or None for no lines."""
+    """(image, x, y): the strip along the bottom with the lines, left-aligned, or None for no lines."""
     if not lines:
         return None
     from PIL import Image
@@ -183,8 +184,7 @@ def strip_image(letters, lines):
         _, width = letter_positions(line, size, 0, letters.advance)
         if width > DETAIL_MAX_WIDTH:                      # a very long line: smaller, as the cards
             size = max(16, int(size * DETAIL_MAX_WIDTH / width))
-            _, width = letter_positions(line, size, 0, letters.advance)
-        rows.append((line, size, 0, (WIDTH - width) / 2, baseline))
+        rows.append((line, size, 0, DETAIL_LEFT, baseline))
     box = (0, top, WIDTH, HEIGHT - top)
     strip = Image.new("RGBA", box[2:], (0, 0, 0, round(255 * STRIP_ALPHA)))
     return Image.alpha_composite(strip, _text_layer(letters, rows, box, CREAM)), 0, top

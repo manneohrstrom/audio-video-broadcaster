@@ -3,7 +3,7 @@
 //   1. from black, "BROCKLEY LIVE" fades in (Outfit Bold, 83 px, letters 33 % apart, cream);
 //   2. it dissolves into the song's title (the same style, in the title's colour);
 //   3. the title fades out, the video fades in from black, and a strip along the bottom
-//      (black at 50 %) shows the lines below the title in cream, smaller, as typed; after
+//      (black at 50 %) shows the lines below the title, left-aligned, in cream, smaller, as typed; after
 //      "Names stay for" seconds it dissolves out.
 // The render draws the same thing (hub/ingest/title_render.py) with the same font file and
 // these same numbers: change them in both places. Coordinates are in the 1920x1080 picture;
@@ -26,7 +26,8 @@ export const DETAIL_LINE_SPACING = 54;
 export const STRIP_PADDING = 30;
 export const STRIP_DESCENT = 10;
 export const STRIP_ALPHA = 0.5;
-export const DETAIL_MAX_WIDTH = 1760;
+export const DETAIL_LEFT = 144;        // the strip's text starts here (user, 2026-11-21: left-aligned)
+export const DETAIL_MAX_WIDTH = 1632;
 
 // The sequence, in seconds from the start of the video: [start, length].
 export const BRAND_IN = [0, 1];
@@ -185,11 +186,8 @@ export function drawStrip(context, lines) {
   context.fillStyle = CREAM;
   lines.forEach((line, i) => {
     let size = DETAIL_SIZE;
-    let { width } = letterPositions(line, size, 0, advance);
-    if (width > DETAIL_MAX_WIDTH) {
-      size = Math.max(16, Math.floor(size * DETAIL_MAX_WIDTH / width));
-      ({ width } = letterPositions(line, size, 0, advance));
-    }
-    drawRow(context, line, size, 0, (WIDTH - width) / 2, baselines[i]);
+    const { width } = letterPositions(line, size, 0, advance);
+    if (width > DETAIL_MAX_WIDTH) size = Math.max(16, Math.floor(size * DETAIL_MAX_WIDTH / width));
+    drawRow(context, line, size, 0, DETAIL_LEFT, baselines[i]);
   });
 }

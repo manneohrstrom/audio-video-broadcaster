@@ -92,6 +92,8 @@ class TitleSequenceTest(unittest.TestCase):
         self.assertAlmostEqual(frame[400, 960].mean(), 120, delta=6)           # the picture
         self.assertAlmostEqual(frame[top + 4, 40].mean(), 60, delta=8)         # the strip: 50 % black
         self.assertGreater(frame[top:].max(), 200)                             # its text
+        text_columns = np.where((frame[top:].sum(axis=2) > 500).any(axis=0))[0]
+        self.assertAlmostEqual(text_columns[0], title_render.DETAIL_LEFT, delta=4)   # left-aligned
         self.assertAlmostEqual(self.frames[14.9][top + 4, 40].mean(), 120, delta=6)   # gone
 
 
