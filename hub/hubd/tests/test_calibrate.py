@@ -459,7 +459,7 @@ class LiveCalibrationTest(unittest.TestCase):
         self.hub.calibrator._measure = measure
 
     def test_live_start_sends_the_hubs_settings(self):
-        self.assertEqual(self.rig.st["cam1"]["live_settings"], {"lens_position": 0.7})
+        self.assertEqual(self.rig.st["cam1"]["live_settings"], {"lens_position": 0.7, "shutter_us": 20000})
 
     def test_calibrates_a_live_camera_on_its_stream(self):
         cal = self.hub.calibrator

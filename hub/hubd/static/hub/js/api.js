@@ -27,6 +27,8 @@ export const rigAction = (path, body = {}) => request("POST", path, body);
 
 /** Name a camera or take ("" goes back to the default). Resolves with every name. */
 export const saveName = (kind, id, name) => request("POST", "/api/names", { kind, id, name });
+/** The rig's picture: { pi_shutter_us: 20000 | 30000, phones: "locked" | "auto" }; between takes only. */
+export const setPicture = choices => request("POST", "/api/picture", choices);
 export const setPhoneMount = (phoneId, mount) => request("POST", `/api/phone/${encodeURIComponent(phoneId)}/mount`, { mount });
 /** Flash a phone's screen in its colour for a few seconds: which one is it? */
 export const identifyPhone = phoneId => request("POST", `/api/phone/${encodeURIComponent(phoneId)}/identify`, {});

@@ -158,6 +158,10 @@ code { font-size: 13px; color: var(--color-text-muted); }
 .archive-status { color: var(--color-text-muted); font-size: 14px; }
 .archive-status b { color: var(--color-text); font-weight: 600; }
 .archive-keys { display: flex; gap: 8px; flex-wrap: wrap; }
+.picture-switches { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.picture-switch { display: inline-flex; gap: 8px; align-items: center; }
+.picture-label { color: var(--color-text-muted); font-size: 13px; }
+.picture-switch .segmented button:disabled { cursor: default; }
 .take { display: grid; gap: 8px; padding: 14px 16px; border-radius: var(--radius-panel); background: var(--color-panel); box-shadow: var(--panel-depth); }
 .take > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .take > header .led { align-self: center; }

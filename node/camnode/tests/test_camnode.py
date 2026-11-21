@@ -188,8 +188,10 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(self.patched[-1], {"rpiCameraGain": 4.5, "rpiCameraAWBGains": [1.4, 3.6],
                                             "rpiCameraLensPosition": 0.8})
         self.assertEqual(r["applied"], self.patched[-1])
+        self.agent.live_settings({"shutter_us": 30000})
+        self.assertEqual(self.patched[-1], {"rpiCameraShutter": 30000})
         with self.assertRaises(ValueError):
-            self.agent.live_settings({"shutter_us": 10000})
+            self.agent.live_settings({"bitrate": 4000000})
         self.assertEqual(self.agent.status()["settings"]["gain"], 2.0)
 
     def wait_state(self, want, timeout=3):

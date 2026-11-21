@@ -18,7 +18,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 NOMINAL_MS = 1000.0 / 30
 TAKE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WC_RE = re.compile(rb'"FrameWallClock":\s*(\d+)')
@@ -124,9 +124,11 @@ def build_still_cmd(cfg, settings, auto=False, metadata=None):
 
 SNAPSHOT_KEYS = ("shutter_us", "gain", "awb_gains", "lens_position")
 # Take settings -> MediaMTX rpiCamera parameters, changeable on a running stream without a
-# restart or a gap (spike B-S1). Shutter stays as configured.
+# restart or a gap (spike B-S1). The shutter too (2026-11-21: the rig's shutter is switchable,
+# 1/50 s or 30 ms, and LIVE must look the same as a take).
 STUCK_MSG = "camera stuck in the driver: reboot this camera"
-LIVE_KEYS = {"gain": "rpiCameraGain", "awb_gains": "rpiCameraAWBGains", "lens_position": "rpiCameraLensPosition"}
+LIVE_KEYS = {"gain": "rpiCameraGain", "awb_gains": "rpiCameraAWBGains", "lens_position": "rpiCameraLensPosition",
+             "shutter_us": "rpiCameraShutter"}
 
 
 def mediamtx_patch(api, params):
@@ -642,7 +644,8 @@ class Agent:
         for k, v in (settings or {}).items():
             if k not in LIVE_KEYS:
                 raise ValueError("can't change %s on a live stream" % k)
-            params[LIVE_KEYS[k]] = [float(x) for x in v] if k == "awb_gains" else float(v)
+            params[LIVE_KEYS[k]] = ([float(x) for x in v] if k == "awb_gains"
+                                    else int(v) if k == "shutter_us" else float(v))
         if not self._live_active():
             raise Busy("live mode is off")
         self._live_patch(params)

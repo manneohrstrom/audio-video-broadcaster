@@ -510,6 +510,33 @@ function releaseRecLock() {
   S.locked = false; S.lockedAtRec = false;
   allAuto().catch(() => {});
 }
+// The rig's phone picture, set on the hub page (user, 2026-11-21): "locked" (the card
+// calibrates, or the picture locks at REC) or "auto" (the phone's own automatic exposure and
+// white balance, also during a take: the studio's ~2200 K bulbs are warmer than Chrome's
+// manual white balance reaches). Focus follows the tripod/handheld switch either way.
+function applyPicture(mode) {
+  mode = mode === "auto" ? "auto" : "locked";
+  const changed = mode !== S.picture;
+  S.picture = mode;
+  if (mode !== "auto" || !S.track || S.state !== "ready" || S.cal.running) return;
+  if (!changed && S.autoTrack === S.track) return;        // already automatic on this camera
+  S.autoTrack = S.track;
+  pictureAuto().then(() => hublog({ev: "picture_auto", settings: S.track.getSettings()}))
+               .catch(e => hublog({ev: "picture_auto_err", err: String(e)}));
+}
+async function pictureAuto() {
+  const caps = S.track.getCapabilities ? S.track.getCapabilities() : {};
+  const c = {};
+  if (caps.exposureMode) c.exposureMode = "continuous";
+  if (caps.whiteBalanceMode) c.whiteBalanceMode = "continuous";
+  if (caps.focusMode) {
+    if (S.mount !== "handheld" && num("focusDistance") !== undefined) Object.assign(c, {focusMode: "manual", focusDistance: num("focusDistance")});
+    else if (caps.focusMode.includes("continuous")) c.focusMode = "continuous";
+  }
+  await setC(c);
+  S.locked = false; S.lockedAtRec = false; S.cal.inView = false;
+  calShow("automatic picture (set on the hub)");
+}
 async function allAuto() {
   const caps = S.track.getCapabilities ? S.track.getCapabilities() : {};
   const c = {};
@@ -655,7 +682,7 @@ async function startRec(takeId, part) {
                     uploaded: 0, bytesUp: 0, clock: [], hidden: 0, maxGapMs: 0, lastArr: null, queue: [], lastErr: ""});
   S.pendingMeta.clear();
   setState("recording");
-  if (!S.locked) {                                         // not calibrated: lock the picture first
+  if (!S.locked && S.picture !== "auto") {                 // not calibrated: lock the picture first
     msg("Not calibrated: locking the picture before recording…");
     try { await lockAtRec(); } catch (e) { hublog({ev: "lock_at_rec_err", err: String(e)}); }
     if (S.state !== "recording") return;                   // the take stopped meanwhile
@@ -673,7 +700,7 @@ async function startRec(takeId, part) {
   const proc = new MediaStreamTrackProcessor({track: S.track.clone()});
   S.reader = proc.readable.getReader();
   S.recStart = performance.now();
-  hublog({ev: "rec", settings: S.settingsAtRec, encoder: S.encCfg, locked: S.locked});
+  hublog({ev: "rec", settings: S.settingsAtRec, encoder: S.encCfg, locked: S.locked, picture: S.picture});
   readLoop().catch(e => { S.lastErr = "capture: " + e.message; hublog({ev: "capture_err", err: String(e)}); });
 }
 async function readLoop() {
@@ -833,6 +860,7 @@ async function pollHub() {
     if (j.identify) identify();
     if (j.reload && (S.state === "ready" || S.state === "off") && !S.queue.length) { location.reload(); return; }
     applyMount(j.mount);
+    applyPicture(j.picture);
     S.calWatch = !!j.calib_watch;
     if (j.snap && S.state === "ready") sendSnap().catch(e => hublog({ev: "snap_err", err: String(e)}));
     if (j.cmd && j.cmd.id !== S.doneCmd) {
@@ -1119,7 +1147,7 @@ document.querySelectorAll('input[name=mount]').forEach(r => r.onchange = () => {
 });
 function stillReady() { if (S.state !== "ready") throw new Error("stopped: the rig started a take"); }
 async function calWatchTick() {
-  if (!S.calWatch || S.state !== "ready" || S.cal.running || !S.id || !$("preview").videoWidth) return;
+  if (!S.calWatch || S.picture === "auto" || S.state !== "ready" || S.cal.running || !S.id || !$("preview").videoWidth) return;
   let m;
   try { m = await cardShot(); } catch (e) { return; }
   if (!m.grey) { S.cal.inView = false; if (!S.locked || !S.cal.done) calShow("waiting for the card"); return; }
