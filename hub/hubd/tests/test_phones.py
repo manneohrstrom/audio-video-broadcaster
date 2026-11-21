@@ -128,26 +128,15 @@ class PhonesTest(unittest.TestCase):
         c2 = self.poll(page="pageBBBBBBBB")["cmd"]
         self.assertEqual((c2["action"], c2["part"]), ("rec", "phone-aaaa-part2"))
 
-    def test_each_phone_keeps_its_own_colour(self):
+    def test_a_phone_is_shown_by_its_id_until_named(self):
         r = self.poll()
-        self.assertEqual(r["colour"], {"name": "blue", "hex": phones.COLOURS[0][1], "label": "Blue phone"})
-        self.assertEqual(self.poll(name="phone-bbbb", page="pageBBBBBBBB")["colour"]["name"], "orange")
-        self.assertEqual(self.ph.snapshot(None)["phone-bbbb"]["label"], "Orange phone")
-        # kept across a hub restart, and the next phone gets the next free colour
-        again = phones.Phones({"state_dir": os.path.dirname(self.ph.dir), "checks": {"min_free_hours": 1}},
-                              clock=lambda: self.now[0])
-        self.assertEqual(again.poll({"device": "phone-bbbb", "page": "pageCCCCCCCC", "state": "ready"}, self.rig)["colour"]["name"], "orange")
-        self.assertEqual(again.poll({"device": "phone-cccc", "page": "pageDDDDDDDD", "state": "ready"}, self.rig)["colour"]["name"], "green")
-        # more phones than colours: the least used comes round again
-        for k in range(len(phones.COLOURS)):
-            again.poll({"device": "phone-x%03d" % k, "page": "pageX%07d" % k, "state": "ready"}, self.rig)
-        used = [d["colour"] for d in again.devices.values()]
-        self.assertLessEqual(max(map(used.count, set(used))) - min(map(used.count, set(used))), 1)
+        self.assertEqual(r["id"], "phone-aaaa")
+        self.assertNotIn("colour", r)
+        self.assertEqual(self.ph.snapshot(None)["phone-aaaa"]["label"], "phone-aaaa")
 
-    def test_me_gives_a_colour_without_joining(self):
-        self.assertEqual(self.ph.me("phone-aaaa")["colour"]["name"], "blue")
+    def test_me_without_joining(self):
+        self.assertEqual(self.ph.me("phone-aaaa"), {"id": "phone-aaaa"})
         self.assertEqual(self.ph.snapshot(None), {})                           # not on the hub page yet
-        self.assertEqual(self.poll()["colour"]["name"], "blue")               # the same colour once it joins
         with self.assertRaises(phones.PhoneError):
             self.ph.me("../x")
 
@@ -207,7 +196,7 @@ class PhonesTest(unittest.TestCase):
         self.poll(charging=False, battery=30, visible="hidden", locked=False, rtt_ms=90, storage_free_gb=2)
         p = self.ph.snapshot(free_gb=3.0)["phone-aaaa"]["problems"]
         text = " | ".join(p)
-        for want in ("Blue phone not charging", "not in front", "not calibrated", "Wi-Fi slow", "hub has room for 0.4 h", "phone storage low"):
+        for want in ("phone-aaaa not charging", "not in front", "not calibrated", "Wi-Fi slow", "hub has room for 0.4 h", "phone storage low"):
             self.assertIn(want, text)
         self.ph.given_name = lambda name: "Left wide"
         self.assertIn("Left wide not charging", " | ".join(self.ph.snapshot(free_gb=3.0)["phone-aaaa"]["problems"]))

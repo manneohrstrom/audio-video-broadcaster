@@ -35,7 +35,7 @@ export function QrDialog({ onClose }) {
           </figure>`;
         })}
       </div>
-      <p><b>Scan one with the phone's camera.</b> Each phone gets a colour, shown on its screen and here, and keeps it.</p>
+      <p><b>Scan one with the phone's camera.</b> Each phone shows up here by its id (phone-…) until you give it a name.</p>
       <p class="note">Android and Chrome only. First time on a phone: the setup is at the bottom of the handheld page, and in the runbook for tripod phones.</p>
     <//>`;
 }

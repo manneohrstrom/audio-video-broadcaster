@@ -44,7 +44,7 @@ Any Android phone with an up-to-date Chrome works (tested: Pixel 3, Pixel 9a). i
 3. If the hub page won't load: Android Settings → Apps → Chrome → Permissions → allow **Nearby devices / local network**.
 4. Join the 5 GHz Wi-Fi (not the cameras' 2.4 GHz network).
 
-Each phone makes itself an id once (`phone-k7q2`, kept by Chrome) and gets a colour from the hub (blue, orange, green…), shown on its screen and next to it on the hub page. Its files are `<id>.mov`; the name people see is given with the pencil on the hub page (or typed on the handheld page) and is kept. Clearing Chrome's site data for the hub gives the phone a new id and colour.
+Each phone makes itself an id once (`phone-k7q2`, kept by Chrome) and shows up on the hub page by that id. Its files are `<id>.mov`; the name people see is given with the pencil on the hub page (or typed on the handheld page) and is kept. Clearing Chrome's site data for the hub gives the phone a new id.
 
 **Tripod phones (in a bracket, on the power, studio only)**
 
@@ -52,11 +52,11 @@ Once per phone, on top of the steps above:
 1. Android Settings → Developer options → **Stay awake** (screen never sleeps while charging). Developer options: Settings → About phone → tap Build number 7 times.
 2. Pixel: Settings → Battery → **Adaptive charging / charging optimisation** on (keeps it from sitting at 100 % for hours).
 3. Scan the **Tripod** QR code on the hub page (📱 Use a phone as a camera), or open `http://studio-hub.local/phone/tripod`. Tap the screen and allow the camera (**Allow while using the app**, not only this time).
-4. Optional: Chrome menu ⋮ → **Add to Home screen** / **Install app**. Opened from that icon, the page is full screen and landscape by itself. *(Not yet tried on the phones: Chrome may refuse to install from a plain-HTTP address even with the flag; then the icon opens in a normal tab, which still works with one tap.)*
+4. Chrome menu ⋮ → **Add to Home screen** / **Install app** (works, user 2026-11-21). Opened from that icon, the page is full screen and landscape by itself: no touch at all.
 
-Then on the hub page, Monitor: give it a name with the pencil ("Left wide"). If you can't tell the phones apart, **identify** flashes that phone's screen in its colour with its name for a few seconds.
+Then on the hub page, Monitor: give it a name with the pencil ("Left wide"). If you can't tell the phones apart, **identify** flashes that phone's screen white with its name for a few seconds.
 
-Each session: open the page (or the home-screen icon). It starts its camera by itself; a tap anywhere makes it full screen. After that the screen stays black with a dim colour dot and the name (a thin red ring round the dot while recording), and nothing on it reacts to a tap. Focus is locked (the tripod page sets **focus locked**). Show it the card as usual. If a phone misbehaves, **reload page** on its Monitor card reloads it between takes; it comes back and starts its camera by itself (tap once more for full screen unless it was opened from the home-screen icon). To get the full page on the phone, hold the screen for 3 s (between takes).
+Each session: open the home-screen icon. It starts its camera by itself. The screen stays black with the name in big grey type repeated all over it (so the clamp can't hide it; dim red while recording), and nothing on it reacts to a tap. Turning the phone sideways (or back) reopens the camera the right way round by itself, between takes, and keeps its calibration. Focus is locked (the tripod page sets **focus locked**). Show it the card as usual. If a phone misbehaves, **reload page** on its Monitor card reloads it between takes; it comes back and starts its camera by itself (tap once more for full screen unless it was opened from the home-screen icon). To get the full page on the phone, hold the screen for 3 s (between takes).
 
 **Handheld phones, each session**
 1. Plug the phone in and mount it in landscape.

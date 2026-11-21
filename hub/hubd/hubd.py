@@ -34,7 +34,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.43.0"
+VERSION = "0.44.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -1458,7 +1458,7 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
         m = self.P_PHONE_ME.match(self.path)
-        if m:                                      # a phone page before its camera starts: its colour and name
+        if m:                                      # a phone page before its camera starts: its name
             try:
                 return self._send(200, dict(h.phones.me(m.group(1)), name=h.names.camera(m.group(1))))
             except ValueError as e:

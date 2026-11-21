@@ -5,7 +5,7 @@ import { Icon } from "shared/icons.js";
 import { fmt, hms, shownMode, when } from "../format.js";
 import { identifyPhone, reloadPhone, setPhoneMount } from "../api.js";
 import { Trends } from "./Trend.js";
-import { EditableName, PhoneColour, cameraName, givenCameraName } from "../names.js";
+import { EditableName, cameraName, givenCameraName } from "../names.js";
 
 /** Calibration (Phase 4 Track B): each camera waits for the card and calibrates itself. */
 function CalibrationLine({ entry, watching, phone }) {
@@ -105,7 +105,7 @@ function CameraPanel({ name, node, calibration, history, names, say, refresh }) 
 
 function PhonePanel({ id, phone, calibration, onChange, names, say, refresh }) {
   const name = cameraName(names, id, phone.label);
-  const heading = html`<span class="phone-heading"><${PhoneColour} colour=${phone.colour} /><${DeviceName} id=${id} label=${phone.label} names=${names} say=${say} refresh=${refresh} /></span>`;
+  const heading = html`<${DeviceName} id=${id} label=${phone.label} names=${names} say=${say} refresh=${refresh} />`;
   if (!phone.online) {
     return html`<${Panel} tone="off" name=${name} heading=${heading} mode="gone">
       <p class="note">Page closed or phone off ${Math.round(phone.age_s)} s ago. REC goes on without it.</p><//>`;
@@ -140,8 +140,8 @@ function PhonePanel({ id, phone, calibration, onChange, names, say, refresh }) {
     </div>`}
     ${(phone.problems || []).length > 0 && !recording && html`<p class="note warn">${phone.problems.join(" · ")}</p>`}
     <div class="phone-keys">
-      <button class="key small" onClick=${() => act(identifyPhone, `${name}: its screen flashes ${phone.colour ? phone.colour.name : ""} for a few seconds.`)}
-              title="Flash this phone's screen in its colour, to find it">identify</button>
+      <button class="key small" onClick=${() => act(identifyPhone, `${name}: its screen flashes for a few seconds.`)}
+              title="Flash this phone's screen, to find it">identify</button>
       <button class="key small" disabled=${!canReload} onClick=${() => act(reloadPhone, `${name}: reloading its page…`)}
               title=${canReload ? "Reload the page on the phone (a tripod phone starts its camera again by itself)" : "Only between takes, once it has finished uploading"}>reload page</button>
     </div>

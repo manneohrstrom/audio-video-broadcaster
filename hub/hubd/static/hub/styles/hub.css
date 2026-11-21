@@ -228,11 +228,7 @@ code { font-size: 13px; color: var(--color-text-muted); }
 .qr figcaption { text-align: center; }
 .qr-code { width: min(240px, 70vw); padding: 12px; border-radius: 14px; background: #fff; }
 .qr-code svg { display: block; width: 100%; height: auto; }
-/* A phone's colour from the hub, the same as on its screen: tells identical phones apart */
-.phone-colour { flex: none; display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 .phone-keys { display: flex; gap: 8px; flex-wrap: wrap; }
-.phone-heading { display: inline-flex; align-items: baseline; }
-.phone-heading .phone-colour { align-self: center; }
 .player-video { width: 100%; max-height: 72vh; border-radius: var(--radius); background: #000; display: block; }
 .field { display: grid; gap: 5px; color: var(--color-text-muted); font-size: 13px; }
 .field select, .field input[type=text] { font: inherit; font-size: 15px; color: var(--color-text); background: var(--color-well); border: 0; border-radius: 10px; padding: 10px 12px; box-shadow: var(--well-depth); }

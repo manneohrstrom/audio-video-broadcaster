@@ -38,11 +38,6 @@ export function Name({ given, fallback, id }) {
   return html`${given || fallback}${given && html` <small class="nick">(${id})</small>`}`;
 }
 
-/** A phone's colour dot, the same colour its screen shows (phones.py COLOURS). */
-export function PhoneColour({ colour }) {
-  return colour ? html`<i class="phone-colour" style=${{ background: colour.hex }} title=${colour.label} aria-hidden="true"></i>` : null;
-}
-
 /** A name that can be changed in place: the pencil (or a double click) opens a field;
  * Enter or leaving the field saves, Esc cancels, an empty name goes back to the default. */
 export function EditableName({ kind, id, given, fallback, say, onSaved }) {
