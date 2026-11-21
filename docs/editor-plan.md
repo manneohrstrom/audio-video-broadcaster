@@ -172,11 +172,15 @@ A second step (a tab, after the cut is done): **what's the vibe of this video?**
 
 *Added by the user, 2026-11-18 (titles were "not in v1" before).*
 
-- **What:** a title line and some lines below it, usually who's playing, left-aligned 144 px from the left edge and centred top to bottom (user, 2026-11-18: left, not centred), in one colour (white, cream, amber, black, the border's colour, or any colour).
-- **When:** it dissolves in all at once at a chosen time, stays, and dissolves out so it's gone a chosen number of seconds later (0.5 s each way; 1-20 s on the slider, up to 60 s accepted).
-- **Type:** Figtree (Google Fonts, SIL OFL; user's pick), SemiBold 84 px for the title and Regular 42 px for the lines, in the 1920×1080 picture, with a slight hard shadow so light text reads on light walls.
-- **The Brockley Live logo fades in after the title** (user, 2026-11-18): 1 s after the title is gone, or at 5 s when there's no title, fading in over 1 s; the border is there from the start. The brand frame is two images now (`brand-border.png`, `brand-logo.png`, plus `brand-logo.json`, the logo's box, from `hub/tools/make_brand_frame.py`).
-- **Preview = render:** the same font files and layout numbers in the preview (`static/editor/js/title/title-layout.js`, a canvas over the video) and the render (`hub/ingest/title_render.py`, ffmpeg `drawtext` with HarfBuzz and `y_align=baseline`). The title goes on after the look and its effects and under the border and logo. A test checks that the two layouts agree; a side-by-side of the preview and a hub render matches to the pixel in position.
+**Rebuilt as a title sequence (user, 2026-11-21).** With the title on, every video opens the same way, timed from the video's start (the music plays underneath; the border and the standard title are to be decided later):
+
+1. **From black, "BROCKLEY LIVE" fades in** (0-1 s): Outfit Bold (Google Fonts, SIL OFL; user's pick), 83 px in the 1920×1080 picture, letters 33 % of the size apart, capitals, always cream (`#f3ead8`), centred.
+2. **It dissolves into the title** (3.5-4.5 s): the same style, in the title's colour (any colour; cream by default). A title too wide for 1632 px gets smaller until it fits. It fades out at 8-9 s.
+3. **The video fades in from black** (9-10.5 s), and at 10 s **a strip along the bottom** (black at 50 %) dissolves in (0.7 s) with the lines below the title (who's playing), centred, cream, Outfit Bold 38 px, no extra spacing, as typed. After "Names stay for" (3-20 s on the slider, 6 s by default) it dissolves out.
+
+- **The Brockley Live logo** (the brand frame's) fades in 1 s after the strip is gone (or after the video is in, with no names), or 5 s into the video when the sequence is off.
+- **Preview = render:** the same font file and numbers in the preview (`static/editor/js/title/title-layout.js`: a black layer and three canvases over the video) and the render (`hub/ingest/title_render.py`: Pillow draws the three cards once as PNGs, letter by letter at advances measured at 100× the size, since ffmpeg's drawtext can't space letters; the encoder's filter graph fades the video from black and fades the cards in and out, after the look and its effects and under the border and logo). A test checks timing and layout against each other; a side-by-side of the preview and a render matches within ~2 px.
+- *Before (2026-11-18 to 2026-11-21): a title line and lines below it in Figtree, left-aligned, over the picture at a chosen time.*
 
 ## 6. Render
 

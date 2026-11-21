@@ -1,5 +1,5 @@
-"""The video's title in the render (title_render.py) through the real encoder command. Needs an
-ffmpeg with drawtext (the hub's has it; skipped where it's missing, e.g. a Mac's Homebrew ffmpeg)."""
+"""The title sequence in the render (title_render.py) through the real encoder command.
+Needs Pillow (python3-pil on the hub; skipped where it's missing)."""
 import os
 import shutil
 import subprocess
@@ -16,60 +16,94 @@ import title_render  # noqa: E402
 from tests.test_cinematic_effects import grey, to_yuv, H, W  # noqa: E402
 
 FONTS = os.path.join(REPO, "hub/hubd/static/shared/vendor/fonts")
-HAS_DRAWTEXT = " drawtext " in subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True).stdout
+try:
+    import PIL  # noqa: F401
+    HAS_PILLOW = True
+except ImportError:
+    HAS_PILLOW = False
 
-TITLE = {"on": True, "text": "Brockley Live", "lines": ["Anna Berg: piano", "100% Ben's bass, \"live\""],
-         "colour": "#e8b15a", "start_s": 1.0, "duration_s": 2.0}
+TITLE = {"on": True, "text": "Blue in Green", "lines": ["Anna Berg: piano", "100% Ben's bass, \"live\""],
+         "colour": "#e8b15a", "start_s": 0, "duration_s": 3.0}
+FPS = 30
 
 
-def render_frames(count, title, folder, wanted):
-    """A grey picture, `count` frames, through the encoder with this title (no look); the
-    frames numbered in `wanted` back as uint8 RGB (only those: the hub has 1 GB)."""
+def render_frames(seconds, title, folder, wanted_s):
+    """A grey picture through the encoder with this title (no look); the frames at the times
+    in `wanted_s` back as uint8 RGB (only those: the hub has 1 GB)."""
+    count = int(seconds * FPS)
     bounce = os.path.join(folder, "bounce.wav")
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "4", bounce],
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", str(seconds), bounce],
                    check=True)
     out = os.path.join(folder, "title.mp4")
     command = edit_render.encoder_command(bounce, 0.0, count, out, {}, folder, preset="ultrafast", crf="8",
                                           title=title, fonts_dir=FONTS)
-    subprocess.run(command, input=to_yuv([grey(40)]) * count, check=True)
-    pick = "+".join("eq(n,%d)" % n for n in wanted)        # quoted below: the commas are safe
+    subprocess.run(command, input=to_yuv([grey(120)]) * count, check=True)
+    wanted = [round(s * FPS) for s in wanted_s]
+    pick = "+".join("eq(n,%d)" % n for n in wanted)
     raw = subprocess.run(["ffmpeg", "-v", "error", "-i", out, "-vf", "select='%s'" % pick, "-fps_mode", "passthrough",
                           "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True).stdout
-    return dict(zip(wanted, np.frombuffer(raw, np.uint8).reshape(-1, H, W, 3)))
+    return dict(zip(wanted_s, np.frombuffer(raw, np.uint8).reshape(-1, H, W, 3).astype(int)))
 
 
-@unittest.skipUnless(HAS_DRAWTEXT, "this ffmpeg has no drawtext")
-class TitleRenderTest(unittest.TestCase):
-    def setUp(self):
-        self.folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.folder, True)     # videos: /tmp is RAM on the hub
+def lit_rows(frame, threshold=60):
+    rows = np.where((frame.sum(axis=2) > threshold).any(axis=1))[0]
+    return rows.min(), rows.max()
 
-    def test_it_dissolves_in_stays_and_is_gone(self):
-        wanted = (0, 29, 32, 37, 45, 60, 84, 90, 99)
-        video = render_frames(100, TITLE, self.folder, wanted)       # 3.3 s; on from 1.0 to 3.0 s
-        text = {n: int((np.abs(video[n].astype(int) - 40).sum(axis=2) > 6).sum()) for n in wanted}
-        lit = {n: int(np.abs(video[n].astype(int) - 40).sum()) for n in wanted}
-        for n in (0, 29, 90, 99):
-            self.assertLess(text[n], 50, "frame %d should show no title" % n)
-        self.assertLess(lit[32], lit[37])                             # dissolving in
-        self.assertAlmostEqual(lit[45], lit[60], delta=lit[60] * 0.02)   # fully on
-        self.assertLess(lit[84], lit[60])                             # dissolving out
 
-    def test_rows_sit_on_their_baselines_in_the_colour(self):
-        video = render_frames(70, TITLE, self.folder, (60,))[60].astype(int)
-        lit = np.abs(video - 40).sum(axis=2) > 60
-        rows = np.where(lit.any(axis=1))[0]
-        layout = title_render.layout(TITLE)
-        for text, _, size, baseline in layout:
-            self.assertTrue(lit[baseline - int(size * 0.75):baseline + 2].any(), text)
-        self.assertGreater(rows.min(), layout[0][3] - 84)
-        self.assertLess(rows.max(), layout[-1][3] + 15)             # descenders, the shadow
-        red, green, blue = np.median(video[lit], axis=0)            # amber, not grey or white
-        self.assertGreater(red, blue + 60)
+@unittest.skipUnless(HAS_PILLOW, "no Pillow here")
+class TitleSequenceTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = tempfile.mkdtemp()                         # videos: /tmp is RAM on the hub
+        cls.frames = render_frames(15, TITLE, cls.folder, (0.0, 2.0, 4.0, 6.0, 8.95, 12.0, 14.9))
 
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.folder, True)
+
+    def test_it_starts_from_black(self):
+        self.assertLess(self.frames[0.0].max(), 30)
+
+    def test_brockley_live_in_cream_on_black_centred(self):
+        frame = self.frames[2.0]
+        lit = frame.sum(axis=2) > 300
+        top, bottom = np.where(lit.any(axis=1))[0][[0, -1]]
+        baseline = title_render.card_baseline(title_render.CARD_SIZE)
+        self.assertAlmostEqual(bottom, baseline, delta=3)
+        self.assertAlmostEqual(top, baseline - title_render.CAP_HEIGHT * title_render.CARD_SIZE, delta=4)
+        columns = np.where(lit.any(axis=0))[0]
+        self.assertAlmostEqual((columns[0] + columns[-1]) / 2, W / 2, delta=6)
+        red, green, blue = np.median(frame[lit], axis=0)
+        self.assertGreater(red, 200)
+        self.assertGreater(red, blue + 10)                      # cream, not white
+        self.assertLess(frame[~lit].max(), 140)                 # black around it (anti-aliased edges aside)
+
+    def test_the_dissolve_shows_both_and_the_title_in_its_colour(self):
+        self.assertGreater((self.frames[4.0].sum(axis=2) > 100).sum(), 0)
+        frame = self.frames[6.0]
+        lit = frame.sum(axis=2) > 300
+        red, green, blue = np.median(frame[lit], axis=0)
+        self.assertGreater(red, blue + 80)                      # amber
+        self.assertLess(self.frames[8.95].max(), 40)            # faded out, the video not in yet
+
+    def test_the_video_with_the_strip_then_without(self):
+        frame = self.frames[12.0]
+        top, _ = title_render.strip_layout(title_render.lines_below(TITLE))
+        self.assertAlmostEqual(frame[400, 960].mean(), 120, delta=6)           # the picture
+        self.assertAlmostEqual(frame[top + 4, 40].mean(), 60, delta=8)         # the strip: 50 % black
+        self.assertGreater(frame[top:].max(), 200)                             # its text
+        self.assertAlmostEqual(self.frames[14.9][top + 4, 40].mean(), 120, delta=6)   # gone
+
+
+class TitleGraphTest(unittest.TestCase):
     def test_a_title_that_is_off_draws_nothing(self):
-        command = edit_render.encoder_command("b.wav", 0, 10, "o.mp4", {}, self.folder, title=dict(TITLE, on=False))
+        command = edit_render.encoder_command("b.wav", 0, 10, "o.mp4", {}, ".", title=dict(TITLE, on=False))
         self.assertNotIn("-filter_complex", command)
+
+    def test_the_logo_waits_for_the_strip(self):
+        self.assertAlmostEqual(title_render.logo_start_s(TITLE), 10 + 0.7 + 3 + 0.7 + 1)
+        self.assertAlmostEqual(title_render.logo_start_s(dict(TITLE, lines=[])), 9 + 1.5 + 1)
+        self.assertEqual(title_render.logo_start_s(None), 5)
 
 
 if __name__ == "__main__":

@@ -25,12 +25,12 @@ class TrimTest(unittest.TestCase):
         with_none = edit(trim_ns=None)
         self.assertIs(edit_render.trimmed(with_none), with_none)
 
-    def test_range_cuts_and_title_move_to_the_start(self):
+    def test_range_and_cuts_move_to_the_start(self):
         result = edit_render.trimmed(edit(trim_ns=[12 * NS, 80 * NS]))
         self.assertEqual(result["range_ns"], [1012 * NS, 1080 * NS])
         # cam2 was on at 12 s: it opens the video; cam3 moves to 28 s; cam1 at 90 s is after the end.
         self.assertEqual([(c["at_ns"], c["camera"]) for c in result["cuts"]], [(0, "cam2"), (28 * NS, "cam3")])
-        self.assertAlmostEqual(result["title"]["start_s"], 3.0)
+        self.assertEqual(result["title"], edit()["title"])                 # the sequence runs from the video's start
         self.assertIsNone(result["trim_ns"])
 
     def test_a_start_on_a_cut(self):

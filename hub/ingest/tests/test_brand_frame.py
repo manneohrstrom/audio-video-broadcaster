@@ -17,6 +17,7 @@ import edit_render  # noqa: E402
 
 W, H = 1920, 1080
 BRAND_DIR = os.path.join(REPO, "hub/hubd/static/editor/brand")
+FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../hubd/static/shared/vendor/fonts")
 GREY = 100      # luma of the test picture
 LOGO_BOX = (slice(H - 24 - 32 - 56, H - 24 - 32), slice(W - 24 - 32 - 345, W - 24 - 32))
 
@@ -24,11 +25,11 @@ LOGO_BOX = (slice(H - 24 - 32 - 56, H - 24 - 32), slice(W - 24 - 32 - 345, W - 2
 def render(effects, brand_dir, folder, frames=3, wanted=(0,), title=None):
     """Grey frames through the encoder; the frames numbered in `wanted`, as luma."""
     bounce = os.path.join(folder, "bounce.wav")
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "8", bounce],
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "13", bounce],
                    check=True)
     out = os.path.join(folder, "out.mp4")
     command = edit_render.encoder_command(bounce, 0.0, frames, out, effects, folder, preset="ultrafast", crf="10",
-                                          brand_dir=brand_dir, title=title)
+                                          brand_dir=brand_dir, title=title, fonts_dir=FONTS)
     frame = np.concatenate([np.full(W * H, GREY, np.uint8), np.full(W * H // 2, 128, np.uint8)])
     subprocess.run(command, input=frame.tobytes() * frames, check=True)
     pick = "+".join("eq(n,%d)" % n for n in wanted)
@@ -65,15 +66,11 @@ class BrandFrameTest(unittest.TestCase):
         self.assertGreater((frames[199][LOGO_BOX] < 150).mean(), 0.3)   # picture between them
 
     def test_after_a_title_the_logo_waits(self):
-        title = {"on": True, "text": "T", "lines": [], "colour": "#ffffff", "start_s": 1.0, "duration_s": 3.0}
-        # Title gone at 4 s, logo from 5 s; checked well inside: none at 4.9 s.
-        frames = render({}, BRAND_DIR, self.folder, frames=200, wanted=(147, 199), title=title) \
-            if "drawtext" in subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True).stdout \
-            else None
-        if frames is None:
-            self.skipTest("this ffmpeg has no drawtext")
-        self.assertLess(lit(frames[147]), 0.01)
-        self.assertGreater(lit(frames[199]), 0.1)
+        title = {"on": True, "text": "T", "lines": [], "colour": "#ffffff", "start_s": 0, "duration_s": 3.0}
+        # No names: the sequence is over when the video is in (10.5 s), the logo from 11.5 s.
+        frames = render({}, BRAND_DIR, self.folder, frames=375, wanted=(330, 374), title=title)
+        self.assertLess(lit(frames[330]), 0.01)
+        self.assertGreater(lit(frames[374]), 0.1)
 
     def test_without_effects_only_the_border_and_logo_change(self):
         plain = render({}, None, self.folder, frames=200, wanted=(199,))[199].astype(int)

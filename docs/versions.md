@@ -36,6 +36,7 @@ These are the versions verified working in Phase 1 (2026-11-14). Provisioning (A
 | python3 | 3.13.5-1 |
 | python3-opencv | 4.10.0+dfsg-5 (ArUco detection of the calibration card, Track B) |
 | python3-numpy | 1:2.2.4+ds-1 (the editor's render, the shared grade maths, `hub/tools/add_overlay.py`; pinned and held 2026-11-17) |
+| python3-pil | 11.1.0-5+deb13u4 (the title sequence's cards, `hub/ingest/title_render.py`; pinned 2026-11-21) |
 | cloud-guest-utils | 0.33-1 (`growpart`, used once to grow the root partition after the move to the 128 GB card, 2026-11-16) |
 | SD card | 128 GB (116.5 GB raw), cloned from the original 32 GB card 2026-11-16; root partition 115 GB |
 
@@ -79,7 +80,8 @@ No software installed; the page runs in Chrome. Tested: Pixel 3 (Chrome 157) and
 |---|---|
 | Preact (`preact.module.js`, `hooks.module.js`) | 10.19.3, from jsDelivr, in `hub/hubd/static/shared/vendor/` (sha256 `bfac992a…134e`, `d952f1d8…7d7e`) |
 | Jost (`jost-latin-{400,500,600}-normal.woff2`, SIL OFL) | @fontsource/jost 5.0.17, from jsDelivr, in `hub/hubd/static/shared/vendor/fonts/` (sha256 `03aaf59e…`, `b2cf900a…`, `1762fc2b…`; licence `OFL-jost.txt`) |
-| Figtree (`Figtree-Regular.ttf`, `Figtree-SemiBold.ttf`, SIL OFL) | v2.0.3 from github.com/erikdkennedy/figtree (`fonts/ttf/`), in `hub/hubd/static/shared/vendor/fonts/` (sha256 `e6f1cae1…`, `a63306f1…`; licence `OFL-figtree.txt`). The video's title: the editor's preview and the render's drawtext use the same files. |
+| Figtree (`Figtree-Regular.ttf`, `Figtree-SemiBold.ttf`, SIL OFL) | v2.0.3 from github.com/erikdkennedy/figtree (`fonts/ttf/`), in `hub/hubd/static/shared/vendor/fonts/` (sha256 `e6f1cae1…`, `a63306f1…`; licence `OFL-figtree.txt`). Was the video's title until 2026-11-21; still the hub page's theme font. |
+| Outfit Bold (`Outfit-Bold.ttf`, SIL OFL) | github.com/Outfitio/Outfit-Fonts `fonts/ttf/` at commit `902773808e` (2023-03-26), in `hub/hubd/static/shared/vendor/fonts/` (sha256 `f620b695…`; licence `OFL-outfit.txt`). The title sequence: the editor's preview and the render's cards use the same file. |
 | DSEG7 Classic Bold (`DSEG7Classic-Bold.woff2`, SIL OFL) | dseg 0.46.0, from jsDelivr, same folder (sha256 `ec2e7499…`; licence `OFL-dseg.txt`): the editor's LCD readouts |
 | DSEG14 Classic Bold (`DSEG14Classic-Bold.woff2`, SIL OFL) | dseg 0.46.0, from jsDelivr, same folder (sha256 `a73df6e6…`): the hub page's 14-segment rig display |
 | Hub page theme fonts (SIL OFL; `hub/styles/themes.css`) | @fontsource 5.3.0, from jsDelivr, in `hub/hubd/static/shared/vendor/fonts/`, licences `OFL-<name>.txt`: Righteous (`righteous-latin-400-normal.woff2`, sha256 `17055c53…`), Nixie One (`nixie-one-latin-400-normal.woff2`, `bad30060…`), Shrikhand (`shrikhand-latin-400-normal.woff2`, `ae958e0d…`), Bungee (`bungee-latin-400-normal.woff2`, `126eec70…`), Orbitron 700 (`orbitron-latin-700-normal.woff2`, `ee6acc5a…`), Oswald 600 (`oswald-latin-600-normal.woff2`, `f6cb541f…`), Archivo Black (`archivo-black-latin-400-normal.woff2`, `25f33e61…`), VT323 (`vt323-latin-400-normal.woff2`, `8ddbebcc…`) |

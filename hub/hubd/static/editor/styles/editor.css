@@ -81,8 +81,9 @@ a.button { text-decoration: none; color: var(--color-text); }
 .video-window canvas { display: block; width: 100%; height: 100%; }
 /* The border and logo: the same 1920x1080 image the render puts on top, over the whole picture */
 /* The image is white with transparency: its alpha cuts the chosen colour (as the render's lutrgb does) */
-/* The title: drawn at 1920x1080 on its own canvas (title/title-layout.js), faded with opacity */
-.video-window .title-layer { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+/* The title sequence: black, then each card drawn at 1920x1080 on its own canvas (title/title-layout.js), faded with opacity */
+.video-window .title-layer, .video-window .title-black { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+.video-window .title-black { background: #000; }
 /* Two layers: the border (all the time) and the logo (fades in; its opacity is set per frame) */
 .brand-border, .brand-logo { position: absolute; inset: 0; pointer-events: none; background: #fff; }
 .brand-border {
@@ -271,9 +272,8 @@ input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px va
 .sync-start { color: var(--color-text-muted); font-size: var(--font-size-small); white-space: normal; text-align: right; max-width: 18em; }
 .sync-readout .unit { font: 500 12px var(--font-ui); margin-left: 3px; }
 
-/* Step 3, the title. Figtree: the same files the render's drawtext uses (shared/vendor/fonts). */
-@font-face { font-family: "Figtree"; font-weight: 400; font-display: block; src: url("/shared/vendor/fonts/Figtree-Regular.ttf") format("truetype"); }
-@font-face { font-family: "Figtree"; font-weight: 600; font-display: block; src: url("/shared/vendor/fonts/Figtree-SemiBold.ttf") format("truetype"); }
+/* Step 3, the title sequence. Outfit Bold: the same file the render's title cards use (shared/vendor/fonts). */
+@font-face { font-family: "Outfit"; font-weight: 700; font-display: block; src: url("/shared/vendor/fonts/Outfit-Bold.ttf") format("truetype"); }
 .title-fields { margin: 0; padding: 0 0 var(--space-3); border: 0; border-bottom: 1px solid var(--color-line); min-width: 0; }
 .title-fields:disabled { opacity: 0.45; }
 .title-switch { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }

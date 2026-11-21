@@ -44,7 +44,7 @@ import youtube_upload  # noqa: E402
 import drive_records  # noqa: E402
 import motion  # noqa: E402
 
-VERSION = "0.29.0"
+VERSION = "0.30.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -140,7 +140,7 @@ DEFAULT_CONFIG = {
     "looks_path": "/opt/hubd/static/editor/looks.json",
     # The border and logo the editor's "Border & logo" switch puts on top (hub/tools/make_brand_frame.py).
     "brand_dir": "/opt/hubd/static/editor/brand",
-    # Figtree, for the video's title (title_render.py); the editor's preview uses the same files.
+    # Outfit, for the video's title sequence (title_render.py); the editor's preview uses the same file.
     "fonts_dir": "/opt/hubd/static/shared/vendor/fonts",
     # Finished videos the editor sends to YouTube wait here for hub-upload (youtube_upload.py).
     "youtube_spool_dir": "/var/lib/hubd/youtube/uploads",
@@ -1752,9 +1752,8 @@ class Ingest:
                 if not os.path.exists(os.path.join(brand_dir, name)):
                     raise RuntimeError("the border and logo image is missing: %s" % name)
             if title_render.is_shown(edit.get("title")):
-                for font in (title_render.TITLE_FONT, title_render.LINE_FONT):
-                    if not os.path.exists(os.path.join(self.cfg["fonts_dir"], font)):
-                        raise RuntimeError("the title's font is missing: %s" % font)
+                if not os.path.exists(os.path.join(self.cfg["fonts_dir"], title_render.FONT)):
+                    raise RuntimeError("the title's font is missing: %s" % title_render.FONT)
             try:            # the bounce's bars, for the beat pulse (beats.json, next to the bounce)
                 with open(os.path.join(os.path.dirname(bounce), "beats.json")) as f:
                     downbeats_s = json.load(f).get("downbeats_s") or []

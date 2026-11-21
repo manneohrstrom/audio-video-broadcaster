@@ -94,8 +94,8 @@ def plan_shots(edit, take_doc, dissolve_s):
 def trimmed(edit):
     """The edit cut down to the video's start and end (trim_ns, ns from the start of the
     range; user, 2026-11-21): the range narrowed, the cuts moved to the new start (the camera
-    showing at the start becomes the first cut) and the title's time with them. The bounce
-    and the beats follow from the range. Without trim_ns, the edit as it is."""
+    showing at the start becomes the first cut). The bounce and the beats follow from the
+    range; the title sequence runs from the video's start anyway. Without trim_ns, the edit as it is."""
     trim = edit.get("trim_ns")
     if not trim:
         return edit
@@ -105,10 +105,7 @@ def trimmed(edit):
     showing = ([cut for cut in cuts if cut["at_ns"] <= in_ns] or cuts)[-1]       # the camera on at the start
     moved = [dict(showing, at_ns=0)] + [dict(cut, at_ns=cut["at_ns"] - in_ns)
                                          for cut in cuts if in_ns < cut["at_ns"] < out_ns]
-    result = dict(edit, range_ns=[range_start + in_ns, range_start + out_ns], cuts=moved, trim_ns=None)
-    if isinstance(edit.get("title"), dict):
-        result["title"] = dict(edit["title"], start_s=float(edit["title"].get("start_s", 0)) - in_ns / NS)
-    return result
+    return dict(edit, range_ns=[range_start + in_ns, range_start + out_ns], cuts=moved, trim_ns=None)
 
 
 def dissolve_mix(frame_number, cut_frame, half_frames):
@@ -232,18 +229,10 @@ def brand_overlay(graph, extra_inputs, brand_dir, colour="#ffffff", logo_start_s
     return extra_inputs, ";".join(chains)
 
 
-def then_filters(graph, filters):
-    """The filter graph (ending in [video], or None for the plain frames) followed by `filters`."""
-    if not graph:
-        return "[0:v]%s[video]" % filters
-    assert graph.endswith("[video]")
-    return graph[:-len("[video]")] + "[before_title];[before_title]%s[video]" % filters
-
-
 def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir=".", preset=FINAL_PRESET, crf=FINAL_CRF,
                     brand_dir=None, brand_colour="#ffffff", downbeats_s=(), title=None,
                     fonts_dir="/opt/hubd/static/shared/vendor/fonts"):
-    """title: the edit's title (title_render), drawn after the effects and under the brand frame.
+    """title: the edit's title (title_render): its sequence goes after the effects and under the brand frame.
     brand_dir: the brand frame's folder (border and logo), or None for no brand frame."""
     show_title = title_render.is_shown(title)
     command = render.encoder_cmd(bounce, audio_start_s, frames, out, preset=preset, crf=crf)
@@ -258,7 +247,7 @@ def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir="
             extra_inputs, graph = look_render.effect_filter_graph(effects, work_dir, first_extra_input=2,
                                                                   downbeats_s=downbeats_s, audio_start_s=audio_start_s)
         if show_title:
-            graph = then_filters(graph, title_render.title_filters(title, work_dir, fonts_dir))
+            extra_inputs, graph = title_render.sequence_graph(graph, extra_inputs, title, work_dir, fonts_dir, FPS)
         if brand_dir:
             extra_inputs, graph = brand_overlay(graph, extra_inputs, brand_dir, brand_colour,
                                                 title_render.logo_start_s(title))

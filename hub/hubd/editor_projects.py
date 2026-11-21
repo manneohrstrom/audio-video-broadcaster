@@ -114,7 +114,8 @@ TITLE_MAX_CHARACTERS = 80
 
 
 def validate_title(title, song_s):
-    """The edit's title (the title line, the lines below, colour, when and how long), or None.
+    """The edit's title sequence (the title, its colour, the names on the strip, how long they
+    stay: duration_s), or None. start_s is from the older title (no longer used; kept).
     Rendered by hub/ingest/title_render.py."""
     if title is None:
         return None

@@ -39,9 +39,10 @@ export class EditorStore {
     // The border and logo on top of everything (brand/brand-border.png and brand-logo.png; the logo fades in): in the preview and the video.
     this.branding = project.edit.branding === true;
     this.brandingColour = project.edit.branding_colour || "#ffffff";
-    // Step 3, the title (docs/editor-plan.md section 5b): a title line and the lines below it,
-    // dissolving in at start_s and gone duration_s later. Off until switched on.
-    this.title = { on: false, text: project.song.name, lines: [], colour: "#ffffff", start_s: 2, duration_s: 6,
+    // Step 3, the title sequence (docs/editor-plan.md section 5b; title/title-layout.js): the
+    // title, its colour, the names on the strip and how long they stay (duration_s). It runs
+    // from the video's start; start_s is kept in the file but no longer used. Off until switched on.
+    this.title = { on: false, text: project.song.name, lines: [], colour: "#f3ead8", start_s: 0, duration_s: 6,
                    ...(project.edit.title || {}) };
 
     // The video's start and end (user, 2026-11-21): the edit keeps the whole song (the clap
@@ -287,7 +288,7 @@ export class EditorStore {
     this.notify();
   }
 
-  /** Change some of the title's settings ({ text, lines, colour, start_s, duration_s, on }). */
+  /** Change some of the title's settings ({ text, lines, colour, duration_s, on }). */
   setTitle(changes) {
     this.title = { ...this.title, ...changes };
     this.scheduleSave();

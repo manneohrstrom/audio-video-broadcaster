@@ -1,67 +1,104 @@
-// The title in the preview (title-layout.js) must sit where the render puts it
-// (hub/ingest/title_render.py): same rows, sizes, baselines and fade.
+// The title sequence in the preview (title-layout.js) must match the render
+// (hub/ingest/title_render.py): same sizes, positions, baselines, strip and timing. Letter
+// widths come from the font in each (canvas, Pillow); here both get the same made-up widths.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { layout, opacityAt, isShown, TITLE_SIZE, logoStartSeconds, logoOpacityAt } from "../../static/editor/js/title/title-layout.js";
+import {
+  cardSize, cardBaseline, letterPositions, stripLayout, opacitiesAt, logoStartSeconds, logoOpacityAt,
+  isShown, titleText, linesBelow, CARD_TRACKING, CARD_SIZE,
+} from "../../static/editor/js/title/title-layout.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ingest = join(here, "../../../ingest");
+const advance = (letter, size) => (letter === " " ? 0.25 : letter === "W" ? 0.9 : 0.62) * size;
 
 const titles = [
-  { on: true, text: "Brockley Live", lines: ["Anna Berg, piano", "", "  Ben Okafor, bass ", "Cleo, drums"], colour: "#ffffff", start_s: 2, duration_s: 6 },
-  { on: true, text: "Only a title", lines: [], colour: "#ffffff", start_s: 0, duration_s: 3 },
-  { on: true, text: "  ", lines: ["Just", "names"], colour: "#ffffff", start_s: 10.5, duration_s: 20 },
-  { on: true, text: "Eight", lines: ["1", "2", "3", "4", "5", "6", "7", "8", "9"], colour: "#ffffff", start_s: 1, duration_s: 4 },
+  { on: true, text: "Blue in Green", lines: ["Anna Berg, piano", "", "  Ben Okafor, bass ", "Cleo, drums"], colour: "#ffffff", duration_s: 6 },
+  { on: true, text: "A very long title that will not fit at all WWW", lines: [], colour: "#e8b15a", duration_s: 3 },
+  { on: true, text: "  ", lines: ["Just names"], colour: "#ffffff", duration_s: 20 },
 ];
+const times = [-1, 0, 0.5, 2, 3.9, 4.2, 6, 8.5, 9.4, 10.2, 11, 16.5, 17.2, 40];
 
-function fromPython(title, times) {
+function fromPython(title) {
   const script = `
 import json, sys
 sys.path.insert(0, ${JSON.stringify(ingest)})
 import title_render as t
 title = json.loads(sys.argv[1]); times = json.loads(sys.argv[2])
-start, end, fade = title["start_s"], title["start_s"] + title["duration_s"], t.FADE_S
-rows = [{"text": r[0], "size": r[2], "baseline": r[3]} for r in t.layout(title)]
-alpha = [min(1, max(0, min((s - start) / fade, (end - s) / fade))) for s in times]
-print(json.dumps({"rows": rows, "alpha": alpha, "shown": t.is_shown(title), "logo": t.logo_start_s(title)}))`;
+def advance(letter, size):
+    return (0.25 if letter == " " else 0.9 if letter == "W" else 0.62) * size
+text = t.title_text(title)
+size = t.card_size(text, advance) if text else None
+positions, width = t.letter_positions(text, size or t.CARD_SIZE, t.CARD_TRACKING, advance)
+lines = t.lines_below(title)
+print(json.dumps({"size": size, "xs": [x for _, x in positions], "width": width,
+                  "baseline": t.card_baseline(size or t.CARD_SIZE),
+                  "strip": t.strip_layout(lines) if lines else None,
+                  "opacities": [t.opacities_at(title, s) for s in times],
+                  "logo": t.logo_start_s(title), "logoOff": t.logo_start_s(dict(title, on=False)),
+                  "shown": t.is_shown(title), "text": text, "lines": lines}))`;
   return JSON.parse(execFileSync("python3", ["-c", script, JSON.stringify(title), JSON.stringify(times)]));
 }
 
-test("layout and fade match the render's", () => {
+test("layout, timing and the logo match the render's", () => {
   for (const title of titles) {
-    const times = [title.start_s - 1, title.start_s, title.start_s + 0.25, title.start_s + 3, title.start_s + title.duration_s - 0.1,
-                   title.start_s + title.duration_s + 1];
-    const python = fromPython(title, times);
-    assert.deepEqual(layout(title).map(({ text, size, baseline }) => ({ text, size, baseline })), python.rows, title.text);
+    const python = fromPython(title);
+    const text = titleText(title);
+    assert.equal(text, python.text);
+    assert.deepEqual(linesBelow(title), python.lines);
     assert.equal(isShown(title), python.shown);
-    times.forEach((seconds, i) => assert.ok(Math.abs(opacityAt(title, seconds) - python.alpha[i]) < 1e-9, `${title.text} at ${seconds}`));
+    if (text) {
+      const size = cardSize(text, advance);
+      assert.equal(size, python.size, title.text);
+      const { positions, width } = letterPositions(text, size, CARD_TRACKING, advance);
+      positions.forEach(({ x }, i) => assert.ok(Math.abs(x - python.xs[i]) < 1e-9));
+      assert.ok(Math.abs(width - python.width) < 1e-9);
+      assert.equal(cardBaseline(size), python.baseline);
+    }
+    if (python.strip) {
+      const { top, baselines } = stripLayout(linesBelow(title));
+      assert.deepEqual([top, baselines], python.strip);
+    }
+    times.forEach((t, i) => {
+      const ours = opacitiesAt(title, t);
+      for (const layer of ["black", "brand", "title", "strip"]) {
+        assert.ok(Math.abs(ours[layer] - python.opacities[i][layer]) < 1e-9, `${title.text} ${layer} at ${t}`);
+      }
+    });
     assert.equal(logoStartSeconds(title), python.logo);
-    assert.equal(logoStartSeconds({ ...title, on: false }), fromPython({ ...title, on: false }, []).logo);
+    assert.equal(logoStartSeconds({ ...title, on: false }), python.logoOff);
   }
 });
 
-test("the block is centred top to bottom and the title comes first", () => {
-  const rows = layout(titles[0]);
-  assert.equal(rows[0].size, TITLE_SIZE);
-  assert.equal(rows.length, 4);                       // the empty line is dropped
-  const top = rows[0].baseline - 0.7 * TITLE_SIZE, bottom = rows[rows.length - 1].baseline;
-  assert.ok(Math.abs((top + bottom) / 2 - 540) <= 1);
-  assert.equal(layout(titles[3]).length, 9);          // the title and at most 8 lines
+test("a long title gets smaller until it fits; a normal one is 83 px", () => {
+  assert.equal(cardSize("BLUE IN GREEN", advance), CARD_SIZE);
+  const long = titleText(titles[1]);
+  const size = cardSize(long, advance);
+  assert.ok(size < CARD_SIZE);
+  assert.ok(letterPositions(long, size, CARD_TRACKING, advance).width <= 1632);
 });
 
-test("off, or nothing to show: no title", () => {
-  assert.equal(isShown({ ...titles[0], on: false }), false);
-  assert.equal(isShown({ ...titles[0], text: "", lines: [" "] }), false);
-  assert.equal(opacityAt({ ...titles[0], on: false }, 4), 0);
+test("the sequence: black, the brand, the dissolve, the title, the video, the strip", () => {
+  const at = t => opacitiesAt(titles[0], t);
+  assert.deepEqual(at(0), { black: 1, brand: 0, title: 0, strip: 0 });
+  assert.equal(at(2).brand, 1);
+  assert.ok(at(4).brand > 0 && at(4).title > 0);           // dissolving
+  assert.equal(at(6).title, 1);
+  assert.equal(at(9).title, 0);
+  assert.equal(at(9).black, 1);
+  assert.equal(at(11).black, 0);
+  assert.equal(at(12).strip, 1);
+  assert.equal(at(10 + 0.7 + 6 + 0.7 + 0.1).strip, 0);
+  assert.deepEqual(opacitiesAt({ ...titles[0], on: false }, 2), { black: 0, brand: 0, title: 0, strip: 0 });
 });
 
-test("the logo fades in after the title, or at 5 s", () => {
-  assert.equal(logoStartSeconds(titles[0]), 2 + 6 + 1);           // gone at 8 s, logo from 9 s
-  assert.equal(logoStartSeconds({ ...titles[0], on: false }), 5);
-  assert.equal(logoOpacityAt(null, 4.9), 0);
+test("the logo: after the strip, after the video comes in, or 5 s into the video", () => {
+  assert.equal(logoStartSeconds(titles[0]), 10 + 0.7 + 6 + 0.7 + 1);
+  assert.equal(logoStartSeconds({ ...titles[0], lines: [] }), 11.5);
+  assert.equal(logoStartSeconds(null, 20), 25);
   assert.equal(logoOpacityAt(null, 5.5), 0.5);
   assert.equal(logoOpacityAt(null, 600), 1);
 });

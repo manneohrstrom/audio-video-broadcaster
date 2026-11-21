@@ -9,7 +9,7 @@ import { cutIndexAt } from "../edit-model.js";
 import { formatSeconds } from "../time-format.js";
 import { fullVideoAvailable } from "../media/video-player.js";
 import { LookRenderer } from "../look/look-renderer.js";
-import { drawTitle, opacityAt, logoOpacityAt } from "../title/title-layout.js";
+import { drawCard, drawStrip, opacitiesAt, logoOpacityAt, titleText, linesBelow, BRAND_TEXT, CREAM, CARD_SIZE, DETAIL_SIZE, FONT_FAMILY } from "../title/title-layout.js";
 
 // Pictures are put together (camera, dissolve) on this hidden canvas, then shown through
 // the look (filter and effects) on the visible WebGL canvas.
@@ -24,16 +24,25 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
   const wrapperRef = useRef(null);
 
   const noteRef = useRef(null);
+  // The title sequence's layers (title/title-layout.js): black, "BROCKLEY LIVE", the title, the strip.
+  const blackRef = useRef(null);
+  const brandRef = useRef(null);
   const titleRef = useRef(null);
+  const stripRef = useRef(null);
   const logoRef = useRef(null);
 
-  // The title layer: drawn again when the title changes (and once Figtree has loaded); its
-  // opacity follows the playhead in the frame loop below.
+  // The title sequence's cards: drawn again when the title changes (and once Outfit has
+  // loaded); their opacities follow the playhead in the frame loop below.
   const titleKey = JSON.stringify(store.title);
   useEffect(() => {
-    const draw = () => drawTitle(titleRef.current.getContext("2d"), store.title);
+    const draw = () => {
+      drawCard(brandRef.current.getContext("2d"), BRAND_TEXT, CREAM);
+      drawCard(titleRef.current.getContext("2d"), titleText(store.title), store.title.colour || CREAM);
+      drawStrip(stripRef.current.getContext("2d"), linesBelow(store.title));
+    };
     draw();
-    document.fonts.load("600 84px Figtree").then(() => document.fonts.load("400 42px Figtree")).then(draw, () => {});
+    Promise.all([document.fonts.load(`700 ${CARD_SIZE}px ${FONT_FAMILY}`), document.fonts.load(`700 ${DETAIL_SIZE}px ${FONT_FAMILY}`)])
+      .then(draw, () => {});
   }, [titleKey]);
 
   useEffect(() => {
@@ -74,8 +83,13 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
       else renderer.setFilter({}, 0);
       renderer.render(picture, withLook ? store.look.effects : {}, seconds, overlay);
     }
-    const titleOpacity = skimCamera ? 0 : opacityAt(store.title, seconds);   // not while skimming a camera
-    if (titleRef.current.style.opacity !== String(titleOpacity)) titleRef.current.style.opacity = String(titleOpacity);
+    // The title sequence, timed from the video's start (not while skimming a camera, nor before the start).
+    const showSequence = !skimCamera && seconds >= store.inSeconds - 1e-6;
+    const layers = opacitiesAt(showSequence ? store.title : null, seconds - store.inSeconds);
+    for (const [ref, opacity] of [[blackRef, layers.black], [brandRef, layers.brand], [titleRef, layers.title], [stripRef, layers.strip]]) {
+      const value = String(Math.round(opacity * 1000) / 1000);
+      if (ref.current.style.opacity !== value) ref.current.style.opacity = value;
+    }
     if (logoRef.current) {                   // the logo fades in after the title (or at 5 s)
       const logoOpacity = String(logoOpacityAt(store.title, seconds, store.inSeconds));
       if (logoRef.current.style.opacity !== logoOpacity) logoRef.current.style.opacity = logoOpacity;
@@ -94,7 +108,10 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
       <div class="video-window" ref=${wrapperRef}
            onPointerDown=${hold(true)} onPointerUp=${hold(false)} onPointerLeave=${hold(false)}>
         <canvas ref=${canvasRef} width="1920" height="1080" aria-label="Video preview"></canvas>
+        <div class="title-black" ref=${blackRef} aria-hidden="true"></div>
+        <canvas class="title-layer" ref=${brandRef} width="1920" height="1080" aria-hidden="true"></canvas>
         <canvas class="title-layer" ref=${titleRef} width="1920" height="1080" aria-hidden="true"></canvas>
+        <canvas class="title-layer" ref=${stripRef} width="1920" height="1080" aria-hidden="true"></canvas>
         ${store.branding && html`
           <div class="brand-border" style=${{ background: store.brandingColour }}></div>
           <div class="brand-logo" ref=${logoRef} style=${{ background: store.brandingColour }}></div>`}
