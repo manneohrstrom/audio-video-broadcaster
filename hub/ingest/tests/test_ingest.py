@@ -69,6 +69,13 @@ class FakeRig:
     def post(self, url, body, timeout=None):
         cam = url.split("//")[1].split(".")[0]
         take = url.split("/takes/")[1].split("/")[0]
+        if url.endswith("/delete"):
+            if cam in self.offline:
+                raise OSError("offline")
+            folder = os.path.join(self.root, cam, take)
+            gone = os.path.isdir(folder)
+            shutil.rmtree(folder, ignore_errors=True)
+            return {"deleted": gone}
         self.verified[(cam, take)] = body
         return {"ok": True}
 
@@ -339,6 +346,32 @@ class IngestTest(Base):
         self.assertIn("gave up after 3 tries: verify failed", cs["error"])
         self.assertNotIn(TAKE, self.ing.pending())           # not picked up again
         self.assertEqual(self.rig.verified, {})               # and still kept on the camera
+
+    def test_a_failed_take_is_deleted_with_its_copies_on_the_cameras(self):
+        """Delete take on a take ingest gave up on (user, 2026-11-21): nothing on the drive, so
+        it doesn't need the drive; the cameras delete their unverified copies, and one that was
+        offline is asked again when ingest next finds the take on it."""
+        self.rig.add_take("cam1")
+        self.rig.add_take("cam2")
+        self.runner.frames_override = 5
+        for _ in range(ingest.GIVE_UP_AFTER):
+            self.command("start")
+            self.ing.tick()
+        self.assertTrue(self.ing.cam_state(TAKE, "cam1")["gave_up"])
+        self.assertTrue(os.path.isdir(os.path.join(self.ing.work, TAKE)))
+        self.drive.present = lambda: False
+        self.rig.offline.add("cam2")
+        with open(os.path.join(self.ing.cmd_dir, "%f-delete_take.json" % time.time()), "w") as f:
+            json.dump({"cmd": "delete_take", "take": TAKE}, f)
+        self.ing.tick()
+        self.assertNotIn(TAKE, self.ing.state["takes"])
+        self.assertFalse(os.path.exists(os.path.join(self.ing.work, TAKE)))
+        self.assertEqual(os.listdir(os.path.join(self.rig.root, "cam1")), [])
+        self.assertEqual(self.ing.state["removed_takes"][TAKE]["left_on"], ["cam2"])
+        self.rig.offline.clear()                              # back online
+        self.assertEqual(self.ing.pending(), {})               # not ingested again, but deleted there
+        self.assertEqual(os.listdir(os.path.join(self.rig.root, "cam2")), [])
+        self.assertEqual(self.ing.state["removed_takes"][TAKE]["left_on"], [])
 
     def test_a_success_resets_the_count(self):
         cs = {"done": []}

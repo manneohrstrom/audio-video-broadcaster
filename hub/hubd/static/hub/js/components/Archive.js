@@ -249,9 +249,10 @@ function WaitingTake({ id, take, queued, names, ...rest }) {
     </article>`;
 }
 
-/** The foot of an ingested take: "delete take", or how its delete is going. */
+/** The foot of a take ingest isn't working on (ingested, failed or stopped half way):
+ * "delete take", or how its delete is going. */
 function TakeFoot({ id, take, openDialog }) {
-  if (take.deleting) return html`<div class="take-foot">being deleted from the drive and the hub (waits while recording)</div>`;
+  if (take.deleting) return html`<div class="take-foot">being deleted from the drive, the hub and the cameras (waits while recording)</div>`;
   return html`<div class="take-foot">
     ${take.delete_error && html`<span class="bad">couldn't delete it: ${take.delete_error}</span>`}
     <button class="key small quiet" disabled=${take.drive_absent} title=${take.drive_absent ? "Its drive isn't plugged in" : "Delete the take from the drive and the hub"}
@@ -303,7 +304,7 @@ function TakeCard({ id, take, paused, driveOk, names, ...rest }) {
                                                   labels: Object.fromEntries(playable.map(p => [p, label(p)])) })}>▶ ${label(c)}</button>`)}</div>`}
       <${HubMic} id=${id} take=${take} activity=${rest.activity} />
       <${Songs} id=${id} take=${take} names=${names} driveOk=${driveOk} ...${rest} />
-      ${take.complete && html`<${TakeFoot} id=${id} take=${take} openDialog=${rest.openDialog} />`}
+      ${(take.complete || !cameras.some(([, v]) => v.step)) && html`<${TakeFoot} id=${id} take=${take} openDialog=${rest.openDialog} />`}
     </article>`;
 }
 

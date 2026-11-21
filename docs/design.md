@@ -104,7 +104,7 @@ After STOP the hub does everything; your only step is pressing Eject and moving 
 2. **Rewrap:** `ffmpeg -c copy` from raw H.264 to `.mov` at a fixed 30 fps, adding the shared start timecode and camera name. No re-encode, so it is quick on the Pi 5 (which has no hardware H.264 encoder, so it couldn't transcode cheaply anyway).
 3. **Verify:** the `.mov` frame count must match the node's manifest; dropped frames (gaps in `--save-pts`) are flagged in the UI. Counts can differ between cameras by a frame at the start, which is expected and not an error.
 4. **Delete from the node** as soon as verify passes and the take is on the drive (user decision 2026-11-17: simpler, and the cards stay nearly empty; the drive is then the only copy until it goes to the Mac). Until 2026-11-17 cameras kept verified takes until they needed the space. A take that fails verify stays on the camera and the UI says so.
-5. **Publish:** the take appears on the external drive as one folder with one `.mov` per camera. The hub deletes from the drive only when you ask it to: **delete take** in the archive (user, 2026-11-21) removes one take's folder and everything the hub keeps for it, after a confirmation. Otherwise clearing old takes is your call, since you may be editing from it.
+5. **Publish:** the take appears on the external drive as one folder with one `.mov` per camera. The hub deletes from the drive only when you ask it to: **delete take** in the archive (user, 2026-11-21) removes one take's folder and everything the hub keeps for it, after a confirmation. It also works on a take whose ingest failed or stopped half way, and then also deletes the recordings still on the cameras (user, 2026-11-21; a camera that's offline is asked again when it's back). Otherwise clearing old takes is your call, since you may be editing from it.
 
 | Getting it to the Mac | Your steps | Notes |
 | --- | --- | --- |
@@ -189,7 +189,7 @@ The top risk is that software sync behaves worse on Zero 2 W over Wi-Fi than the
 | Thermal throttling in long takes | Low–medium | Medium | Heatsinks, telemetry, warning before arming |
 | SD card fills mid-take | Low | High | Hub refuses to arm below a floor and shows time left |
 | Crash or power cut mid-take | Low | Medium | Raw H.264 survives truncated; hub rebuilds the manifest |
-| Files deleted before they're safe | Low | High | Delete only after the hub has verified its copy |
+| Files deleted before they're safe | Low | High | Delete only after the hub has verified its copy, or on an explicit delete take |
 
 ## Implementation plan
 

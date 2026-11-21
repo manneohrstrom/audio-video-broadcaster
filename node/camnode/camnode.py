@@ -18,7 +18,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.7.1"
+VERSION = "0.8.0"
 NOMINAL_MS = 1000.0 / 30
 TAKE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WC_RE = re.compile(rb'"FrameWallClock":\s*(\d+)')
@@ -544,10 +544,29 @@ class Agent:
                     continue
                 shutil.rmtree(self.take_dir(n))
                 deleted.append(n)
-                with open(os.path.join(os.path.dirname(self.cfg["takes_dir"].rstrip("/")), "deleted.jsonl"), "a") as f:
-                    f.write(json.dumps({"take_id": n, "at": time.time_ns(),
-                                        "free_gb_after": round(self.free_gb(), 2)}) + "\n")
+                self.log_deleted(n, "verified on the drive")
         return deleted
+
+    def delete_take(self, take_id):
+        """The hub page's "delete take" (user, 2026-11-21): the take goes, verified or not,
+        e.g. one whose ingest failed. Never the take being recorded. A take that isn't here
+        is fine (deleted already). Returns {"deleted": bool}."""
+        if not TAKE_ID_RE.match(take_id or ""):
+            raise ValueError("bad take_id")
+        with self.lock:
+            if self.take and self.take["take_id"] == take_id:
+                raise Busy("take %s is being recorded" % take_id)
+            d = self.take_dir(take_id)
+            if not os.path.isdir(d):
+                return {"deleted": False}
+            shutil.rmtree(d)
+            self.log_deleted(take_id, "deleted on the hub page")
+        return {"deleted": True}
+
+    def log_deleted(self, take_id, why):
+        with open(os.path.join(os.path.dirname(self.cfg["takes_dir"].rstrip("/")), "deleted.jsonl"), "a") as f:
+            f.write(json.dumps({"take_id": take_id, "at": time.time_ns(), "why": why,
+                                "free_gb_after": round(self.free_gb(), 2)}) + "\n")
 
     def housekeeping_forever(self, stop, every_s=600):
         while not stop.wait(every_s):
@@ -896,6 +915,9 @@ class Handler(BaseHTTPRequestHandler):
             m = re.match(r"^/takes/([^/]+)/verified$", self.path)
             if m:
                 return self._send(200, a.mark_verified(m.group(1), self._body()))
+            m = re.match(r"^/takes/([^/]+)/delete$", self.path)
+            if m:
+                return self._send(200, a.delete_take(m.group(1)))
             if self.path == "/live/settings":
                 return self._send(200, a.live_settings(self._body().get("settings")))
             if self.path in ("/live/start", "/live/stop"):

@@ -380,6 +380,23 @@ class AgentTest(unittest.TestCase):
         self.make()
         self.assertNotIn("t1", os.listdir(self.tmp))
 
+    def test_delete_take_from_the_hub_page(self):
+        self.take("t1", run=0.2)                         # not verified: a take whose ingest failed
+        with self.assertRaises(ValueError):
+            self.agent.delete_take("../x")
+        self.assertEqual(self.agent.delete_take("t1"), {"deleted": True})
+        self.assertNotIn("t1", os.listdir(self.tmp))
+        self.assertEqual(self.agent.delete_take("t1"), {"deleted": False})     # gone already: fine
+        with open(os.path.join(os.path.dirname(self.tmp), "deleted.jsonl")) as f:
+            self.assertEqual(json.loads(f.readlines()[-1])["why"], "deleted on the hub page")
+
+    def test_delete_take_refuses_the_take_being_recorded(self):
+        self.take("t1", run=0.2)
+        self.agent.take = {"take_id": "t1"}
+        with self.assertRaises(camnode.Busy):
+            self.agent.delete_take("t1")
+        self.assertIn("t1", os.listdir(self.tmp))
+
     def test_live_toggle(self):
         self.assertEqual(self.agent.live(True), "live")
         self.assertEqual(self.agent.live(False), "idle")

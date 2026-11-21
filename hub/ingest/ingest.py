@@ -44,7 +44,7 @@ import youtube_upload  # noqa: E402
 import drive_records  # noqa: E402
 import motion  # noqa: E402
 
-VERSION = "0.27.0"
+VERSION = "0.28.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -729,6 +729,9 @@ class Ingest:
             for m in takes:
                 if m.get("verified"):
                     continue
+                if self.deleted_on_hub_page(m["take_id"]):
+                    self.delete_on_camera(m["take_id"], cam)     # left there: it was offline at the delete
+                    continue
                 cs = self.state["takes"].get(m["take_id"], {}).get(cam, {})
                 if "marked" in cs.get("done", []) or cs.get("gave_up"):
                     continue
@@ -1072,13 +1075,18 @@ class Ingest:
             self.save()
 
     def run_deletes(self):
-        """Delete the takes asked for: their folder on the drive, then everything the hub keeps
-        for them (forget_take). Waits while the rig is busy or the drive is out."""
+        """Delete the takes asked for: their folder on the drive, everything the hub keeps for
+        them (forget_take) and the copies left on the cameras (a take whose ingest failed is
+        still there). Waits while the rig is busy, and for the drive when part of the take is
+        on it."""
         doomed = sorted(t for t, take in (self.state.get("takes") or {}).items() if take.get("deleting"))
-        if not doomed or self.rig_busy() or not self.drive.present() or self.state.get("drive") == "ejected":
+        if not doomed or self.rig_busy():
             return []
+        drive_in = self.drive.present() and self.state.get("drive") != "ejected"
         deleted = []
         for take_id in doomed:
+            if not drive_in and self.on_drive(take_id):
+                continue
             try:
                 self.delete_take(take_id)
                 deleted.append(take_id)
@@ -1088,21 +1096,48 @@ class Ingest:
         self.save()
         return deleted
 
+    def on_drive(self, take_id):
+        """Is part of the take on the STUDIO drive (so its delete needs the drive)?"""
+        take = self.state["takes"][take_id]
+        return bool(take.get("drive_id") or take.get("adopted")
+                    or take_id in ((self.state.get("drive_index") or {}).get("takes") or {})
+                    or any("written" in (c.get("done") or []) for c in take.values() if isinstance(c, dict)))
+
     def delete_take(self, take_id):
         take = self.state["takes"][take_id]
-        drive_id = self.drive.filesystem_id()
-        if take.get("drive_id") and take["drive_id"] != drive_id:
-            raise RuntimeError("the take is on another drive")
-        folder = self.take_folder(take_id)
-        # Renamed first, so a drive pulled half way leaves no half take that looks real
-        # (index_drive only reads folders named like takes); a leftover goes on the next try.
-        doomed = os.path.join(os.path.dirname(folder), ".deleting-" + os.path.basename(folder))
-        with self.writing():
-            if os.path.isdir(folder):
-                os.replace(folder, doomed)
-            if os.path.isdir(doomed):
-                shutil.rmtree(doomed)
+        if self.drive.present() and self.state.get("drive") != "ejected":
+            drive_id = self.drive.filesystem_id()
+            if take.get("drive_id") and take["drive_id"] != drive_id:
+                raise RuntimeError("the take is on another drive")
+            folder = self.take_folder(take_id)
+            # Renamed first, so a drive pulled half way leaves no half take that looks real
+            # (index_drive only reads folders named like takes); a leftover goes on the next try.
+            doomed = os.path.join(os.path.dirname(folder), ".deleting-" + os.path.basename(folder))
+            with self.writing():
+                if os.path.isdir(folder):
+                    os.replace(folder, doomed)
+                if os.path.isdir(doomed):
+                    shutil.rmtree(doomed)
         self.forget_take(take_id, "deleted on the hub page")
+        for cam in self.cfg["nodes"]:
+            self.delete_on_camera(take_id, cam)
+
+    def deleted_on_hub_page(self, take_id):
+        return (self.state.get("removed_takes") or {}).get(take_id, {}).get("why") == "deleted on the hub page"
+
+    def delete_on_camera(self, take_id, cam):
+        """Ask a camera to delete its copy of a take deleted on the hub page. An offline camera
+        stays in the record's left_on and is asked again when ingest next finds the take on it
+        (pending)."""
+        record = self.state["removed_takes"][take_id]
+        left = set(record.get("left_on") or [])
+        try:
+            self.http.post(self.node_url(cam, "/takes/%s/delete" % take_id), {})
+            left.discard(cam)
+        except Exception as e:  # noqa: BLE001 - camera offline (or an old camnode): try again later
+            left.add(cam)
+            sys.stderr.write("delete %s on %s: %s\n" % (take_id, cam, e))
+        record["left_on"] = sorted(left)
 
     def look_at_drive(self):
         """While the rig is idle, every removed_check_s and whenever a different drive is

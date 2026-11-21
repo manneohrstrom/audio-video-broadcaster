@@ -34,7 +34,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.46.0"
+VERSION = "0.47.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -1092,19 +1092,23 @@ class Hub:
         return (p, None) if os.path.isfile(p) else (None, 404)
 
     def delete_blockers(self, take_id):
-        """Why the take can't be deleted now ([] if it can). Only takes on the drive that's
-        plugged in, with nothing running for them: copies on the cameras are deleted by the
-        cameras once verified, so a take still in ingest would only come back."""
+        """Why the take can't be deleted now ([] if it can). Ingested takes and ones whose
+        ingest failed or stopped half way (user, 2026-11-21: "should operate also on faulty
+        data"); hub-ingest also deletes the copies left on the cameras. Not while ingest is
+        working on the take, and the drive must be plugged in when part of the take is on it."""
         if self.rig_busy():
             return ["not while a take or live session is running"]
         st = self.read_ingest_file()
         take = (st.get("takes") or {}).get(take_id)
         if take is None:
             return ["the hub doesn't have this take (not ingested yet?)"]
-        if not take.get("complete"):
-            return ["it's still being ingested: delete it when ingest is done"]
+        cameras = [c for c in take.values() if isinstance(c, dict)]
+        if st.get("current") == take_id or any(c.get("step") for c in cameras):
+            return ["ingest is working on it right now: try again when it's done or paused"]
         index = st.get("drive_index") or {}
-        if not index.get("present") or take_id not in (index.get("takes") or {}):
+        on_drive = (take.get("complete") or take.get("drive_id") or take_id in (index.get("takes") or {})
+                    or any("written" in (c.get("done") or []) for c in cameras))
+        if on_drive and not index.get("present") or take.get("complete") and take_id not in (index.get("takes") or {}):
             return ["its drive isn't plugged in"]
         reasons = []
         for jobs, what in ((st.get("renders") or {}, "a video is being made"), (st.get("syncs") or {}, "a bounce is syncing")):

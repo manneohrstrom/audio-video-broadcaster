@@ -13,7 +13,7 @@ import { camerasOf } from "../takes.js";
 /** What's in the take, in a few words: "3 cameras (4.2 GB) · 2 songs, 3 bounces · 2 videos". */
 function contents(take) {
   const cameras = camerasOf(take);
-  const bytes = cameras.reduce((sum, [, v]) => sum + (v.mov_bytes || 0), 0);
+  const bytes = cameras.reduce((sum, [, v]) => sum + (v.mov_bytes || ((v.done || []).includes("written") ? 0 : v.src_bytes || 0)), 0);
   const songs = (take.audio || {}).songs || [];
   const bounces = songs.reduce((sum, song) => sum + song.versions.length, 0);
   const videos = songs.reduce((sum, song) => sum + (song.videos || []).length, 0);
@@ -44,7 +44,8 @@ export function DeleteTakeDialog({ id, take, names, onClose, onDeleted }) {
       <p><b>${nameWithId(takeName(names, id), id, id)}</b> · ${takeStart(id)}</p>
       <p class="note">${contents(take) || "no files"}</p>
       <p>This deletes the take's folder on the STUDIO drive: every camera, the bounces, the edits and the
-        finished videos, and everything the hub keeps for it. It can't be undone.</p>
+        finished videos, everything the hub keeps for it, and any recording still left on the cameras.
+        It can't be undone.</p>
       ${onYouTube && html`<p class="note">Videos already on YouTube stay on the channel.</p>`}
       ${refusal && html`<p class="note bad">Can't delete it now: ${refusal}</p>`}
       <div class="dialog-keys">

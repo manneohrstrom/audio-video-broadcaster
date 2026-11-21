@@ -799,14 +799,28 @@ class DeleteTakeTest(unittest.TestCase):
 
     def test_refused_for_takes_in_flight_or_on_another_drive(self):
         self.state["takes"][self.TAKE]["complete"] = False
+        self.state["takes"][self.TAKE]["cam1"] = {"done": ["pulled"], "step": "checked"}
         self.write_state()
-        self.assertIn("still being ingested", self.refused()[0])
+        self.assertIn("ingest is working on it", self.refused()[0])
         self.state["takes"][self.TAKE]["complete"] = True
+        self.state["takes"][self.TAKE]["cam1"] = {"done": ["marked"]}
         self.state["drive_index"]["present"] = False
         self.write_state()
         self.assertEqual(self.refused(), ["its drive isn't plugged in"])
         with self.assertRaises(ValueError):
             self.hub.request_delete_take("../etc")
+
+    def test_a_failed_take_can_be_deleted_without_the_drive(self):
+        """Ingest gave up on every camera (20261117-193321): nothing on the drive, so the drive
+        isn't needed; hub-ingest also deletes the copies on the cameras."""
+        self.state = {"takes": {self.TAKE: {"cam1": {"done": ["pulled", "checked", "conformed"], "step": None,
+                                                     "gave_up": True, "error": "gave up after 3 tries"}}},
+                      "drive_index": {"drive_id": "SSD", "present": False, "takes": {}}}
+        self.write_state()
+        self.assertEqual(self.hub.request_delete_take(self.TAKE), {"take": self.TAKE, "queued": "delete_take"})
+        self.state["takes"][self.TAKE]["cam1"]["done"].append("written")      # part of it on the drive
+        self.write_state()
+        self.assertEqual(self.refused(), ["its drive isn't plugged in"])
 
 
 if __name__ == "__main__":
