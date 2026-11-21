@@ -44,7 +44,7 @@ import youtube_upload  # noqa: E402
 import drive_records  # noqa: E402
 import motion  # noqa: E402
 
-VERSION = "0.25.0"
+VERSION = "0.26.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -477,13 +477,15 @@ class Ingest:
 
     # -- progress and ETA (for the UI)
     def doing(self, kind=None, **fields):
-        """What hub-ingest is working on besides the camera files themselves, for the hub
-        page's activity strip (user, 2026-11-21: every background job visible): kind is
+        """What hub-ingest is working on besides the camera files themselves, shown on the
+        archive's take cards (user, 2026-11-21: every background job visible): kind is
         proxy, thumbnails, motion, beats or audio, with take, camera, song, index and count
-        as they apply. None: nothing (camera ingest, renders and syncs have their own records)."""
+        as they apply. None: nothing (camera ingest, renders and syncs have their own records).
+        Each change also brings the cameras' "prep" up to date (the item before is done)."""
         with self.lock:
             self.state["activity"] = (dict(fields, kind=kind, phase=fields.get("phase"), started=self.clock(),
                                            progress=None, eta_s=None) if kind else None)
+        self.update_prep()
         self.save()
 
     def done_doing(self):
@@ -1379,6 +1381,42 @@ class Ingest:
                 self.state.setdefault("motion_failed", {})["%s/%s" % (take_id, camera_id)] = failure(e)
             self.save(step=None)
 
+    # -- the editor's preparation per camera, for the archive's step chips
+    def update_prep(self):
+        """Where each camera of an ingested take stands with its thumbnails, preview copy and
+        movement readings, as "prep" in its take record (the steps after Mark on camera):
+        done, failed (with the error), waiting (made when the hub is idle) or later (a preview
+        copy waits for a synced song; an adopted take's caches for the editor to open it)."""
+        failed = {kind: self.state.get(kind + "_failed") or {} for kind in ("thumbs", "proxies", "motion")}
+
+        def step(done, failures, key, ready):
+            if done:
+                return {"state": "done"}
+            if failed_in_this_version(failures, key):
+                return {"state": "failed", "error": failures[key].get("error")}
+            return {"state": "waiting" if ready else "later"}
+
+        for take_id, take in (self.state.get("takes") or {}).items():
+            if not take.get("complete"):
+                continue
+            wanted = bool(self.wants_caches(take))
+            synced = None
+            for camera_id, cs in take.items():
+                if not (isinstance(cs, dict) and "frames_cam" in cs):
+                    continue
+                key = "%s/%s" % (take_id, camera_id)
+                if synced is None:
+                    synced = self.has_synced_song(take_id)
+                has_proxy = os.path.exists(os.path.join(self.cfg["proxies_dir"], take_id, camera_id + ".mp4"))
+                proxy = step(has_proxy, failed["proxies"], key, wanted and synced)
+                cs["prep"] = {
+                    "thumbnails": step(thumbnails.have_thumbnails(os.path.join(self.cfg["thumbs_dir"], take_id, camera_id)),
+                                       failed["thumbs"], key, wanted),
+                    "proxy": proxy,
+                    "motion": step(os.path.exists(motion.motion_path(self.cfg["proxies_dir"], take_id, camera_id)),
+                                   failed["motion"], key, proxy["state"] in ("done", "waiting")),
+                }
+
     # -- automatic bounce sync (Phase 4 Track A, audiosync.py)
     def queue_sync(self, doc):
         take, song, v = doc.get("take"), doc.get("song"), doc.get("version")
@@ -1894,6 +1932,7 @@ class Ingest:
             self.update_drive_records()     # small files: a quiet rig and the drive are enough
         except (RuntimeError, OSError) as e:
             sys.stderr.write("drive records: %s\n" % e)
+        self.update_prep()                  # a song synced since: its preview copies are waiting now
         ok, why = self.should_run()
         if not ok:
             self.settle_drive()

@@ -72,26 +72,6 @@ code { font-size: 13px; color: var(--color-text-muted); }
 .banner { margin: 0; padding: 10px 14px; border-radius: var(--radius); background: var(--color-panel); color: var(--color-warning); white-space: pre-line; }
 .banner.error { color: var(--color-problem); }
 
-/* -- the activity strip: background jobs, on every view (Activity.js) */
-.activity { display: grid; gap: 4px; padding: 6px 8px; border-radius: var(--radius); background: var(--color-panel); }
-.activity-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%;
-                border: 0; background: none; color: var(--color-text); font: inherit; font-size: 13px; text-align: left; padding: 3px 4px; border-radius: 8px; cursor: pointer; }
-.activity-row:hover { background: var(--color-well); }
-.activity-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.activity-text b { font-weight: 600; }
-.activity-detail { color: var(--color-text-muted); margin-left: 8px; }
-.activity-bar { width: 110px; height: 5px; border-radius: 3px; background: var(--color-well); box-shadow: var(--well-depth); overflow: hidden; }
-.activity-bar i { display: block; height: 100%; background: var(--color-blue); transition: width 1s linear; }
-.activity-row.paused .activity-bar i { background: var(--color-warning); }
-.activity-time { color: var(--color-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.activity-waiting { margin: 0; padding: 0 4px 2px 23px; font-size: 12px; color: var(--color-text-muted); }
-.led.working { animation: blink 1.6s ease-in-out infinite; }
-@media (max-width: 720px) {
-  .activity-row { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .activity-bar { display: none; }
-  .activity-detail { display: none; }
-}
-
 /* -- keys (small and medium) */
 .key, .round-key {
   border: 0; background: var(--color-raised); color: var(--color-text); cursor: pointer; text-decoration: none; white-space: nowrap;

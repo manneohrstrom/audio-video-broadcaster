@@ -27,7 +27,6 @@ import { notIngested } from "../takes.js";
 import { pickQuote } from "../quotes.js";
 import { applyTheme, saveChoice, savedChoice, themeFor } from "../themes.js";
 import { ThemePicker } from "./ThemePicker.js";
-import { Activity } from "./Activity.js";
 
 const VIEWS = [
   { id: "deck", label: "deck", icon: "deck" },
@@ -167,7 +166,6 @@ export function App() {
       </header>
       ${unreachable && html`<p class="banner error" role="alert">Can't reach the hub. Unplugged? Rebooting? Sulking? Trying again every second.</p>`}
       ${shown && html`<p class=${"banner" + (shown.error ? " error" : "")} role="status">${shown.text}</p>`}
-      <${Activity} status=${status} ingest=${ingest} go=${go} />
       <main class="view">
         ${sideBySide && html`<div class="studio"><${Deck} ...${context} /><${Archive} ...${context} /></div>`}
         ${!sideBySide && view === "deck" && html`<${Deck} ...${context} />`}
@@ -186,7 +184,8 @@ export function App() {
 }
 
 /** Each view key has an LED: red while recording (deck), amber when a device needs a look
- *  (monitor) or takes wait for ingest (archive), off otherwise. */
+ *  (monitor) or takes wait for ingest (archive), green while the hub works on the archive
+ *  in the background (its take cards show what), off otherwise. */
 function viewLed(id, status, ingest) {
   if (!status) return "";
   if (id === "deck") return status.state === "recording" ? "red" : "";
@@ -194,9 +193,21 @@ function viewLed(id, status, ingest) {
     const devices = [...Object.values(status.nodes || {}), ...Object.values(status.phones || {})];
     return devices.some(device => device.online && ((device.problems || []).length || device.slow)) ? "amber" : "";
   }
-  if (/^ingesting/.test((ingest && ingest.status) || "")) return "green";
+  if (/^ingesting/.test((ingest && ingest.status) || "") || backgroundWork(ingest)) return "green";
   const takes = Object.values((ingest && ingest.takes) || {});
   return takes.some(take => take.recorded && notIngested(take)) ? "amber" : "";
+}
+
+/** Work that runs outside hub-ingest's "ingesting" rounds: beats, syncs, renders, YouTube. */
+function backgroundWork(ingest) {
+  if (!ingest) return false;
+  if (ingest.activity && ingest.activity.kind) return true;
+  if (Object.values(ingest.syncs || {}).some(job => job.status === "syncing")) return true;
+  if (Object.values(ingest.renders || {}).some(job => ["rendering", "checking", "writing"].includes(job.status))) return true;
+  return Object.values(ingest.takes || {}).some(take => ((take.audio || {}).songs || []).some(song => {
+    const upload = song.render && song.render.upload;
+    return upload && upload.status === "uploading";
+  }));
 }
 
 const SEGMENT_CELLS = 12;                 // full-width characters the display holds

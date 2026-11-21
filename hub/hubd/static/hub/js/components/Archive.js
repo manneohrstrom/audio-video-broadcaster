@@ -9,7 +9,7 @@ import { html } from "shared/html.js";
 import { Icon } from "shared/icons.js";
 import { requestSync } from "../api.js";
 import { fmtBytes, fmtDur, fmtEta, takeStart } from "../format.js";
-import { STEPS, camerasOf, notIngested, labelOf } from "../takes.js";
+import { STEPS, PREP_STEPS, camerasOf, notIngested, labelOf, prepOf, prepUnfinished } from "../takes.js";
 import { EditableName, takeName } from "../names.js";
 
 /** The take's heading: its name (click the pencil to change it), the id in brackets once named. */
@@ -41,6 +41,24 @@ function IngestChips({ camera, paused }) {
       return html`<${Chip} state="running" name=${name} paused=${paused}
                           percent=${camera.progress != null ? Math.round(camera.progress * 100) : null} />`;
     }
+    return html`<${Chip} name=${name} />`;
+  });
+}
+
+const PREP_LATER = { proxy: "after a song is synced", motion: "after the preview copy" };
+
+/** The steps after Mark on camera: thumbnails, preview copy and movement for the editor. */
+function PrepChips({ prep, adopted, paused }) {
+  return PREP_STEPS.filter(([step]) => prep[step]).map(([step, name]) => {
+    const { state, error, progress, phase } = prep[step];
+    if (state === "done") return html`<${Chip} state="done" name=${name} />`;
+    if (state === "failed") return html`<${Chip} state="error" name=${name} title=${error || ""} />`;
+    if (state === "running") {
+      return html`<${Chip} state="running" name=${name} paused=${paused}
+                          percent=${progress != null ? Math.round(progress * 100) : null}
+                          extra=${phase === "checking" ? " · checking it" : ""} />`;
+    }
+    if (state === "later") return html`<span class="chip">○ ${name} · ${adopted ? "when it's edited" : PREP_LATER[step]}</span>`;
     return html`<${Chip} name=${name} />`;
   });
 }
@@ -130,7 +148,12 @@ function SyncState({ take, song, version, say, refresh }) {
     ${byHand("sync by hand", "Line the bounce up with the video yourself, in the editor")}`;
 }
 
-function SongGroup({ take, song, say, refresh, openDialog }) {
+/** Where a staged file stands with the drive: on it, being copied now, or waiting. */
+const copyingTo = (activity, take) => activity && activity.kind === "audio" && activity.take === take;
+
+function SongGroup({ take, song, say, refresh, openDialog, activity }) {
+  const findingBeats = v => activity && activity.kind === "beats" && activity.take === take
+    && activity.song === song.id && activity.version === "v" + v.version;
   const done = song.versions.filter(v => v.complete);
   const uploading = song.versions.filter(v => !v.complete);
   const synced = done.filter(v => v.synced).sort((a, b) => b.version - a.version);
@@ -147,7 +170,8 @@ function SongGroup({ take, song, say, refresh, openDialog }) {
       </div>
       <div class="bounces">
         ${done.map(v => html`<span class="bounce">bounce v${v.version} <${SyncState} take=${take} song=${song.id} version=${v} say=${say} refresh=${refresh} />
-          ${!v.on_drive && html`<small>· waiting for ingest</small>`}</span>`)}
+          ${findingBeats(v) && html`<span class="sync"><span class="spinner"></span> finding the beats</span>`}
+          ${!v.on_drive && html`<small>· ${copyingTo(activity, take) ? "copying to the drive" : "waiting for ingest"}</small>`}</span>`)}
         ${uploading.length > 0 && html`<span class="bounce warn">v${uploading.map(v => v.version).join(", v")} uploading…</span>`}
       </div>
       ${rendering && html`<div class="camera-row"><span class="camera-name">video</span><div class="chips"><${RenderChips} render=${render} /></div></div>`}
@@ -162,7 +186,7 @@ function SongGroup({ take, song, say, refresh, openDialog }) {
     </div>`;
 }
 
-function Songs({ id, take, say, refresh, openDialog }) {
+function Songs({ id, take, say, refresh, openDialog, activity }) {
   const songs = (take.audio || {}).songs || [];
   if (!take.recorded && !songs.length) return null;
   return html`
@@ -171,16 +195,16 @@ function Songs({ id, take, say, refresh, openDialog }) {
         ${take.recorded && html`<button class="key small" onClick=${() => openDialog({ kind: "audio", take: id })}>♪ add a bounce</button>`}
       </div>
       ${songs.length
-        ? songs.map(song => html`<${SongGroup} key=${song.id} take=${id} song=${song} say=${say} refresh=${refresh} openDialog=${openDialog} />`)
+        ? songs.map(song => html`<${SongGroup} key=${song.id} take=${id} song=${song} say=${say} refresh=${refresh} openDialog=${openDialog} activity=${activity} />`)
         : html`<p class="note">No bounce yet. Drop in the mix of a song to edit and render its video.</p>`}
     </div>`;
 }
 
-function HubMic({ take }) {
+function HubMic({ id, take, activity }) {
   const scratch = (take.audio || {}).scratch;
   if (!scratch) return null;
   return html`<p class="note"><${Icon} name="mic" size=${14} /> hub mic recorded ${fmtDur(scratch.seconds)}
-    ${scratch.on_drive ? html` <span class="good">on drive</span>` : " · waiting for ingest"}
+    ${scratch.on_drive ? html` <span class="good">on drive</span>` : copyingTo(activity, id) ? " · copying to the drive" : " · waiting for ingest"}
     ${scratch.problems.length > 0 && html` <span class="bad">⚠ ${scratch.problems[0]}</span>`}</p>`;
 }
 
@@ -205,20 +229,25 @@ function WaitingTake({ id, take, queued, names, ...rest }) {
       <p class="note">${rows.map(([c, v], i) => html`${i ? " · " : ""}${labelOf(take, c, names)}${v.uploading ? ": uploading…" : v.frames != null ? ": " + v.frames + " frames" : ""}${v.dropped ? html` <span class="bad">(${v.dropped} dropped)</span>` : ""}<${RoughNote} camera=${take[c]} />`)}
         ${!dropped && html` · <span class="good">no dropped frames</span>`}</p>
       <${Problems} recorded=${recorded} />
-      <${HubMic} take=${take} />
+      <${HubMic} id=${id} take=${take} activity=${rest.activity} />
       <${Songs} id=${id} take=${take} ...${rest} />
     </article>`;
 }
 
 function TakeCard({ id, take, paused, driveOk, names, ...rest }) {
+  const activity = rest.activity;
   const label = camera => labelOf(take, camera, names);
   const cameras = camerasOf(take);
   const recorded = take.recorded;
-  const allDone = cameras.length > 0 && cameras.every(([, v]) => (v.done || []).includes("marked"));
-  const active = cameras.some(([, v]) => v.step);
-  const failed = cameras.some(([, v]) => v.error);
+  const preps = Object.fromEntries(cameras.map(([c, v]) => [c, prepOf(v, id, c, activity)]));
+  const prepSteps = Object.values(preps).flatMap(prep => Object.values(prep));
+  const prepRunning = prepSteps.some(step => step.state === "running");
+  const ingested = cameras.length > 0 && cameras.every(([, v]) => (v.done || []).includes("marked"));
+  const allDone = ingested && !Object.values(preps).some(prepUnfinished);
+  const active = cameras.some(([, v]) => v.step) || prepRunning;
+  const failed = cameras.some(([, v]) => v.error) || prepSteps.some(step => step.state === "failed");
   const length = Math.max(recorded ? recorded.length_s : 0, ...cameras.map(([, v]) => v.duration_s || 0));
-  const etas = cameras.map(([, v]) => v.eta_s).filter(x => x != null);
+  const etas = cameras.map(([, v]) => v.eta_s).concat(prepRunning ? [activity.eta_s] : []).filter(x => x != null);
   // Size: what's on the drive once written, otherwise what will be pulled from the cameras.
   const onDrive = cameras.reduce((sum, [, v]) => sum + (v.mov_bytes || 0), 0);
   const toPull = cameras.reduce((sum, [, v]) => sum + ((v.done || []).includes("written") ? 0 : v.src_bytes || 0), 0);
@@ -227,7 +256,8 @@ function TakeCard({ id, take, paused, driveOk, names, ...rest }) {
   const led = { done: "green", error: "red", active: "blue", absent: "off" }[tone] || "amber";
   const state = take.drive_absent ? html`<span class="take-state">drive not plugged in</span>`
     : allDone ? html`<span class="take-state good">✓ done</span>` : failed ? html`<span class="take-state bad">needs attention</span>`
-    : active ? html`<span class="take-state">${etas.length ? fmtEta(Math.max(...etas)) + " left" : "working"}</span>` : html`<span class="take-state">queued</span>`;
+    : active ? html`<span class="take-state">${etas.length ? fmtEta(Math.max(...etas)) + " left" : "working"}</span>`
+    : ingested ? html`<span class="take-state">getting it ready for the editor</span>` : html`<span class="take-state">queued</span>`;
   const playable = cameras.filter(([, v]) => (v.done || []).includes("written")).map(([c]) => c);
   return html`
     <article class=${"take " + tone}>
@@ -237,14 +267,16 @@ function TakeCard({ id, take, paused, driveOk, names, ...rest }) {
         ? html`<p class="note">${cameras.map(([c, v], i) => html`${i ? " · " : ""}${label(c)}: ${v.frames_out != null ? v.frames_out + " frames" : "done"}${v.repeated > 0 ? ` (${v.repeated} repeated)` : v.repeated < 0 ? ` (${-v.repeated} skipped to fit 30 fps)` : ""}${v.dropped ? `, ${v.dropped} dropped on camera` : ""}<${RoughNote} camera=${v} />`)}</p>`
         : cameras.map(([c, v]) => html`
           <div class="camera-row"><span class="camera-name" title=${label(c) !== c ? `${label(c)} (${c})` : c}>${label(c)}</span>
-            <div class="chips"><${IngestChips} camera=${v} paused=${paused} />${v.rough && v.rough.length ? html`<span class="chip"><${RoughNote} camera=${v} /></span>` : null}</div></div>
-          ${v.error && html`<p class="note bad">${v.error}</p>`}`)}
+            <div class="chips">${(v.done || []).includes("marked") ? html`<${Chip} state="done" name="Ingested" />` : html`<${IngestChips} camera=${v} paused=${paused} />`}<${PrepChips} prep=${preps[c]} adopted=${take.adopted} paused=${paused} />${v.rough && v.rough.length ? html`<span class="chip"><${RoughNote} camera=${v} /></span>` : null}</div></div>
+          ${v.error && html`<p class="note bad">${v.error}</p>`}
+          ${PREP_STEPS.filter(([step]) => (preps[c][step] || {}).state === "failed").map(([step, name]) =>
+            html`<p class="note bad">${name}: ${preps[c][step].error || "failed"} (tried again after the next update)</p>`)}`)}
       <${Problems} recorded=${recorded} />
       ${playable.length > 0 && html`<div class="plays">${playable.map(c => html`
         <button class="key small" disabled=${!driveOk || take.drive_absent} title=${driveOk ? "" : "STUDIO drive not in the hub"}
                 onClick=${() => rest.openDialog({ kind: "player", take: id, camera: c, cameras: playable,
                                                   labels: Object.fromEntries(playable.map(p => [p, label(p)])) })}>▶ ${label(c)}</button>`)}</div>`}
-      <${HubMic} take=${take} />
+      <${HubMic} id=${id} take=${take} activity=${rest.activity} />
       <${Songs} id=${id} take=${take} ...${rest} />
     </article>`;
 }
@@ -260,7 +292,7 @@ export function Archive({ ingest, status: rig, act, say, refreshIngest, openDial
   const ejected = ingest.drive === "ejected" && /^no .* drive/.test(status);
   const driveOk = !/^no .* drive|needs repair/.test(status) && ingest.drive !== "ejected";
   const driveView = ingest.drive_view || {};
-  const shared = { say, refresh: refreshIngest, openDialog, names: rig && rig.names };
+  const shared = { say, refresh: refreshIngest, openDialog, names: rig && rig.names, activity: ingest.activity };
   return html`
     <section class="archive" aria-label="Archive">
       <div class="archive-bar">

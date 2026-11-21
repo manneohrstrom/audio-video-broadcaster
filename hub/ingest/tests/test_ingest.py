@@ -1128,6 +1128,48 @@ class ProxyStepTest(Base):
             self.assertIsNone(self.ing.state["activity"])                   # cleared when the round is done
         finally:
             ingest.proxies.make_proxy, ingest.thumbnails.make_thumbnails = orig_proxy, orig_thumbs
+        prep = self.ing.state["takes"][TAKE]["cam1"]["prep"]                 # brought up to date as it goes
+        self.assertEqual((prep["thumbnails"], prep["proxy"]), ({"state": "done"}, {"state": "done"}))
+
+
+class PrepStateTest(Base):
+    """Each ingested camera's thumbnails, preview copy and movement, for the archive's step chips."""
+
+    def setUp(self):
+        super().setUp()
+        for name in ("thumbs", "proxies", "audio"):
+            self.ing.cfg[name + "_dir"] = os.path.join(self.tmp, name)
+        self.ing.state["takes"] = {TAKE: {"complete": True, "cam1": {"frames_cam": 10}, "cam2": {"frames_cam": 10}},
+                                   "20261101-120000": {"cam1": {"frames_cam": 10}}}           # still ingesting
+
+    def prep(self, camera, take=TAKE):
+        self.ing.update_prep()
+        return {step: value["state"] for step, value in self.ing.state["takes"][take][camera]["prep"].items()}
+
+    def test_preview_copies_wait_for_a_synced_song(self):
+        self.assertEqual(self.prep("cam1"), {"thumbnails": "waiting", "proxy": "later", "motion": "later"})
+        self.assertNotIn("prep", self.ing.state["takes"]["20261101-120000"]["cam1"])
+        os.makedirs(os.path.join(self.tmp, "audio", TAKE, "song", "v1"))
+        open(os.path.join(self.tmp, "audio", TAKE, "song", "v1", "sync.json"), "w").close()
+        self.assertEqual(self.prep("cam1"), {"thumbnails": "waiting", "proxy": "waiting", "motion": "waiting"})
+
+    def test_done_and_failed(self):
+        os.makedirs(os.path.join(self.tmp, "audio", TAKE, "song", "v1"))
+        open(os.path.join(self.tmp, "audio", TAKE, "song", "v1", "sync.json"), "w").close()
+        os.makedirs(os.path.join(self.tmp, "thumbs", TAKE, "cam1"))
+        open(os.path.join(self.tmp, "thumbs", TAKE, "cam1", "index.json"), "w").close()
+        os.makedirs(os.path.join(self.tmp, "proxies", TAKE))
+        open(os.path.join(self.tmp, "proxies", TAKE, "cam1.mp4"), "w").close()
+        self.ing.state["proxies_failed"] = {"%s/cam2" % TAKE: ingest.failure("proxy has 9 frames, the original 10")}
+        self.assertEqual(self.prep("cam1"), {"thumbnails": "done", "proxy": "done", "motion": "waiting"})
+        self.assertEqual(self.prep("cam2")["proxy"], "failed")
+        self.assertIn("9 frames", self.ing.state["takes"][TAKE]["cam2"]["prep"]["proxy"]["error"])
+
+    def test_an_adopted_take_waits_for_the_editor(self):
+        self.ing.state["takes"][TAKE]["adopted"] = True
+        self.assertEqual(self.prep("cam1"), {"thumbnails": "later", "proxy": "later", "motion": "later"})
+        self.ing.state["takes"][TAKE]["caches_wanted"] = True
+        self.assertEqual(self.prep("cam1")["thumbnails"], "waiting")
 
 
 class AnalysisStepTest(Base):

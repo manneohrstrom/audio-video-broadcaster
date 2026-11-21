@@ -6,6 +6,24 @@ import { givenCameraName } from "./names.js";
 export const STEPS = [["pulled", "Pull"], ["checked", "Check"], ["conformed", "Convert"],
                       ["verified", "Verify"], ["written", "Copy to drive"], ["marked", "Mark on camera"]];
 
+/** After those, on the hub: what the editor needs from each camera (hub-ingest's "prep"),
+ *  keyed as hub-ingest's activity kinds. */
+export const PREP_STEPS = [["thumbnails", "Thumbnails"], ["proxy", "Preview copy"], ["motion", "Movement"]];
+
+/** One camera's prep steps as { step: { state, error, progress, phase } }: hub-ingest's record,
+ *  with the one it's working on now marked "running". Empty while the take is being ingested. */
+export function prepOf(camera, takeId, cameraId, activity) {
+  const prep = (camera && camera.prep) || {};
+  const working = activity && activity.take === takeId && activity.camera === cameraId ? activity.kind : null;
+  return Object.fromEntries(PREP_STEPS.filter(([step]) => prep[step]).map(([step]) => [step,
+    step === working ? { state: "running", progress: activity.progress, phase: activity.phase } : prep[step]]));
+}
+
+/** Prep still to do or failed: the camera's steps stay on its take card until it's done. */
+export function prepUnfinished(prep) {
+  return Object.values(prep).some(step => step.state === "waiting" || step.state === "running" || step.state === "failed");
+}
+
 /** A take record's camera entries: Pi cameras (camN) and phones (their file ids). */
 export function camerasOf(take) {
   return Object.entries(take).filter(([key, value]) =>
