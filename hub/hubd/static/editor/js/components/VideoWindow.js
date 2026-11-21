@@ -9,7 +9,7 @@ import { cutIndexAt } from "../edit-model.js";
 import { formatSeconds } from "../time-format.js";
 import { fullVideoAvailable } from "../media/video-player.js";
 import { LookRenderer } from "../look/look-renderer.js";
-import { drawCard, drawStrip, opacitiesAt, logoOpacityAt, titleText, linesBelow, BRAND_TEXT, CREAM, CARD_SIZE, DETAIL_SIZE, FONT_FAMILY } from "../title/title-layout.js";
+import { drawCard, drawStrip, opacitiesAt, logoOpacityAt, titleText, linesBelow, BRAND_TEXT, BRAND_STYLE, CREAM, CARD_SIZE, DETAIL_SIZE, FONT_FAMILY } from "../title/title-layout.js";
 
 // Pictures are put together (camera, dissolve) on this hidden canvas, then shown through
 // the look (filter and effects) on the visible WebGL canvas.
@@ -36,12 +36,13 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
   const titleKey = JSON.stringify(store.title);
   useEffect(() => {
     const draw = () => {
-      drawCard(brandRef.current.getContext("2d"), BRAND_TEXT, CREAM);
+      drawCard(brandRef.current.getContext("2d"), BRAND_TEXT, CREAM, BRAND_STYLE);
       drawCard(titleRef.current.getContext("2d"), titleText(store.title), store.title.colour || CREAM);
       drawStrip(stripRef.current.getContext("2d"), linesBelow(store.title));
     };
     draw();
-    Promise.all([document.fonts.load(`700 ${CARD_SIZE}px ${FONT_FAMILY}`), document.fonts.load(`700 ${DETAIL_SIZE}px ${FONT_FAMILY}`)])
+    Promise.all([document.fonts.load(`700 ${CARD_SIZE}px ${FONT_FAMILY}`), document.fonts.load(`700 ${DETAIL_SIZE}px ${FONT_FAMILY}`),
+                 document.fonts.load(`${BRAND_STYLE.weight} ${CARD_SIZE}px ${BRAND_STYLE.family}`)])
       .then(draw, () => {});
   }, [titleKey]);
 

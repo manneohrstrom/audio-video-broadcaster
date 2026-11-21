@@ -1,7 +1,8 @@
 // The title sequence in the preview (user, 2026-11-21; docs/editor-plan.md section 5b), timed
 // from the start of the video:
-//   1. from black, "BROCKLEY LIVE" fades in (Outfit Bold, 83 px, letters 33 % apart, cream);
-//   2. it fades out to black, then the song's title fades in (the same style, in the title's colour);
+//   1. from black, "BROCKLEY LIVE" fades in (Elastic, a Barlow Regular, 83 px, cream);
+//   2. it fades out to black, and after 0.2 s of black the song's title fades in (Outfit Bold,
+//      83 px, letters 33 % apart, capitals, in the title's colour);
 //   3. the title fades out, the video fades in from black, and a strip along the bottom
 //      (black at 50 %) shows the lines below the title, left-aligned, in cream, smaller, as typed; after
 //      "Names stay for" seconds it dissolves out.
@@ -20,6 +21,10 @@ export const CARD_SIZE = 83;
 export const CARD_TRACKING = 0.33;
 export const CARD_MAX_WIDTH = 1632;
 export const CAP_HEIGHT = 0.706;
+/** How a card is set: the CSS font family and weight, letter spacing (fraction of the size), capitals' height. */
+export const TITLE_STYLE = { family: FONT_FAMILY, weight: 700, tracking: CARD_TRACKING, capHeight: CAP_HEIGHT };
+// "BROCKLEY LIVE" (user, 2026-11-21): "Elastic" (Barlow-Elastic.otf, a Barlow Regular), no extra letter spacing.
+export const BRAND_STYLE = { family: "Elastic", weight: 400, tracking: 0, capHeight: 0.7 };
 
 export const DETAIL_SIZE = 38;
 export const DETAIL_LINE_SPACING = 54;
@@ -30,12 +35,13 @@ export const DETAIL_LEFT = 144;        // the strip's text starts here (user, 20
 export const DETAIL_MAX_WIDTH = 1632;
 
 // The sequence, in seconds from the start of the video: [start, length].
-export const BRAND_IN = [0, 1];
-export const BRAND_OUT = [3, 1];         // fades out to black (user, 2026-11-21: a little shorter)
-export const TITLE_IN = [4, 1];          // then the title fades in from black
-export const TITLE_OUT = [8, 1];
-export const VIDEO_IN = [9, 1.5];
-export const DETAILS_IN = 10;
+// Stages one and two were cut to 75 % of 4 s and 5 s (user, 2026-11-21), with 0.2 s of black between them.
+export const BRAND_IN = [0, 0.75];
+export const BRAND_OUT = [2.25, 0.75];   // gone at 3.0 s
+export const TITLE_IN = [3.2, 0.75];     // after 0.2 s of black
+export const TITLE_OUT = [6.2, 0.75];    // gone at 6.95 s
+export const VIDEO_IN = [6.95, 1.5];
+export const DETAILS_IN = 7.95;
 export const DETAILS_FADE = 0.7;
 
 // The Brockley Live logo (the border is on from the start) fades in shortly after the
@@ -121,15 +127,15 @@ export function letterPositions(text, size, tracking, advance) {
 }
 
 /** The card's size: CARD_SIZE, smaller (whole px) while wider than CARD_MAX_WIDTH. @param {string} text @param {Advance} advance */
-export function cardSize(text, advance) {
+export function cardSize(text, advance, tracking = CARD_TRACKING) {
   let size = CARD_SIZE;
-  while (size > 24 && letterPositions(text, size, CARD_TRACKING, advance).width > CARD_MAX_WIDTH) size -= 1;
+  while (size > 24 && letterPositions(text, size, tracking, advance).width > CARD_MAX_WIDTH) size -= 1;
   return size;
 }
 
 /** The card's baseline: its capitals centred top to bottom. @param {number} size */
-export function cardBaseline(size) {
-  return Math.round((HEIGHT + CAP_HEIGHT * size) / 2);
+export function cardBaseline(size, capHeight = CAP_HEIGHT) {
+  return Math.round((HEIGHT + capHeight * size) / 2);
 }
 
 /** The strip's top and each line's baseline. @param {string[]} lines */
@@ -141,46 +147,45 @@ export function stripLayout(lines) {
 }
 
 // -- drawing (each layer on its own 1920x1080 canvas; the caller fades it with CSS opacity)
-/** @param {CanvasRenderingContext2D} context @returns {Advance} */
-function canvasAdvance(context) {
+/** @param {CanvasRenderingContext2D} context @param {typeof TITLE_STYLE} style @returns {Advance} */
+function canvasAdvance(context, style) {
   return (letter, size) => {
-    context.font = `700 ${size}px ${FONT_FAMILY}`;
+    context.font = `${style.weight} ${size}px ${style.family}`;
     return context.measureText(letter).width;
   };
 }
 
-/** @param {CanvasRenderingContext2D} context */
-function drawRow(context, text, size, tracking, rowX, baseline) {
-  const advance = canvasAdvance(context);
-  const { positions } = letterPositions(text, size, tracking, advance);
-  context.font = `700 ${size}px ${FONT_FAMILY}`;
+/** @param {CanvasRenderingContext2D} context @param {typeof TITLE_STYLE} style */
+function drawRow(context, style, text, size, tracking, rowX, baseline) {
+  const { positions } = letterPositions(text, size, tracking, canvasAdvance(context, style));
+  context.font = `${style.weight} ${size}px ${style.family}`;
   context.textAlign = "left";
   context.textBaseline = "alphabetic";
   for (const { letter, x } of positions) if (letter.trim()) context.fillText(letter, rowX + x, baseline);
 }
 
 /**
- * A centred card ("BROCKLEY LIVE" or the title), cleared first.
- * @param {CanvasRenderingContext2D} context @param {string} text @param {string} colour
+ * A centred card ("BROCKLEY LIVE" in BRAND_STYLE, or the title), cleared first.
+ * @param {CanvasRenderingContext2D} context @param {string} text @param {string} colour @param {typeof TITLE_STYLE} [style]
  */
-export function drawCard(context, text, colour) {
+export function drawCard(context, text, colour, style = TITLE_STYLE) {
   context.clearRect(0, 0, WIDTH, HEIGHT);
   if (!text) return;
-  const advance = canvasAdvance(context);
-  const size = cardSize(text, advance);
-  const { width } = letterPositions(text, size, CARD_TRACKING, advance);
+  const advance = canvasAdvance(context, style);
+  const size = cardSize(text, advance, style.tracking);
+  const { width } = letterPositions(text, size, style.tracking, advance);
   context.fillStyle = colour;
-  drawRow(context, text, size, CARD_TRACKING, (WIDTH - width) / 2, cardBaseline(size));
+  drawRow(context, style, text, size, style.tracking, (WIDTH - width) / 2, cardBaseline(size, style.capHeight));
 }
 
 /**
- * The strip along the bottom with the lines, cleared first.
+ * The strip along the bottom with the lines (Outfit Bold, no extra spacing), cleared first.
  * @param {CanvasRenderingContext2D} context @param {string[]} lines
  */
 export function drawStrip(context, lines) {
   context.clearRect(0, 0, WIDTH, HEIGHT);
   if (!lines.length) return;
-  const advance = canvasAdvance(context);
+  const advance = canvasAdvance(context, TITLE_STYLE);
   const { top, baselines } = stripLayout(lines);
   context.fillStyle = `rgba(0, 0, 0, ${STRIP_ALPHA})`;
   context.fillRect(0, top, WIDTH, HEIGHT - top);
@@ -189,6 +194,6 @@ export function drawStrip(context, lines) {
     let size = DETAIL_SIZE;
     const { width } = letterPositions(line, size, 0, advance);
     if (width > DETAIL_MAX_WIDTH) size = Math.max(16, Math.floor(size * DETAIL_MAX_WIDTH / width));
-    drawRow(context, line, size, 0, DETAIL_LEFT, baselines[i]);
+    drawRow(context, TITLE_STYLE, line, size, 0, DETAIL_LEFT, baselines[i]);
   });
 }

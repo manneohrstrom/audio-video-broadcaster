@@ -20,7 +20,7 @@ const titles = [
   { on: true, text: "A very long title that will not fit at all WWW", lines: [], colour: "#e8b15a", duration_s: 3 },
   { on: true, text: "  ", lines: ["Just names"], colour: "#ffffff", duration_s: 20 },
 ];
-const times = [-1, 0, 0.5, 2, 3.9, 4.2, 6, 8.5, 9.4, 10.2, 11, 16.5, 17.2, 40];
+const times = [-1, 0, 0.5, 2, 2.6, 3.1, 3.5, 5, 6.5, 7.4, 8.2, 9, 14.5, 15.2, 40];
 
 function fromPython(title) {
   const script = `
@@ -84,23 +84,23 @@ test("a long title gets smaller until it fits; a normal one is 83 px", () => {
 test("the sequence: black, the brand, black, the title, the video, the strip", () => {
   const at = t => opacitiesAt(titles[0], t);
   assert.deepEqual(at(0), { black: 1, brand: 0, title: 0, strip: 0 });
-  assert.equal(at(2).brand, 1);
-  assert.equal(at(2.9).brand, 1);
-  assert.ok(at(3.5).brand > 0 && at(3.5).brand < 1 && at(3.5).title === 0);   // fading out alone
-  assert.equal(at(4).brand, 0);
-  assert.ok(at(4.5).title > 0 && at(4.5).title < 1);   // then the title fades in
-  assert.equal(at(6).title, 1);
-  assert.equal(at(9).title, 0);
-  assert.equal(at(9).black, 1);
-  assert.equal(at(11).black, 0);
-  assert.equal(at(12).strip, 1);
-  assert.equal(at(10 + 0.7 + 6 + 0.7 + 0.1).strip, 0);
+  assert.equal(at(1).brand, 1);
+  assert.equal(at(2.2).brand, 1);
+  assert.ok(at(2.6).brand > 0 && at(2.6).brand < 1 && at(2.6).title === 0);   // fading out alone
+  assert.deepEqual([at(3.1).brand, at(3.1).title], [0, 0]);                     // 0.2 s of black
+  assert.ok(at(3.5).title > 0 && at(3.5).title < 1);                            // then the title fades in
+  assert.equal(at(5).title, 1);
+  assert.equal(at(6.95).title, 0);
+  assert.equal(at(6.95).black, 1);
+  assert.equal(at(8.5).black, 0);
+  assert.equal(at(9).strip, 1);
+  assert.equal(at(7.95 + 0.7 + 6 + 0.7 + 0.1).strip, 0);
   assert.deepEqual(opacitiesAt({ ...titles[0], on: false }, 2), { black: 0, brand: 0, title: 0, strip: 0 });
 });
 
 test("the logo: after the strip, after the video comes in, or 5 s into the video", () => {
-  assert.equal(logoStartSeconds(titles[0]), 10 + 0.7 + 6 + 0.7 + 1);
-  assert.equal(logoStartSeconds({ ...titles[0], lines: [] }), 11.5);
+  assert.ok(Math.abs(logoStartSeconds(titles[0]) - (7.95 + 0.7 + 6 + 0.7 + 1)) < 1e-9);
+  assert.ok(Math.abs(logoStartSeconds({ ...titles[0], lines: [] }) - (6.95 + 1.5 + 1)) < 1e-9);
   assert.equal(logoStartSeconds(null, 20), 25);
   assert.equal(logoOpacityAt(null, 5.5), 0.5);
   assert.equal(logoOpacityAt(null, 600), 1);

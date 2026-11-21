@@ -2,8 +2,9 @@
 
 With the title on, every video opens the same way, timed from the start of the video:
 
-  1. from black, "BROCKLEY LIVE" fades in (Outfit Bold, 83 px, letters 33 % apart, cream);
-  2. it fades out to black, and the song's title fades in (the same style, in the title's colour);
+  1. from black, "BROCKLEY LIVE" fades in (Elastic, a Barlow Regular, 83 px, cream);
+  2. it fades out to black, and after 0.2 s of black the song's title fades in (Outfit Bold,
+     83 px, letters 33 % apart, capitals, in the title's colour);
   3. the title fades out, the video fades in from black, and a strip along the bottom
      (black at 50 %) shows the lines below the title (who's playing), left-aligned, in cream, Outfit Bold,
      smaller, no extra letter spacing, as typed; after a while it dissolves out.
@@ -20,14 +21,17 @@ in either), and the encoder's filter graph fades them in and out (edit_render.en
 import os
 
 WIDTH, HEIGHT = 1920, 1080
-FONT = "Outfit-Bold.ttf"
+FONT = "Outfit-Bold.ttf"          # the title card and the strip
+BRAND_FONT = "Barlow-Elastic.otf" # "BROCKLEY LIVE" (user, 2026-11-21: "Elastic", a Barlow Regular)
 CREAM = "#f3ead8"                 # "BROCKLEY LIVE" and the strip's text (user: a creamy white)
 BRAND_TEXT = "BROCKLEY LIVE"
 
 CARD_SIZE = 83                    # px in the 1920x1080 picture (user: about 83 points)
-CARD_TRACKING = 0.33              # letter spacing, as a fraction of the size (user: about 33 %)
+CARD_TRACKING = 0.33              # the title's letter spacing, as a fraction of the size (user: about 33 %)
 CARD_MAX_WIDTH = 1632             # a longer title gets a smaller size until it fits (144 px each side)
 CAP_HEIGHT = 0.706                # Outfit's capitals, as a fraction of the size (centring)
+BRAND_TRACKING = 0.0              # "BROCKLEY LIVE": no extra letter spacing (user, 2026-11-21)
+BRAND_CAP_HEIGHT = 0.700          # Elastic's capitals
 
 DETAIL_SIZE = 38                  # the strip's text (user: much smaller), left-aligned at DETAIL_LEFT
 DETAIL_LINE_SPACING = 54          # baseline to baseline
@@ -37,13 +41,14 @@ STRIP_ALPHA = 0.5                 # the strip's black (user: 50 %)
 DETAIL_LEFT = 144                 # the strip's text starts here (user, 2026-11-21: left-aligned)
 DETAIL_MAX_WIDTH = 1632
 
-# The sequence, in seconds from the start of the video.
-BRAND_IN = (0.0, 1.0)             # fades in from black
-BRAND_OUT = (3.0, 1.0)            # "BROCKLEY LIVE" fades out to black: start, length (user, 2026-11-21: a little shorter)
-TITLE_IN = (4.0, 1.0)             # then the title fades in from black (not a dissolve between them)
-TITLE_OUT = (8.0, 1.0)            # the title fades out: start, length
-VIDEO_IN = (9.0, 1.5)             # the video fades in from black: start, length
-DETAILS_IN = 10.0                 # the strip starts dissolving in
+# The sequence, in seconds from the start of the video: (start, length). Stages one and two
+# were cut to 75 % of 4 s and 5 s (user, 2026-11-21), with 0.2 s of black between them.
+BRAND_IN = (0.0, 0.75)            # "BROCKLEY LIVE" fades in from black
+BRAND_OUT = (2.25, 0.75)          # and out to black: gone at 3.0 s
+TITLE_IN = (3.2, 0.75)            # 0.2 s of black, then the title fades in
+TITLE_OUT = (6.2, 0.75)           # and out: gone at 6.95 s
+VIDEO_IN = (6.95, 1.5)            # the video fades in from black
+DETAILS_IN = 7.95                 # the strip starts dissolving in, 1 s after the video starts to
 DETAILS_FADE = 0.7                # its dissolve in, and the one out; it stays duration_s in between
 
 # The Brockley Live logo (the brand frame's logo; the border is on from the start) fades in
@@ -95,17 +100,17 @@ def letter_positions(text, size, tracking, advance):
     return positions, x
 
 
-def card_size(text, advance):
+def card_size(text, advance, tracking=CARD_TRACKING):
     """The card's font size: CARD_SIZE, smaller (whole px) when the text would be wider than CARD_MAX_WIDTH."""
     size = CARD_SIZE
-    while size > 24 and letter_positions(text, size, CARD_TRACKING, advance)[1] > CARD_MAX_WIDTH:
+    while size > 24 and letter_positions(text, size, tracking, advance)[1] > CARD_MAX_WIDTH:
         size -= 1
     return size
 
 
-def card_baseline(size):
+def card_baseline(size, cap_height=CAP_HEIGHT):
     """The card's baseline: its capitals centred top to bottom."""
-    return round((HEIGHT + CAP_HEIGHT * size) / 2)
+    return round((HEIGHT + cap_height * size) / 2)
 
 
 def strip_layout(lines):
@@ -118,12 +123,12 @@ def strip_layout(lines):
 
 # -- the cards as images (Pillow)
 class Letters:
-    """Outfit at any size, for measuring and drawing single letters."""
+    """One font file at any size, for measuring and drawing single letters."""
 
-    def __init__(self, fonts_dir):
+    def __init__(self, fonts_dir, font=FONT):
         from PIL import ImageFont                  # only where titles are rendered (python3-pil on the hub)
         self.ImageFont = ImageFont
-        self.path = os.path.join(fonts_dir, FONT)
+        self.path = os.path.join(fonts_dir, font)
         self.fonts = {}
         self.widths = {}
 
@@ -160,17 +165,17 @@ def _text_layer(letters, rows, box, colour):
     return layer
 
 
-def card_image(letters, text, colour):
+def card_image(letters, text, colour, tracking=CARD_TRACKING, cap_height=CAP_HEIGHT):
     """(image, x, y): a centred card's text, cropped to its box, or None for no text."""
     if not text:
         return None
-    size = card_size(text, letters.advance)
-    _, width = letter_positions(text, size, CARD_TRACKING, letters.advance)
+    size = card_size(text, letters.advance, tracking)
+    _, width = letter_positions(text, size, tracking, letters.advance)
     row_x = (WIDTH - width) / 2
-    baseline = card_baseline(size)
+    baseline = card_baseline(size, cap_height)
     x0, y0 = max(0, int(row_x) - 16), baseline - int(size * 1.1)
     box = (x0, y0, min(WIDTH, int(row_x + width) + 16) - x0, int(size * 0.45) + int(size * 1.1))
-    return _text_layer(letters, [(text, size, CARD_TRACKING, row_x, baseline)], box, colour), x0, y0
+    return _text_layer(letters, [(text, size, tracking, row_x, baseline)], box, colour), x0, y0
 
 
 def strip_image(letters, lines):
@@ -224,7 +229,7 @@ def sequence_cards(title, work_dir, fonts_dir):
     letters = Letters(fonts_dir)
     out_start, out = TITLE_OUT
     cards = [
-        ("title-brand.png", card_image(letters, BRAND_TEXT, CREAM), fade_chain(BRAND_IN[0], BRAND_IN[1], BRAND_OUT[0], BRAND_OUT[1])),
+        ("title-brand.png", card_image(Letters(fonts_dir, BRAND_FONT), BRAND_TEXT, CREAM, BRAND_TRACKING, BRAND_CAP_HEIGHT), fade_chain(BRAND_IN[0], BRAND_IN[1], BRAND_OUT[0], BRAND_OUT[1])),
         ("title-title.png", card_image(letters, title_text(title), title.get("colour") or CREAM),
          fade_chain(TITLE_IN[0], TITLE_IN[1], out_start, out)),
         ("title-strip.png", strip_image(letters, lines_below(title)),

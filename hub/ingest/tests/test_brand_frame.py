@@ -67,10 +67,10 @@ class BrandFrameTest(unittest.TestCase):
 
     def test_after_a_title_the_logo_waits(self):
         title = {"on": True, "text": "T", "lines": [], "colour": "#ffffff", "start_s": 0, "duration_s": 3.0}
-        # No names: the sequence is over when the video is in (10.5 s), the logo from 11.5 s.
-        frames = render({}, BRAND_DIR, self.folder, frames=375, wanted=(330, 374), title=title)
-        self.assertLess(lit(frames[330]), 0.01)
-        self.assertGreater(lit(frames[374]), 0.1)
+        # No names: the sequence is over when the video is in (8.45 s), the logo from 9.45 s.
+        frames = render({}, BRAND_DIR, self.folder, frames=315, wanted=(270, 314), title=title)
+        self.assertLess(lit(frames[270]), 0.01)
+        self.assertGreater(lit(frames[314]), 0.1)
 
     def test_without_effects_only_the_border_and_logo_change(self):
         plain = render({}, None, self.folder, frames=200, wanted=(199,))[199].astype(int)

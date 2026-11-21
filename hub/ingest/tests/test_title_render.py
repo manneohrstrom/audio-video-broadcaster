@@ -55,7 +55,7 @@ class TitleSequenceTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.folder = tempfile.mkdtemp()                         # videos: /tmp is RAM on the hub
-        cls.frames = render_frames(15, TITLE, cls.folder, (0.0, 2.0, 4.0, 6.0, 8.95, 12.0, 14.9))
+        cls.frames = render_frames(13, TITLE, cls.folder, (0.0, 1.5, 3.1, 5.0, 6.93, 10.0, 12.9))
 
     @classmethod
     def tearDownClass(cls):
@@ -65,12 +65,14 @@ class TitleSequenceTest(unittest.TestCase):
         self.assertLess(self.frames[0.0].max(), 30)
 
     def test_brockley_live_in_cream_on_black_centred(self):
-        frame = self.frames[2.0]
+        frame = self.frames[1.5]
         lit = frame.sum(axis=2) > 300
         top, bottom = np.where(lit.any(axis=1))[0][[0, -1]]
-        baseline = title_render.card_baseline(title_render.CARD_SIZE)
+        baseline = title_render.card_baseline(title_render.CARD_SIZE, title_render.BRAND_CAP_HEIGHT)
         self.assertAlmostEqual(bottom, baseline, delta=3)
-        self.assertAlmostEqual(top, baseline - title_render.CAP_HEIGHT * title_render.CARD_SIZE, delta=4)
+        self.assertAlmostEqual(top, baseline - title_render.BRAND_CAP_HEIGHT * title_render.CARD_SIZE, delta=4)
+        columns = np.where(lit.any(axis=0))[0]
+        self.assertLess(columns[-1] - columns[0], 700)          # Elastic, no letter spacing (Outfit spaced: ~1000)
         columns = np.where(lit.any(axis=0))[0]
         self.assertAlmostEqual((columns[0] + columns[-1]) / 2, W / 2, delta=6)
         red, green, blue = np.median(frame[lit], axis=0)
@@ -79,22 +81,22 @@ class TitleSequenceTest(unittest.TestCase):
         self.assertLess(frame[~lit].max(), 140)                 # black around it (anti-aliased edges aside)
 
     def test_black_between_the_cards_then_the_title_in_its_colour(self):
-        self.assertLess(self.frames[4.0].max(), 40)
-        frame = self.frames[6.0]
+        self.assertLess(self.frames[3.1].max(), 40)             # 0.2 s of black between them
+        frame = self.frames[5.0]
         lit = frame.sum(axis=2) > 300
         red, green, blue = np.median(frame[lit], axis=0)
         self.assertGreater(red, blue + 80)                      # amber
-        self.assertLess(self.frames[8.95].max(), 40)            # faded out, the video not in yet
+        self.assertLess(self.frames[6.93].max(), 40)            # faded out, the video not in yet
 
     def test_the_video_with_the_strip_then_without(self):
-        frame = self.frames[12.0]
+        frame = self.frames[10.0]
         top, _ = title_render.strip_layout(title_render.lines_below(TITLE))
         self.assertAlmostEqual(frame[400, 960].mean(), 120, delta=6)           # the picture
         self.assertAlmostEqual(frame[top + 4, 40].mean(), 60, delta=8)         # the strip: 50 % black
         self.assertGreater(frame[top:].max(), 200)                             # its text
         text_columns = np.where((frame[top:].sum(axis=2) > 500).any(axis=0))[0]
         self.assertAlmostEqual(text_columns[0], title_render.DETAIL_LEFT, delta=4)   # left-aligned
-        self.assertAlmostEqual(self.frames[14.9][top + 4, 40].mean(), 120, delta=6)   # gone
+        self.assertAlmostEqual(self.frames[12.9][top + 4, 40].mean(), 120, delta=6)   # gone
 
 
 class TitleGraphTest(unittest.TestCase):
@@ -103,8 +105,8 @@ class TitleGraphTest(unittest.TestCase):
         self.assertNotIn("-filter_complex", command)
 
     def test_the_logo_waits_for_the_strip(self):
-        self.assertAlmostEqual(title_render.logo_start_s(TITLE), 10 + 0.7 + 3 + 0.7 + 1)
-        self.assertAlmostEqual(title_render.logo_start_s(dict(TITLE, lines=[])), 9 + 1.5 + 1)
+        self.assertAlmostEqual(title_render.logo_start_s(TITLE), 7.95 + 0.7 + 3 + 0.7 + 1)
+        self.assertAlmostEqual(title_render.logo_start_s(dict(TITLE, lines=[])), 6.95 + 1.5 + 1)
         self.assertEqual(title_render.logo_start_s(None), 5)
 
 
