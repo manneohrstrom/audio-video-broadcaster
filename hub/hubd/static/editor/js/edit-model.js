@@ -9,9 +9,11 @@
 // only chooses which camera is on. Three gestures change the cut:
 //   - chooseCameraForStretch: press, drag, release on a camera's strip;
 //   - slideShot: drag a shot that's in the cut along its camera's strip, keeping its length;
-//   - moveCut / removeCut: drag or delete the boundary between two shots.
+//   - moveEdge / removeCut: drag or delete the boundary between two shots.
+// A dragged shot or edge runs over the shots in its way, as far as it's dragged, and two
+// shots of the same camera that meet become one (user, 2026-11-21).
 
-/** Shortest a shot may become when a neighbour is slid or a cut moved (seconds). */
+/** Shortest a shot may become: shorter leftovers of a dragged-over shot are swallowed (seconds). */
 export const MIN_SHOT_SECONDS = 0.2;
 
 const TIME_EPSILON = 1e-6;
@@ -75,46 +77,71 @@ export function cutToCameraAt(cuts, cameraId, seconds) {
   return normalize(next);
 }
 
-/** How far shot `index` may slide, as [earliest, latest] shift in seconds. */
-export function slideLimits(cuts, index, songSeconds) {
-  const start = cuts[index].atSeconds;
-  const end = shotEnd(cuts, index, songSeconds);
-  const isFirst = index === 0;
-  const isLast = index + 1 >= cuts.length;
-  let earliest = -Infinity;
-  let latest = Infinity;
-  if (!isFirst) earliest = Math.max(earliest, cuts[index - 1].atSeconds + MIN_SHOT_SECONDS - start);
-  if (!isLast) {
-    const nextShotEnd = index + 2 < cuts.length ? cuts[index + 2].atSeconds : songSeconds;
-    latest = Math.min(latest, nextShotEnd - MIN_SHOT_SECONDS - end);
-  }
-  if (isFirst) earliest = Math.max(earliest, MIN_SHOT_SECONDS - end);        // only its end can move
-  if (isLast) latest = Math.min(latest, songSeconds - MIN_SHOT_SECONDS - start); // only its start can move
-  return [earliest, latest];
+/**
+ * Show `cameraId` over [start, end], as chooseCameraForStretch, and swallow what would be
+ * left of a shot at either side if it's shorter than MIN_SHOT_SECONDS (no flashes of a
+ * camera). The gestures that drag a shot or an edge use this, so a dragged shot runs over
+ * whatever is in its way, and meeting a shot of its own camera it becomes one shot with it
+ * (normalize). Returns { cuts, start, end, cameraId }: the new list and the stretch as placed.
+ */
+export function placeShot(cuts, cameraId, start, end, songSeconds) {
+  start = Math.max(0, Math.min(start, songSeconds));
+  end = Math.max(start, Math.min(end, songSeconds));
+  const shotAtStart = cuts[cutIndexAt(cuts, start)];
+  if (start - shotAtStart.atSeconds < MIN_SHOT_SECONDS - TIME_EPSILON) start = shotAtStart.atSeconds;
+  const nextCut = cuts.find(cut => cut.atSeconds > end + TIME_EPSILON);
+  const nextAt = nextCut ? nextCut.atSeconds : songSeconds;
+  if (nextAt - end < MIN_SHOT_SECONDS - TIME_EPSILON) end = nextAt;
+  return { cuts: chooseCameraForStretch(cuts, cameraId, start, end, songSeconds), start, end, cameraId };
 }
 
 /**
- * Slide shot `index` by `shiftSeconds` (clamped to slideLimits), keeping its length; the
- * shots either side get longer or shorter. `original` is the cut list when the drag began,
- * so a drag is always computed from where it started. Returns a new list.
+ * Drag the edge between shot `cutIndex - 1` and shot `cutIndex` to `seconds`. The shot on
+ * the side the edge moves away from grows, over as many shots as it reaches. `held` says
+ * which shot's edge was grabbed on a camera strip ("before": the end of shot cutIndex - 1,
+ * "after": the start of shot cutIndex): that shot never shrinks below MIN_SHOT_SECONDS.
+ * null (a cut handle on the program strip): either side may be swallowed. `original` is the
+ * cut list when the drag began. Returns placeShot's result for the shot that grew, plus
+ * `edgeSeconds`, where the edge is now.
  */
-export function slideShot(original, index, shiftSeconds, songSeconds) {
-  const [earliest, latest] = slideLimits(original, index, songSeconds);
-  const shift = Math.max(earliest, Math.min(latest, shiftSeconds));
-  const next = original.map(cut => ({ ...cut }));
-  if (index > 0) next[index] = { ...next[index], atSeconds: original[index].atSeconds + shift, by: "user" };
-  if (index + 1 < next.length) next[index + 1] = { ...next[index + 1], atSeconds: original[index + 1].atSeconds + shift, by: "user" };
-  return next;
+export function moveEdge(original, cutIndex, seconds, songSeconds, held = null) {
+  if (cutIndex <= 0 || cutIndex >= original.length) return null;
+  const boundary = original[cutIndex].atSeconds;
+  const beforeStart = original[cutIndex - 1].atSeconds;
+  const afterEnd = shotEnd(original, cutIndex, songSeconds);
+  let at = Math.max(0, Math.min(songSeconds, seconds));
+  if (held === "before") at = Math.max(at, beforeStart + MIN_SHOT_SECONDS);
+  if (held === "after") at = Math.min(at, afterEnd - MIN_SHOT_SECONDS);
+  if (at > boundary + TIME_EPSILON) {
+    const grown = placeShot(original, original[cutIndex - 1].cameraId, beforeStart, at, songSeconds);
+    return { ...grown, edgeSeconds: grown.end };
+  }
+  if (at < boundary - TIME_EPSILON) {
+    const grown = placeShot(original, original[cutIndex].cameraId, at, afterEnd, songSeconds);
+    return { ...grown, edgeSeconds: grown.start };
+  }
+  return { cuts: original, start: boundary, end: afterEnd, cameraId: original[cutIndex].cameraId, edgeSeconds: boundary };
 }
 
-/** Move the boundary `index` (> 0) to `seconds`, keeping both neighbours at least MIN_SHOT_SECONDS. */
-export function moveCut(cuts, index, seconds, songSeconds) {
-  if (index <= 0 || index >= cuts.length) return cuts;
-  const earliest = cuts[index - 1].atSeconds + MIN_SHOT_SECONDS;
-  const latest = shotEnd(cuts, index, songSeconds) - MIN_SHOT_SECONDS;
-  const next = cuts.map(cut => ({ ...cut }));
-  next[index] = { ...next[index], atSeconds: Math.max(earliest, Math.min(latest, seconds)), by: "user" };
-  return next;
+/**
+ * Slide shot `index` by `shiftSeconds`, keeping its length. The shot it moves away from
+ * fills the space it leaves; the shots it moves onto are run over (placeShot). The first
+ * and last shots can't leave the song's ends, so sliding them moves their inner edge.
+ * `original` is the cut list when the drag began. Returns placeShot's result.
+ */
+export function slideShot(original, index, shiftSeconds, songSeconds) {
+  const start = original[index].atSeconds;
+  const end = shotEnd(original, index, songSeconds);
+  const cameraId = original[index].cameraId;
+  const unchanged = { cuts: original, start, end, cameraId };
+  if (original.length === 1) return unchanged;
+  if (index === 0) return moveEdge(original, 1, end + shiftSeconds, songSeconds, "before");
+  if (index + 1 >= original.length) return moveEdge(original, index, start + shiftSeconds, songSeconds, "after");
+  const shift = Math.max(-start, Math.min(songSeconds - end, shiftSeconds));
+  if (Math.abs(shift) < TIME_EPSILON) return unchanged;
+  const vacated = original.filter((_, i) => i !== index);      // sliding later: the shot before carries on
+  if (shift < 0) vacated[index] = { ...vacated[index], atSeconds: start };   // earlier: the shot after starts sooner
+  return placeShot(normalize(vacated), cameraId, start + shift, end + shift, songSeconds);
 }
 
 /** Remove the boundary `index` (> 0): the shot before it carries on. */

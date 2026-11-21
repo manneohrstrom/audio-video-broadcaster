@@ -17,6 +17,8 @@ import { saveEdit, saveSync } from "./api.js";
 const SAVE_DELAY_MS = 800;
 export const FRAME_SECONDS = 1 / 30;
 export const MAX_PIXELS_PER_SECOND = 320;
+/** The shortest video the start and end may leave (seconds). */
+export const MIN_VIDEO_SECONDS = 1;
 
 export class EditorStore {
   constructor(project) {
@@ -41,6 +43,13 @@ export class EditorStore {
     // dissolving in at start_s and gone duration_s later. Off until switched on.
     this.title = { on: false, text: project.song.name, lines: [], colour: "#ffffff", start_s: 2, duration_s: 6,
                    ...(project.edit.title || {}) };
+
+    // The video's start and end (user, 2026-11-21): the edit keeps the whole song (the clap
+    // before it, the talk after), the video is rendered from inSeconds to outSeconds only.
+    // In the edit file: trim_ns, [start, end] in nanoseconds from the start of the range, or null.
+    const trim = project.edit.trim_ns;
+    this.inSeconds = trim ? trim[0] / NS_PER_SECOND : 0;
+    this.outSeconds = trim ? Math.min(this.songSeconds, trim[1] / NS_PER_SECOND) : this.songSeconds;
 
     // Step 2, the look (docs/editor-plan.md section 5): one filter with a strength and any
     // number of effects with a strength each, for the whole song. Definitions: looks.json.
@@ -285,6 +294,42 @@ export class EditorStore {
     this.notify();
   }
 
+  // -- the video's start and end
+  get isTrimmed() {
+    return this.inSeconds > 0.001 || this.outSeconds < this.songSeconds - 0.001;
+  }
+
+  /** How long the rendered video is. */
+  get videoSeconds() {
+    return this.outSeconds - this.inSeconds;
+  }
+
+  /** The video starts here (on a frame; at least MIN_VIDEO_SECONDS before the end). */
+  setInPoint(seconds) {
+    if (this.syncMode) return;
+    const onFrame = Math.round(seconds / FRAME_SECONDS) * FRAME_SECONDS;
+    this.inSeconds = Math.max(0, Math.min(onFrame, this.outSeconds - MIN_VIDEO_SECONDS));
+    this.scheduleSave();
+    this.notify();
+  }
+
+  /** The video ends here (on a frame; at least MIN_VIDEO_SECONDS after the start). */
+  setOutPoint(seconds) {
+    if (this.syncMode) return;
+    const onFrame = Math.round(seconds / FRAME_SECONDS) * FRAME_SECONDS;
+    this.outSeconds = Math.min(this.songSeconds, Math.max(onFrame, this.inSeconds + MIN_VIDEO_SECONDS));
+    this.scheduleSave();
+    this.notify();
+  }
+
+  /** The whole song again. */
+  clearTrim() {
+    this.inSeconds = 0;
+    this.outSeconds = this.songSeconds;
+    this.scheduleSave();
+    this.notify();
+  }
+
   setDissolve(seconds) {
     this.dissolveSeconds = seconds;
     this.scheduleSave();
@@ -347,7 +392,8 @@ export class EditorStore {
     const { take_id: takeId, song, version } = this.project;
     try {
       await saveEdit(takeId, song.id, version, { cuts: cutsToFile(this.cuts), dissolve_s: this.dissolveSeconds, look: this.look,
-                      branding: this.branding, branding_colour: this.brandingColour, title: this.title });
+                      branding: this.branding, branding_colour: this.brandingColour, title: this.title,
+                      trim_ns: this.isTrimmed ? [Math.round(this.inSeconds * NS_PER_SECOND), Math.round(this.outSeconds * NS_PER_SECOND)] : null });
       this.saveState = this.saveState === "saving" ? "saved" : this.saveState;
       this.saveProblem = null;
     } catch (error) {

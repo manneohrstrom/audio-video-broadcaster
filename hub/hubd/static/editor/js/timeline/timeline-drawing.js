@@ -44,6 +44,14 @@ export function laneAt(lanes, y) {
   return lanes.find(lane => y >= lane.top - 3 && y < lane.top + lane.height + 3) || null;
 }
 
+/** On the ruler: the video's start ("in") or end ("out") marker under x, or null (only set ones show). */
+export function trimMarkerAt(store, x) {
+  if (store.syncMode || !store.isTrimmed) return null;
+  if (store.inSeconds > 0.001 && Math.abs(store.xOf(store.inSeconds) - x) < HANDLE_GRAB_PIXELS) return "in";
+  if (store.outSeconds < store.songSeconds - 0.001 && Math.abs(store.xOf(store.outSeconds) - x) < HANDLE_GRAB_PIXELS) return "out";
+  return null;
+}
+
 /** Index of the cut boundary under x on the program strip, or -1. */
 export function cutHandleAt(store, x) {
   for (let i = 1; i < store.cuts.length; i++) {
@@ -54,7 +62,7 @@ export function cutHandleAt(store, x) {
 
 /**
  * On a camera strip, what's under x: the edge of a shot of this camera that's in the cut
- * ({ kind: "edge", cutIndex }), its middle ({ kind: "body", shotIndex }), or null.
+ * ({ kind: "edge", cutIndex, held }: held "after" for its start, "before" for its end), its middle ({ kind: "body", shotIndex }), or null.
  */
 export function shotPartAt(store, camera, x) {
   const seconds = store.secondsAtX(x);
@@ -62,8 +70,8 @@ export function shotPartAt(store, camera, x) {
     if (store.cuts[i].cameraId !== camera.id) continue;
     const start = store.cuts[i].atSeconds;
     const end = i + 1 < store.cuts.length ? store.cuts[i + 1].atSeconds : store.songSeconds;
-    if (i > 0 && Math.abs(x - store.xOf(start)) < HANDLE_GRAB_PIXELS) return { kind: "edge", cutIndex: i };
-    if (i + 1 < store.cuts.length && Math.abs(x - store.xOf(end)) < HANDLE_GRAB_PIXELS) return { kind: "edge", cutIndex: i + 1 };
+    if (i > 0 && Math.abs(x - store.xOf(start)) < HANDLE_GRAB_PIXELS) return { kind: "edge", cutIndex: i, held: "after" };
+    if (i + 1 < store.cuts.length && Math.abs(x - store.xOf(end)) < HANDLE_GRAB_PIXELS) return { kind: "edge", cutIndex: i + 1, held: "before" };
     if (seconds >= start && seconds < end) return { kind: "body", shotIndex: i };
   }
   return null;
@@ -87,6 +95,7 @@ export class TimelineDrawing {
       else this.drawWaveform(context, lane, width);
     }
     this.drawLaneSeparators(context, lanes, width);
+    this.drawTrim(context, lanes, width, height);
     this.drawHoverLine(context, lanes, width, height);
     this.drawPlayhead(context, height);
   }
@@ -217,7 +226,7 @@ export class TimelineDrawing {
     const x = this.snap(store.xOf(cut.atSeconds));
     if (x < -8 || x > width + 8) return;
     const selected = index === store.selectedCutIndex;
-    const hot = store.hover?.cutHandle === index || (store.gesture?.kind === "moveCut" && store.gesture.cutIndex === index);
+    const hot = store.hover?.cutHandle === index || (store.gesture?.kind === "moveCut" && Math.abs(store.gesture.edgeSeconds - cut.atSeconds) < 1e-6);
     const lineWidth = selected || hot ? 2 : 1;
     context.fillStyle = selected ? this.colours.accent : cut.by === "user" ? this.colours.userCut : this.colours.autoCut;
     context.fillRect(x - lineWidth / 2, lane.top, lineWidth, lane.height);
@@ -388,6 +397,34 @@ export class TimelineDrawing {
     }
   }
 
+  /** Outside the video's start and end: darkened, with a bracket on the ruler at each end
+   *  that is set ("[" at the start, "]" at the end) and a thin line down through the lanes. */
+  drawTrim(context, lanes, width, height) {
+    const store = this.store;
+    if (store.syncMode || !store.isTrimmed) return;
+    const ruler = lanes[0];
+    const markers = [];
+    if (store.inSeconds > 0.001) markers.push({ x: this.snap(store.xOf(store.inSeconds)), inward: 1 });
+    if (store.outSeconds < store.songSeconds - 0.001) markers.push({ x: this.snap(store.xOf(store.outSeconds)), inward: -1 });
+    context.fillStyle = this.colours.outsideVideo;
+    const inX = store.xOf(store.inSeconds);
+    const outX = store.xOf(store.outSeconds);
+    if (inX > 0) context.fillRect(0, 0, Math.min(width, inX), height);
+    if (outX < width) context.fillRect(Math.max(0, outX), 0, width - Math.max(0, outX), height);
+    const hot = store.hover?.trimMarker || (store.gesture?.kind === "trim" && store.gesture.marker);
+    for (const marker of markers) {
+      if (marker.x < -8 || marker.x > width + 8) continue;
+      const isHot = hot === (marker.inward > 0 ? "in" : "out");
+      context.fillStyle = this.colours.accent;
+      context.fillRect(marker.x - 0.5, ruler.top + ruler.height, 1, height - ruler.top - ruler.height);
+      const bar = isHot ? 3 : 2;
+      const foot = 7 * marker.inward;
+      context.fillRect(marker.x - bar / 2, ruler.top, bar, ruler.height);
+      context.fillRect(Math.min(marker.x, marker.x + foot), ruler.top, Math.abs(foot), bar);
+      context.fillRect(Math.min(marker.x, marker.x + foot), ruler.top + ruler.height - bar, Math.abs(foot), bar);
+    }
+  }
+
   drawHoverLine(context, lanes, width, height) {
     const hover = this.store.hover;
     if (!hover || this.store.gesture) return;
@@ -437,6 +474,7 @@ export function readColours(element) {
     noPicture: "#0b0a09",
     dimmed: "rgba(17,16,15,0.72)",
     dimmedLight: "rgba(17,16,15,0.45)",
+    outsideVideo: "rgba(11,10,9,0.62)",
     lift: "rgba(236,229,214,0.10)",
     separator: "rgba(236,229,214,0.16)",
     notRecording: "rgba(236,229,214,0.07)",

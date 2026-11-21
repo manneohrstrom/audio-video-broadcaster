@@ -106,7 +106,7 @@ It runs right after a bounce is synced, so the cut is ready the first time the u
 
 **Who and where.** The main editor is not technical. The interface has to be simple and quick, in the spirit of the Instagram video editor or early iMovie (visual filmstrip timelines). It runs on a Mac mini with two monitors, so there's plenty of room.
 
-**The model: choose, never arrange.** The take is fixed. The only editing decision is *which camera is showing from this moment on*. Nothing is moved, trimmed, duplicated or reordered, and there's no non-linear editing. A cut holds until the next one (the edit format in section 2 already works this way).
+**The model: choose, never arrange.** The take is fixed. The only editing decision is *which camera is showing from this moment on*. Nothing is moved, trimmed, duplicated or reordered, and there's no non-linear editing. A cut holds until the next one (the edit format in section 2 already works this way). *(2026-11-21, user, after the first real edit: the video's **start and end** can be set (`trim_ns` in the edit, [start, end] in ns from the start of the range, null for the whole song): the clap or count-in stays in the edit, the render and YouTube get only the part between. Set in the Title step, with the keys I and O, or by dragging the brackets on the ruler. And a dragged shot or edge runs over the shots in its way, as far as it's dragged; two shots of the same camera that meet become one.)*
 
 **Layout (one screen):**
 - **Video window:** the program output (the chosen camera) at the playhead. With the look from step 2 applied, so it looks like the result.

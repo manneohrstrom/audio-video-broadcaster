@@ -77,7 +77,7 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
     const titleOpacity = skimCamera ? 0 : opacityAt(store.title, seconds);   // not while skimming a camera
     if (titleRef.current.style.opacity !== String(titleOpacity)) titleRef.current.style.opacity = String(titleOpacity);
     if (logoRef.current) {                   // the logo fades in after the title (or at 5 s)
-      const logoOpacity = String(logoOpacityAt(store.title, seconds));
+      const logoOpacity = String(logoOpacityAt(store.title, seconds, store.inSeconds));
       if (logoRef.current.style.opacity !== logoOpacity) logoRef.current.style.opacity = logoOpacity;
     }
     const shown = skimCamera || store.cameraAt(seconds);

@@ -63,14 +63,21 @@ export function opacityAt(title, seconds) {
   return Math.min(1, Math.max(0, Math.min((seconds - title.start_s) / FADE_SECONDS, (end - seconds) / FADE_SECONDS)));
 }
 
-/** When the logo starts fading in (song seconds). @param {Title | null} title */
-export function logoStartSeconds(title) {
-  return isShown(title) ? title.start_s + title.duration_s + LOGO_AFTER_TITLE_SECONDS : LOGO_WITHOUT_TITLE_SECONDS;
+/**
+ * When the logo starts fading in (song seconds). Without a title: 5 s into the video, which
+ * starts at `videoStartSeconds` when the video's start is set.
+ * @param {Title | null} title @param {number} [videoStartSeconds]
+ */
+export function logoStartSeconds(title, videoStartSeconds = 0) {
+  return isShown(title) ? title.start_s + title.duration_s + LOGO_AFTER_TITLE_SECONDS : videoStartSeconds + LOGO_WITHOUT_TITLE_SECONDS;
 }
 
-/** How visible the logo is at song time `seconds`: 0, fading in, then 1 to the end. @param {Title | null} title */
-export function logoOpacityAt(title, seconds) {
-  return Math.min(1, Math.max(0, (seconds - logoStartSeconds(title)) / LOGO_FADE_SECONDS));
+/**
+ * How visible the logo is at song time `seconds`: 0, fading in, then 1 to the end.
+ * @param {Title | null} title @param {number} seconds @param {number} [videoStartSeconds]
+ */
+export function logoOpacityAt(title, seconds, videoStartSeconds = 0) {
+  return Math.min(1, Math.max(0, (seconds - logoStartSeconds(title, videoStartSeconds)) / LOGO_FADE_SECONDS));
 }
 
 /**

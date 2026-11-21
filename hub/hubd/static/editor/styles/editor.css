@@ -186,7 +186,7 @@ input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px va
 .editor-footer input[type=checkbox] { accent-color: var(--color-accent); margin: 0; }
 .editor-footer output { font: 500 12px var(--font-numbers); color: var(--color-text); }
 .shortcuts { margin-left: auto; color: var(--color-text-dim); }
-.shortcuts kbd {
+.shortcuts kbd, .look-hint kbd {
   font: 500 11px var(--font-ui); color: var(--color-text); background: var(--color-raised); border-radius: 4px; padding: 0 5px;
   box-shadow: 0 1px 0 var(--color-raised-edge); margin-inline: 1px;
 }
@@ -240,6 +240,7 @@ input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px va
 .look-section:last-child { border-bottom: 0; }
 .section-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .look-hint { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-small); }
+.look-hint.problem { color: var(--color-problem); }
 .strength-block { display: grid; gap: var(--space-2); padding: 10px var(--space-3); background: var(--color-well); box-shadow: var(--well-depth); border-radius: var(--radius); }
 .strength-heading { display: flex; justify-content: space-between; align-items: baseline; }
 .strength-heading output { font: 500 13px var(--font-numbers); }

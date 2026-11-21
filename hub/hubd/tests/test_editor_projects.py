@@ -98,6 +98,13 @@ class RebaseTest(unittest.TestCase):
         self.assertEqual([(c["at_ns"], c["camera"]) for c in moved], [(0, "cam2"), (45 * SECOND, "cam3")])
         self.assertIsNone(ep.rebase_cuts(cuts, [0, SECOND], [5 * SECOND, 9 * SECOND]))
 
+    def test_trim_moves_with_the_range_and_is_clamped(self):
+        moved = ep.rebase_trim([10 * SECOND, 80 * SECOND], [100 * SECOND, 200 * SECOND], [105 * SECOND, 170 * SECOND])
+        self.assertEqual(moved, [5 * SECOND, 65 * SECOND])                 # the end clamped to the new range
+        self.assertIsNone(ep.rebase_trim(None, [0, SECOND], [0, SECOND]))
+        self.assertIsNone(ep.rebase_trim([0, 100 * SECOND], [100 * SECOND, 200 * SECOND], [100 * SECOND, 200 * SECOND]))
+        self.assertIsNone(ep.rebase_trim([2 * SECOND, 3 * SECOND], [100 * SECOND, 200 * SECOND], [150 * SECOND, 200 * SECOND]))
+
 
 class ProjectTest(unittest.TestCase):
     def setUp(self):
@@ -188,6 +195,15 @@ class ProjectTest(unittest.TestCase):
         self.assertEqual(p["edit_source"], "saved")
         self.assertEqual([c["camera"] for c in p["edit"]["cuts"]], ["cam2", "pixel-9a"])
         self.assertEqual(p["edit"]["dissolve_s"], 0.25)
+
+    def test_trim_is_saved_and_checked(self):
+        cut = {"cuts": [{"at_ns": 0, "camera": "cam2"}]}
+        self.assertIsNone(self.projects.save_edit(TAKE, "track-1", 1, cut)["trim_ns"])
+        self.projects.save_edit(TAKE, "track-1", 1, dict(cut, trim_ns=[2 * SECOND, 20 * SECOND]))
+        self.assertEqual(self.projects.project(TAKE, "track-1", 1)["edit"]["trim_ns"], [2 * SECOND, 20 * SECOND])
+        for bad in ([5 * SECOND, 4 * SECOND], [-1, SECOND], [0, SECOND // 2], [0.5, 2 * SECOND], "2-20", [0, 10**15]):
+            with self.assertRaises(ep.ProjectError, msg=bad):
+                self.projects.save_edit(TAKE, "track-1", 1, dict(cut, trim_ns=bad))
 
     def test_branding_is_saved_and_off_by_default(self):
         cut = {"cuts": [{"at_ns": 0, "camera": "cam2"}]}

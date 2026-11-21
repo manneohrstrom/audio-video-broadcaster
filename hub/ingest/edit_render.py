@@ -91,6 +91,26 @@ def plan_shots(edit, take_doc, dissolve_s):
     return shots, total
 
 
+def trimmed(edit):
+    """The edit cut down to the video's start and end (trim_ns, ns from the start of the
+    range; user, 2026-11-21): the range narrowed, the cuts moved to the new start (the camera
+    showing at the start becomes the first cut) and the title's time with them. The bounce
+    and the beats follow from the range. Without trim_ns, the edit as it is."""
+    trim = edit.get("trim_ns")
+    if not trim:
+        return edit
+    in_ns, out_ns = int(trim[0]), int(trim[1])
+    range_start = edit["range_ns"][0]
+    cuts = sorted(edit["cuts"], key=lambda cut: cut["at_ns"])
+    showing = ([cut for cut in cuts if cut["at_ns"] <= in_ns] or cuts)[-1]       # the camera on at the start
+    moved = [dict(showing, at_ns=0)] + [dict(cut, at_ns=cut["at_ns"] - in_ns)
+                                         for cut in cuts if in_ns < cut["at_ns"] < out_ns]
+    result = dict(edit, range_ns=[range_start + in_ns, range_start + out_ns], cuts=moved, trim_ns=None)
+    if isinstance(edit.get("title"), dict):
+        result["title"] = dict(edit["title"], start_s=float(edit["title"].get("start_s", 0)) - in_ns / NS)
+    return result
+
+
 def dissolve_mix(frame_number, cut_frame, half_frames):
     """How much of the incoming shot shows (0..1) around a cut: smoothstep over the dissolve."""
     if half_frames <= 0:
@@ -166,6 +186,7 @@ FINAL_CRF = "16"
 ENCODER_THREADS = "2"
 DECODER_THREADS = "1"
 AUDIO_BITRATE = "384k"
+AUDIO_EDGE_FADE_S = 0.02            # the fade in and out at the very start and end of the sound
 
 
 def brand_colour_filter(colour):
@@ -248,8 +269,12 @@ def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir="
     quality = ["-profile:v", "high", "-g", str(FPS // 2), "-bf", "2", "-flags", "+cgop",
                "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709:rc-lookahead=20",
                "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv"]
+    # The sound starts and stops wherever the video does (the start may be set just after
+    # a clap): a very short fade at both ends, so neither clicks.
+    end_s = frames / FPS
+    fades = ["-af", "afade=t=in:d=%.3f,afade=t=out:st=%.6f:d=%.3f" % (AUDIO_EDGE_FADE_S, max(0.0, end_s - AUDIO_EDGE_FADE_S), AUDIO_EDGE_FADE_S)]
     at = command.index("-c:a")
-    command[at:at] = quality
+    command[at:at] = quality + fades
     return command
 
 
@@ -260,6 +285,7 @@ class EditRenderer:
     def __init__(self, edit, take_doc, video_dir, bounce, look, looks, work_dir,
                  busy=lambda: False, should_abort=lambda: False, progress=lambda done, total: None,
                  brand_dir=None, brand_colour="#ffffff", downbeats_s=(), fonts_dir=None):
+        edit = trimmed(edit)                     # only the part between the video's start and end
         self.edit, self.take_doc, self.video_dir, self.bounce = edit, take_doc, video_dir, bounce
         self.title = edit.get("title")           # the title and the lines below it (title_render), or None
         self.fonts_dir = fonts_dir or "/opt/hubd/static/shared/vendor/fonts"

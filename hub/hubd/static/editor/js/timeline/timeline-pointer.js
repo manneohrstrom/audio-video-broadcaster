@@ -4,6 +4,8 @@
 //   on a camera strip, empty part:   press-drag-release  -> { kind: "select" }  that camera for the stretch
 //   on a camera strip, a shot's body: drag               -> { kind: "slide" }   the shot slides, same length
 //   on a shot's edge, or a cut handle on the program strip -> { kind: "moveCut" }
+//   (a slid shot or a moved edge runs over the shots in its way: edit-model.js moveEdge, slideShot)
+//   on the ruler, the video's start or end marker         -> { kind: "trim" }    moves it
 //   anywhere else (ruler, program, waveform)             -> { kind: "scrub" }   moves the playhead
 //   a plain click on a camera strip just moves the playhead.
 //   wheel: scroll sideways; pinch or Ctrl/Cmd + wheel: zoom around the mouse.
@@ -13,7 +15,7 @@
 //   on a camera strip: press             -> that camera shows, then a scrub
 //   anywhere else                        -> { kind: "scrub" }
 import * as EditModel from "../edit-model.js";
-import { laneAt, cutHandleAt, shotPartAt } from "./timeline-drawing.js";
+import { laneAt, cutHandleAt, shotPartAt, trimMarkerAt } from "./timeline-drawing.js";
 import { NS_PER_SECOND } from "../time-format.js";
 
 const DRAG_THRESHOLD_PIXELS = 4;
@@ -35,13 +37,19 @@ export function attachTimelinePointer(canvas, store, getLanes, transport) {
         gesture.currentSeconds = seconds;
         store.hover = { seconds, x, lane: gesture.lane, skimCamera: gesture.camera };
       } else if (gesture.kind === "slide") {
-        store.cuts = EditModel.slideShot(gesture.originalCuts, gesture.shotIndex, seconds - gesture.startSeconds, store.songSeconds);
-        if (!store.isPlaying) store.playheadSeconds = store.cuts[gesture.shotIndex].atSeconds + 0.001;
+        gesture.result = EditModel.slideShot(gesture.originalCuts, gesture.shotIndex, seconds - gesture.startSeconds, store.songSeconds);
+        store.cuts = gesture.result.cuts;
+        if (!store.isPlaying) store.playheadSeconds = gesture.result.start + 0.001;
       } else if (gesture.kind === "moveCut") {
-        store.cuts = EditModel.moveCut(gesture.originalCuts, gesture.cutIndex, seconds, store.songSeconds);
-        if (!store.isPlaying) store.playheadSeconds = store.cuts[gesture.cutIndex].atSeconds + 0.001;
+        gesture.result = EditModel.moveEdge(gesture.originalCuts, gesture.cutIndex, seconds, store.songSeconds, gesture.held);
+        gesture.edgeSeconds = gesture.result.edgeSeconds;
+        store.cuts = gesture.result.cuts;
+        if (!store.isPlaying) store.playheadSeconds = gesture.edgeSeconds + 0.001;
       } else if (gesture.kind === "scrub") {
         store.playheadSeconds = seconds;
+      } else if (gesture.kind === "trim") {
+        if (gesture.marker === "in") store.setInPoint(seconds); else store.setOutPoint(seconds);
+        if (!store.isPlaying) store.playheadSeconds = gesture.marker === "in" ? store.inSeconds : store.outSeconds;
       } else if (gesture.kind === "moveBounce") {
         store.setBounceStartNs(gesture.originalStartNs + (x - gesture.startX) / store.pixelsPerSecond * NS_PER_SECOND);
       }
@@ -54,8 +62,9 @@ export function attachTimelinePointer(canvas, store, getLanes, transport) {
     }
     const cutHandle = lane?.type === "program" ? cutHandleAt(store, x) : -1;
     const shotPart = lane?.type === "camera" ? shotPartAt(store, lane.camera, x) : null;
-    store.hover = { seconds, x, lane, cutHandle, skimCamera: lane?.type === "camera" ? lane.camera : null };
-    canvas.style.cursor = cutHandle > 0 || shotPart?.kind === "edge" ? "ew-resize"
+    const trimMarker = lane?.type === "ruler" ? trimMarkerAt(store, x) : null;
+    store.hover = { seconds, x, lane, cutHandle, trimMarker, skimCamera: lane?.type === "camera" ? lane.camera : null };
+    canvas.style.cursor = cutHandle > 0 || shotPart?.kind === "edge" || trimMarker ? "ew-resize"
       : shotPart ? "grab" : lane?.type === "camera" ? "crosshair" : "default";
   }
 
@@ -69,9 +78,16 @@ export function attachTimelinePointer(canvas, store, getLanes, transport) {
     store.selectedCutIndex = -1;
     if (store.syncMode && startSyncGesture(base, lane)) return;
 
+    const trimMarker = lane?.type === "ruler" ? trimMarkerAt(store, x) : null;
+    if (trimMarker) {
+      store.gesture = { ...base, kind: "trim", marker: trimMarker };
+      store.notify();
+      return;
+    }
     const cutHandle = lane?.type === "program" ? cutHandleAt(store, x) : -1;
     if (cutHandle > 0) {
-      store.gesture = { ...base, kind: "moveCut", cutIndex: cutHandle, originalCuts: store.cuts };
+      store.gesture = { ...base, kind: "moveCut", cutIndex: cutHandle, held: null,
+                        edgeSeconds: store.cuts[cutHandle].atSeconds, originalCuts: store.cuts };
       store.selectedCutIndex = cutHandle;
       store.notify();
       return;
@@ -79,7 +95,8 @@ export function attachTimelinePointer(canvas, store, getLanes, transport) {
     if (lane?.type === "camera" && !store.syncMode) {
       const part = shotPartAt(store, lane.camera, x);
       if (part?.kind === "edge") {
-        store.gesture = { ...base, kind: "moveCut", cutIndex: part.cutIndex, originalCuts: store.cuts };
+        store.gesture = { ...base, kind: "moveCut", cutIndex: part.cutIndex, held: part.held,
+                          edgeSeconds: store.cuts[part.cutIndex].atSeconds, originalCuts: store.cuts };
         store.selectedCutIndex = part.cutIndex;
       } else if (part) {
         store.gesture = { ...base, kind: "slide", shotIndex: part.shotIndex, originalCuts: store.cuts };
@@ -122,14 +139,15 @@ export function attachTimelinePointer(canvas, store, getLanes, transport) {
         transport.seek(gesture.startSeconds);            // a plain click: just move the playhead
       }
     } else if (gesture.kind === "slide" || gesture.kind === "moveCut") {
-      const changed = store.cuts;
+      const result = gesture.result;
       store.cuts = gesture.originalCuts;
-      if (gesture.moved) {
+      if (gesture.moved && result && result.cuts !== gesture.originalCuts) {
         store.beginChange();
-        const shot = gesture.kind === "slide" ? gesture.shotIndex : gesture.cutIndex;
-        const camera = store.camerasById.get(changed[shot].cameraId);
-        store.setCuts(EditModel.normalize(changed), {
-          warnAbout: { camera, start: changed[shot].atSeconds, end: EditModel.shotEnd(changed, shot, store.songSeconds) } });
+        const changed = EditModel.normalize(result.cuts);
+        // The edge stays selected where it ended up (it may have merged away).
+        if (gesture.kind === "moveCut") store.selectedCutIndex = changed.findIndex((cut, i) => i > 0 && Math.abs(cut.atSeconds - result.edgeSeconds) < 1e-6);
+        store.setCuts(changed, {
+          warnAbout: { camera: store.camerasById.get(result.cameraId), start: result.start, end: result.end } });
       } else if (gesture.kind === "slide") {
         transport.seek(gesture.startSeconds);
       }

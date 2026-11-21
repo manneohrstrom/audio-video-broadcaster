@@ -1,5 +1,6 @@
-// Step 3, the title (docs/editor-plan.md section 5b): a title line and the lines below it
-// (usually who's playing), in one colour. It dissolves in all at once at "Appears at" and is
+// Step 3, the title (docs/editor-plan.md section 5b): first where the video starts and ends
+// (user, 2026-11-21: the clap and the count-in stay in the edit but not in the video), then
+// a title line and the lines below it (usually who's playing), in one colour. It dissolves in all at once at "Appears at" and is
 // gone "Stays for" seconds later. Drawn in the preview by title/title-layout.js and in the
 // video by hub/ingest/title_render.py.
 import { html } from "./html.js";
@@ -23,8 +24,11 @@ export function TitlePanel({ store, transport }) {
   const extraColour = store.branding && !COLOURS.some(([value]) => value === store.brandingColour)
     ? [[store.brandingColour, "The border's colour"]] : [];
 
+  const titleOutsideVideo = title.on && (title.start_s < store.inSeconds - 0.05 || title.start_s > store.outSeconds - 1);
+
   return html`
     <section class="look-panel title-panel" aria-label="Title">
+      <${StartAndEnd} store=${store} />
       <div class="look-section">
         <label class="title-switch">
           <input type="checkbox" checked=${title.on} onChange=${event => set({ on: event.target.checked })} />
@@ -67,6 +71,7 @@ export function TitlePanel({ store, transport }) {
                     aria-label="Half a second later">+0.5 s</button>
           </div>
         </div>
+        ${titleOutsideVideo && html`<p class="look-hint problem">The title appears outside the video's start and end: move it with “At the playhead”.</p>`}
         <div class="strength-row title-duration">
           <span>Stays for</span>
           <input type="range" min=${MIN_SECONDS} max=${MAX_SECONDS} step="0.5" value=${title.duration_s}
@@ -78,4 +83,35 @@ export function TitlePanel({ store, transport }) {
         </div>
       </fieldset>
     </section>`;
+}
+
+/** Where the rendered video starts and ends (store.inSeconds, store.outSeconds; keys I and O). */
+function StartAndEnd({ store }) {
+  return html`
+    <div class="look-section trim-section">
+      <span class="row-title">Start and end of the video</span>
+      <p class="look-hint">Leave the clap or the count-in out of the video: it stays in the edit, darkened on the timeline.
+        Keys <kbd>I</kbd> and <kbd>O</kbd> set them at the playhead; drag the brackets on the ruler to move them.</p>
+      <div class="title-field">
+        <span>Starts at</span>
+        <div class="title-when">
+          <output class="title-time">${formatSeconds(store.inSeconds)}</output>
+          <button class="button small" onClick=${() => store.setInPoint(store.playheadSeconds)}
+                  title="The video starts where the playhead is (I)">At the playhead</button>
+          <button class="button small" disabled=${store.inSeconds <= 0.001} onClick=${() => store.setInPoint(0)}
+                  title="The video starts where the song does">From the start</button>
+        </div>
+      </div>
+      <div class="title-field">
+        <span>Ends at</span>
+        <div class="title-when">
+          <output class="title-time">${formatSeconds(store.outSeconds)}</output>
+          <button class="button small" onClick=${() => store.setOutPoint(store.playheadSeconds)}
+                  title="The video ends where the playhead is (O)">At the playhead</button>
+          <button class="button small" disabled=${store.outSeconds >= store.songSeconds - 0.001} onClick=${() => store.setOutPoint(store.songSeconds)}
+                  title="The video runs to the end of the song">To the end</button>
+        </div>
+      </div>
+      <p class="look-hint">The video is ${formatSeconds(store.videoSeconds)} long${store.isTrimmed ? ` (the song: ${formatSeconds(store.songSeconds)})` : ""}.</p>
+    </div>`;
 }

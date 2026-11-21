@@ -92,7 +92,7 @@ function Editor({ project }) {
       <header class="editor-header">
         <div class="song-title">
           <strong>${project.song.name}</strong>
-          <span class="details">${project.take_name ? `${project.take_name} (${project.take_id})` : `take ${project.take_id}`} · ${formatSeconds(store.songSeconds)}</span>
+          <span class="details">${project.take_name ? `${project.take_name} (${project.take_id})` : `take ${project.take_id}`} · ${formatSeconds(store.songSeconds)}${store.isTrimmed && !store.syncMode ? ` · video ${formatSeconds(store.videoSeconds)}` : ""}</span>
           ${project.bounce_versions.length > 1
             ? html`<label class="bounce-choice">bounce
                 <select aria-label="Bounce version" value=${project.version}
@@ -154,7 +154,7 @@ function Editor({ project }) {
         <span class="shortcuts">
           drag on a camera to use it there · drag a shot to slide it · <kbd>space</kbd> play ·
           <kbd>1</kbd>–<kbd>${store.cameras.length}</kbd> camera from the playhead · <kbd>←</kbd><kbd>→</kbd> frame ·
-          <kbd>⌫</kbd> remove cut · <kbd>⌘Z</kbd> undo
+          <kbd>⌫</kbd> remove cut · <kbd>I</kbd><kbd>O</kbd> video start / end · <kbd>⌘Z</kbd> undo
         </span>
         <${ModelPlate} />
       </footer>`}

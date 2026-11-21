@@ -193,6 +193,39 @@ def rebase_cuts(cuts, old_range_ns, new_range_ns):
     return ([before_start] if before_start else []) + moved
 
 
+MIN_VIDEO_NS = 1_000_000_000          # the shortest video a start and end may leave
+
+
+def validate_trim(trim_ns, range_length_ns):
+    """The video's start and end, [start, end] in ns from the start of the range, or None
+    for the whole song (user, 2026-11-21: the clap stays in the edit, not in the video)."""
+    if trim_ns is None:
+        return None
+    if (not isinstance(trim_ns, list) or len(trim_ns) != 2
+            or not all(isinstance(value, int) and not isinstance(value, bool) for value in trim_ns)):
+        raise ProjectError("trim_ns must be [start, end] in integer nanoseconds")
+    start, end = trim_ns
+    if not 0 <= start < end <= range_length_ns:
+        raise ProjectError("the video's start and end must be inside the song, start first")
+    if end - start < MIN_VIDEO_NS:
+        raise ProjectError("the video must be at least 1 s long")
+    return [start, end]
+
+
+def rebase_trim(trim_ns, old_range_ns, new_range_ns):
+    """The start and end moved onto a new song range (as rebase_cuts), clamped into it;
+    None when there's nothing left of it or there was none."""
+    if not isinstance(trim_ns, list) or len(trim_ns) != 2:
+        return None
+    shift = old_range_ns[0] - new_range_ns[0]
+    length = new_range_ns[1] - new_range_ns[0]
+    start = max(0, int(trim_ns[0]) + shift)
+    end = min(length, int(trim_ns[1]) + shift)
+    if end - start < MIN_VIDEO_NS:
+        return None
+    return None if start == 0 and end == length else [start, end]
+
+
 def automatic_cut(cameras, range_ns, shot_s=10.0):
     """The editor's starting cut (the quick mix's rule, hub/ingest/render.py quick_cut):
     a new Pi camera about every shot_s, round the cameras in order, starting and ending on
@@ -397,7 +430,8 @@ class EditorProjects:
         try:
             cuts = rebase_cuts(saved["cuts"], saved["range_ns"], range_ns)
             if cuts:
-                saved.update(cuts=validate_cuts(cuts, camera_ids, length_ns), range_ns=range_ns)
+                trim_ns = rebase_trim(saved.get("trim_ns"), saved["range_ns"], range_ns)
+                saved.update(cuts=validate_cuts(cuts, camera_ids, length_ns), range_ns=range_ns, trim_ns=trim_ns)
                 return saved, "saved"
         except (OSError, ValueError, KeyError, TypeError):
             pass
@@ -531,9 +565,10 @@ class EditorProjects:
         if not isinstance(branding_colour, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", branding_colour):
             raise ProjectError("branding_colour must be a colour like #ffffff")
         title = validate_title(edit.get("title"), (range_ns[1] - range_ns[0]) / 1e9)
+        trim_ns = validate_trim(edit.get("trim_ns"), range_ns[1] - range_ns[0])
         saved = self._new_edit(take_id, song_id, version, range_ns, cuts, "user")
         saved.update(look=edit.get("look"), dissolve_s=dissolve_s, branding=branding,
-                     branding_colour=branding_colour.lower(), saved_at=self.clock())
+                     branding_colour=branding_colour.lower(), trim_ns=trim_ns, saved_at=self.clock())
         if title is not None:
             saved["title"] = title
         self._write_working_copy(take_id, song_id, version, saved)
