@@ -1,6 +1,6 @@
 // The title sequence in the preview (user, 2026-11-21; docs/editor-plan.md section 5b), timed
 // from the start of the video:
-//   1. from black, "BROCKLEY LIVE" fades in (Elastic, a Barlow Regular, 83 px, cream);
+//   1. from black, "Brockley Live" fades in (Elastic, a Barlow Regular, 83 px, cream);
 //   2. it fades out to black, and after 0.2 s of black the song's title fades in (Outfit Bold,
 //      83 px, letters 33 % apart, capitals, in the title's colour);
 //   3. the title fades out, the video fades in from black, and a strip along the bottom
@@ -15,7 +15,7 @@ export const WIDTH = 1920;
 export const HEIGHT = 1080;
 export const FONT_FAMILY = "Outfit";
 export const CREAM = "#f3ead8";
-export const BRAND_TEXT = "BROCKLEY LIVE";
+export const BRAND_TEXT = "Brockley Live";   // in Elastic, not capitals (user, 2026-11-21)
 
 export const CARD_SIZE = 83;
 export const CARD_TRACKING = 0.33;
@@ -23,8 +23,9 @@ export const CARD_MAX_WIDTH = 1632;
 export const CAP_HEIGHT = 0.706;
 /** How a card is set: the CSS font family and weight, letter spacing (fraction of the size), capitals' height. */
 export const TITLE_STYLE = { family: FONT_FAMILY, weight: 700, tracking: CARD_TRACKING, capHeight: CAP_HEIGHT };
-// "BROCKLEY LIVE" (user, 2026-11-21): "Elastic" (Barlow-Elastic.otf, a Barlow Regular), no extra letter spacing.
-export const BRAND_STYLE = { family: "Elastic", weight: 400, tracking: 0, capHeight: 0.7 };
+// "Brockley Live" (user, 2026-11-21): "Elastic" (Barlow-Elastic.otf, a Barlow Regular), no extra letter spacing.
+// shaped: drawn as one string, so the font's contextual alternates (its stretched letters) apply.
+export const BRAND_STYLE = { family: "Elastic", weight: 400, tracking: 0, capHeight: 0.7, shaped: true };
 
 export const DETAIL_SIZE = 38;
 export const DETAIL_LINE_SPACING = 54;
@@ -165,16 +166,24 @@ function drawRow(context, style, text, size, tracking, rowX, baseline) {
 }
 
 /**
- * A centred card ("BROCKLEY LIVE" in BRAND_STYLE, or the title), cleared first.
+ * A centred card ("Brockley Live" in BRAND_STYLE, or the title), cleared first.
  * @param {CanvasRenderingContext2D} context @param {string} text @param {string} colour @param {typeof TITLE_STYLE} [style]
  */
 export function drawCard(context, text, colour, style = TITLE_STYLE) {
   context.clearRect(0, 0, WIDTH, HEIGHT);
   if (!text) return;
+  context.fillStyle = colour;
+  if (style.shaped) {                      // the whole string: the browser's shaper picks the alternates (as the render's raqm)
+    context.font = `${style.weight} ${CARD_SIZE}px ${style.family}`;
+    context.textAlign = "left";
+    context.textBaseline = "alphabetic";
+    const width = context.measureText(text).width;
+    context.fillText(text, (WIDTH - width) / 2, cardBaseline(CARD_SIZE, style.capHeight));
+    return;
+  }
   const advance = canvasAdvance(context, style);
   const size = cardSize(text, advance, style.tracking);
   const { width } = letterPositions(text, size, style.tracking, advance);
-  context.fillStyle = colour;
   drawRow(context, style, text, size, style.tracking, (WIDTH - width) / 2, cardBaseline(size, style.capHeight));
 }
 

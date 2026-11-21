@@ -1,6 +1,6 @@
 // Step 3, the title (docs/editor-plan.md section 5b): first where the video starts and ends
 // (user, 2026-11-21: the clap and the count-in stay in the edit but not in the video), then
-// the title sequence that opens the video (user, 2026-11-21): "BROCKLEY LIVE" from black,
+// the title sequence that opens the video (user, 2026-11-21): "Brockley Live" from black,
 // the song's title in its colour, then the video with the names on a strip along the bottom
 // for "Names stay for" seconds. Drawn in the preview by title/title-layout.js and in the
 // video by hub/ingest/title_render.py.
@@ -28,7 +28,7 @@ export function TitlePanel({ store, transport }) {
           <input type="checkbox" checked=${title.on} onChange=${event => set({ on: event.target.checked })} />
           <span class="row-title">Open with the title sequence</span>
         </label>
-        <p class="look-hint">From black: BROCKLEY LIVE, then the title, then the video fades in at ${VIDEO_IN[0]} s
+        <p class="look-hint">From black: Brockley Live, then the title, then the video fades in at ${VIDEO_IN[0]} s
           with the names on a strip along the bottom. The music plays underneath from the video's start.</p>
       </div>
       <fieldset class="look-section title-fields" disabled=${!title.on}>

@@ -2,7 +2,7 @@
 
 With the title on, every video opens the same way, timed from the start of the video:
 
-  1. from black, "BROCKLEY LIVE" fades in (Elastic, a Barlow Regular, 83 px, cream);
+  1. from black, "Brockley Live" fades in (Elastic, a Barlow Regular, 83 px, cream);
   2. it fades out to black, and after 0.2 s of black the song's title fades in (Outfit Bold,
      83 px, letters 33 % apart, capitals, in the title's colour);
   3. the title fades out, the video fades in from black, and a strip along the bottom
@@ -22,16 +22,19 @@ import os
 
 WIDTH, HEIGHT = 1920, 1080
 FONT = "Outfit-Bold.ttf"          # the title card and the strip
-BRAND_FONT = "Barlow-Elastic.otf" # "BROCKLEY LIVE" (user, 2026-11-21: "Elastic", a Barlow Regular)
-CREAM = "#f3ead8"                 # "BROCKLEY LIVE" and the strip's text (user: a creamy white)
-BRAND_TEXT = "BROCKLEY LIVE"
+BRAND_FONT = "Barlow-Elastic.otf" # "Brockley Live" (user, 2026-11-21: "Elastic", a Barlow Regular)
+CREAM = "#f3ead8"                 # "Brockley Live" and the strip's text (user: a creamy white)
+BRAND_TEXT = "Brockley Live"         # in Elastic, not capitals (user, 2026-11-21)
 
 CARD_SIZE = 83                    # px in the 1920x1080 picture (user: about 83 points)
 CARD_TRACKING = 0.33              # the title's letter spacing, as a fraction of the size (user: about 33 %)
 CARD_MAX_WIDTH = 1632             # a longer title gets a smaller size until it fits (144 px each side)
 CAP_HEIGHT = 0.706                # Outfit's capitals, as a fraction of the size (centring)
-BRAND_TRACKING = 0.0              # "BROCKLEY LIVE": no extra letter spacing (user, 2026-11-21)
+BRAND_TRACKING = 0.0              # "Brockley Live": no extra letter spacing (user, 2026-11-21)
 BRAND_CAP_HEIGHT = 0.700          # Elastic's capitals
+# Elastic's look is its contextual alternates (calt: stretched A, E, H, R, a, m ... chosen by
+# the letters around them), so "Brockley Live" is shaped (HarfBuzz through Pillow's raqm
+# layout), not placed letter by letter: word by word, as the browser's canvas shapes it.
 
 DETAIL_SIZE = 38                  # the strip's text (user: much smaller), left-aligned at DETAIL_LEFT
 DETAIL_LINE_SPACING = 54          # baseline to baseline
@@ -43,7 +46,7 @@ DETAIL_MAX_WIDTH = 1632
 
 # The sequence, in seconds from the start of the video: (start, length). Stages one and two
 # were cut to 75 % of 4 s and 5 s (user, 2026-11-21), with 0.2 s of black between them.
-BRAND_IN = (0.0, 0.75)            # "BROCKLEY LIVE" fades in from black
+BRAND_IN = (0.0, 0.75)            # "Brockley Live" fades in from black
 BRAND_OUT = (2.25, 0.75)          # and out to black: gone at 3.0 s
 TITLE_IN = (3.2, 0.75)            # 0.2 s of black, then the title fades in
 TITLE_OUT = (6.2, 0.75)           # and out: gone at 6.95 s
@@ -123,19 +126,43 @@ def strip_layout(lines):
 
 # -- the cards as images (Pillow)
 class Letters:
-    """One font file at any size, for measuring and drawing single letters."""
+    """One font file at any size, for measuring and drawing single letters, or (shaped=True)
+    whole strings shaped with HarfBuzz (raqm; libraqm0 on the hub; where it's missing, e.g. a
+    Mac's Pillow, the plain layout: no alternates)."""
 
-    def __init__(self, fonts_dir, font=FONT):
-        from PIL import ImageFont                  # only where titles are rendered (python3-pil on the hub)
+    def __init__(self, fonts_dir, font=FONT, shaped=False):
+        from PIL import ImageFont, features         # only where titles are rendered (python3-pil on the hub)
         self.ImageFont = ImageFont
         self.path = os.path.join(fonts_dir, font)
+        self.shaped = shaped and features.check("raqm")
+        self.layout = ImageFont.Layout.RAQM if self.shaped else ImageFont.Layout.BASIC
         self.fonts = {}
         self.widths = {}
 
     def font(self, size):
         if size not in self.fonts:
-            self.fonts[size] = self.ImageFont.truetype(self.path, size, layout_engine=self.ImageFont.Layout.BASIC)
+            self.fonts[size] = self.ImageFont.truetype(self.path, size, layout_engine=self.layout)
         return self.fonts[size]
+
+    def words(self, text, size):
+        """[(word, x)] and the width of a shaped string, word by word: each word is shaped on
+        its own and the spaces are plain advances, as Chrome's canvas does (it shapes and caches
+        words separately), so the alternates the preview shows are the ones rendered.
+        Measured at 100x the size, as advance."""
+        big = self.font(size * MEASURE_SCALE)
+        space = big.getlength(" ") / MEASURE_SCALE
+        placed, x = [], 0.0
+        for index, word in enumerate(text.split(" ")):
+            if index:
+                x += space
+            if word:
+                placed.append((word, x))
+                x += big.getlength(word) / MEASURE_SCALE
+        return placed, x
+
+    def text_width(self, text, size):
+        """A shaped string's width in px (word by word, see words)."""
+        return self.words(text, size)[1]
 
     def advance(self, letter, size):
         key = (letter, size)
@@ -156,6 +183,10 @@ def _text_layer(letters, rows, box, colour):
     mask = Image.new("L", (w, h), 0)
     draw = ImageDraw.Draw(mask)
     for text, size, tracking, row_x, baseline in rows:
+        if letters.shaped:                          # word by word, the alternates chosen by HarfBuzz
+            for word, x in letters.words(text, size)[0]:
+                draw.text((row_x + x - x0, baseline - y0), word, fill=255, font=letters.font(size), anchor="ls")
+            continue
         positions, _ = letter_positions(text, size, tracking, letters.advance)
         for letter, x in positions:
             if not letter.isspace():
@@ -169,8 +200,11 @@ def card_image(letters, text, colour, tracking=CARD_TRACKING, cap_height=CAP_HEI
     """(image, x, y): a centred card's text, cropped to its box, or None for no text."""
     if not text:
         return None
-    size = card_size(text, letters.advance, tracking)
-    _, width = letter_positions(text, size, tracking, letters.advance)
+    if letters.shaped:                              # "Brockley Live": a fixed text, always fits
+        size, width = CARD_SIZE, letters.text_width(text, CARD_SIZE)
+    else:
+        size = card_size(text, letters.advance, tracking)
+        _, width = letter_positions(text, size, tracking, letters.advance)
     row_x = (WIDTH - width) / 2
     baseline = card_baseline(size, cap_height)
     x0, y0 = max(0, int(row_x) - 16), baseline - int(size * 1.1)
@@ -229,7 +263,7 @@ def sequence_cards(title, work_dir, fonts_dir):
     letters = Letters(fonts_dir)
     out_start, out = TITLE_OUT
     cards = [
-        ("title-brand.png", card_image(Letters(fonts_dir, BRAND_FONT), BRAND_TEXT, CREAM, BRAND_TRACKING, BRAND_CAP_HEIGHT), fade_chain(BRAND_IN[0], BRAND_IN[1], BRAND_OUT[0], BRAND_OUT[1])),
+        ("title-brand.png", card_image(Letters(fonts_dir, BRAND_FONT, shaped=True), BRAND_TEXT, CREAM, BRAND_TRACKING, BRAND_CAP_HEIGHT), fade_chain(BRAND_IN[0], BRAND_IN[1], BRAND_OUT[0], BRAND_OUT[1])),
         ("title-title.png", card_image(letters, title_text(title), title.get("colour") or CREAM),
          fade_chain(TITLE_IN[0], TITLE_IN[1], out_start, out)),
         ("title-strip.png", strip_image(letters, lines_below(title)),

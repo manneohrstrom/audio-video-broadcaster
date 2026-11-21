@@ -67,7 +67,8 @@ class TitleSequenceTest(unittest.TestCase):
     def test_brockley_live_in_cream_on_black_centred(self):
         frame = self.frames[1.5]
         lit = frame.sum(axis=2) > 300
-        top, bottom = np.where(lit.any(axis=1))[0][[0, -1]]
+        first = np.where(lit.any(axis=0))[0][0]                 # the capital B: "Brockley Live" isn't all capitals
+        top, bottom = np.where(lit[:, first:first + 30].any(axis=1))[0][[0, -1]]
         baseline = title_render.card_baseline(title_render.CARD_SIZE, title_render.BRAND_CAP_HEIGHT)
         self.assertAlmostEqual(bottom, baseline, delta=3)
         self.assertAlmostEqual(top, baseline - title_render.BRAND_CAP_HEIGHT * title_render.CARD_SIZE, delta=4)
@@ -97,6 +98,31 @@ class TitleSequenceTest(unittest.TestCase):
         text_columns = np.where((frame[top:].sum(axis=2) > 500).any(axis=0))[0]
         self.assertAlmostEqual(text_columns[0], title_render.DETAIL_LEFT, delta=4)   # left-aligned
         self.assertAlmostEqual(self.frames[12.9][top + 4, 40].mean(), 120, delta=6)   # gone
+
+
+def has_raqm():
+    try:
+        from PIL import features
+        return features.check("raqm")
+    except ImportError:
+        return False
+
+
+@unittest.skipUnless(has_raqm(), "no raqm (HarfBuzz) in this Pillow: the hub has it")
+class ElasticShapingTest(unittest.TestCase):
+    def test_brockley_live_uses_the_alternates(self):
+        """Elastic's look is its contextual alternates: shaped, "Brockley Live" is wider than
+        the plain letters (627 against 561 px at 83 px) and its card is drawn shaped."""
+        shaped = title_render.Letters(FONTS, title_render.BRAND_FONT, shaped=True)
+        plain = title_render.Letters(FONTS, title_render.BRAND_FONT)
+        self.assertTrue(shaped.shaped)
+        width = shaped.text_width(title_render.BRAND_TEXT, title_render.CARD_SIZE)
+        plain_width = title_render.letter_positions(title_render.BRAND_TEXT, title_render.CARD_SIZE, 0, plain.advance)[1]
+        self.assertGreater(width, plain_width + 30)
+        image, x, _ = title_render.card_image(shaped, title_render.BRAND_TEXT, title_render.CREAM, 0, title_render.BRAND_CAP_HEIGHT)
+        columns = np.where(np.asarray(image)[:, :, 3].max(axis=0) > 128)[0]
+        self.assertAlmostEqual(columns[-1] - columns[0], width, delta=12)
+        self.assertAlmostEqual(x + (columns[0] + columns[-1]) / 2, W / 2, delta=8)
 
 
 class TitleGraphTest(unittest.TestCase):

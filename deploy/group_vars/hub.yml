@@ -5,6 +5,7 @@ pinned_packages_group:
   python3-opencv: "4.10.0+dfsg-5"
   python3-numpy: "1:2.2.4+ds-1"   # render (edit_render.py), grade.py, add_overlay.py
   python3-pil: "11.1.0-5+deb13u4"   # the title cards (title_render.py: Outfit with letter spacing)
+  libraqm0: "0.10.2-1"              # Pillow's text shaping: Elastic's contextual alternates (title_render.py)
   alsa-utils: "1.2.14-1+rpt1"
 hubd_port: 80
 hubd_sync_server: cam1
