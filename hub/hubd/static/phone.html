@@ -106,26 +106,83 @@
   #identify.on { display: grid; }
   @keyframes pulse { 50% { opacity: 0.55; } }
 
-  /* Tripod page: black, nothing to press, the name in big type repeated all over the screen
-     (user, 2026-11-21: the clamp hides the middle). The video stays full size (calibration and
-     the hub's stills read it; Chrome may pause a video it thinks is hidden), covered by the
-     black screen. While recording the names turn a dim red. */
-  #tripod { display: none; }
+  /* Tripod page (user, 2026-11-21): black, the phone's name once, small and dim, nothing to
+     press but one key. Between takes "aim" shows the picture with framing guides and a level,
+     for placing the phone. While recording a little tape deck runs (reels, counter), dim and
+     small so it costs no battery and barely shows on the other cameras' footage. Everything
+     drifts a little every minute so a screen left on for hours doesn't burn in. The video
+     stays full size under the black cover (calibration and the hub's stills read it; Chrome may
+     pause a video it thinks is hidden). Animation is a few attribute changes a second from
+     JS, no CSS animations: nothing redraws 60 times a second. */
+  #tripod, #aimview { display: none; }
   html.tripod, html.tripod body { background: #000; }
   html.tripod .controls, html.tripod #state { display: none; }
   html.tripod .cam { display: block; }
   html.tripod .viewfinder { position: fixed; inset: 0; }
   html.tripod video { width: 100%; height: 100%; max-height: none; object-fit: contain; }
-  html.tripod #tripod { position: fixed; inset: 0; z-index: 10; display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr);
-                        grid-auto-rows: 1fr; background: #000; color: #57524c; user-select: none; -webkit-user-select: none;
-                        touch-action: none; -webkit-tap-highlight-color: transparent; transition: opacity 3s linear; }
-  #tripod .tile { display: grid; place-content: center; justify-items: center; gap: 0.3em; min-width: 0; overflow: hidden; }
-  #tripod .tile b { font-size: var(--tsize, 40px); font-weight: 700; line-height: 1; white-space: nowrap; letter-spacing: 0.02em; }
-  #tripod .tile small { font-size: 13px; color: #3e3a36; text-align: center; max-width: 90%; }
-  #tripod .tile small:empty { display: none; }
-  #tripod.rec { color: #6e2a25; }
-  #tripod .err { color: #7a3a32; }
+  html.tripod #tripod { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: #000;
+                        color: #57524c; user-select: none; -webkit-user-select: none; touch-action: none;
+                        -webkit-tap-highlight-color: transparent; transition: opacity 3s linear; }
   #tripod.holding { opacity: 0.3; }
+  html.tripod #tripod.aiming { display: none; }
+  #tripod .idle { display: grid; justify-items: center; gap: 12px; }
+  #tripod .drift { display: grid; justify-items: center; gap: 10px; text-align: center; max-width: 86vw;
+                   transition: transform 4s ease-in-out; }
+  #tripod .tname { font-size: clamp(28px, 7vw, 64px); font-weight: 700; line-height: 1; letter-spacing: 0.02em; white-space: nowrap; }
+  #tripod .hint { font-size: 14px; color: #4a4540; }
+  #tripod .hint.err { color: #7a3a32; }
+  #tripod .hint:empty, #tripod .saying:empty { display: none; }
+  #tripod .saying { font-size: 13px; font-style: normal; color: #34312d; max-width: 60ch; line-height: 1.4; }
+  #tripod .deck { display: none; justify-items: center; gap: 6px; color: #6e2a25; }
+  #tripod.rec .deck, #tripod.send .deck { display: grid; }
+  #tripod.rec .idle, #tripod.send .idle { display: none; }
+  #tripod .reels { width: min(46vw, 260px); height: auto; overflow: visible; }
+  #tripod .reels .rim { fill: none; stroke: currentColor; stroke-width: 1.5; }
+  #tripod .reels .pack { fill: #2a1210; }
+  #tripod .reels .hub { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
+  #tripod .reels .band { fill: none; stroke: #3d1a17; stroke-width: 1; }
+  #tripod .counter { display: flex; align-items: baseline; gap: 12px; font-size: 13px; letter-spacing: 0.12em; }
+  #tripod .counter b { font-family: "DSEG7", monospace; font-size: clamp(20px, 4.5vw, 34px); font-weight: 700; letter-spacing: 0.04em; }
+  #tripod .dot { width: 9px; height: 9px; border-radius: 50%; background: #8a2e26; align-self: center; }
+  #tripod .dot.off { background: #2a1210; }
+  #tripod .side { border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; }
+  #tripod .small { font-size: 12px; color: #4a2420; letter-spacing: 0.08em; }
+  #tripod.send .deck { color: #6a5424; }
+  #tripod.send .dot { background: #8a6a24; }
+  #tripod.send .reels .pack { fill: #2a2210; }
+  #tripod.send .reels .band { stroke: #3d3317; }
+
+  /* The round key at the bottom: "aim" between takes, "done" in aim mode */
+  .tkey { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 12;
+          width: 88px; height: 88px; border-radius: 50%; display: grid; place-content: center; justify-items: center; gap: 4px;
+          background: #0b0a09; color: #6b655d; border: 1.5px solid #2e2b28; box-shadow: none; padding: 0; min-height: 0;
+          font-size: 12px; font-weight: 600; letter-spacing: 0.18em; -webkit-tap-highlight-color: transparent; }
+  .tkey svg { width: 26px; height: 26px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+  .tkey:active:not(:disabled) { transform: translateX(-50%) scale(0.94); }
+  .tkey[hidden] { display: none; }
+
+  /* Aim mode: the picture as it records, with thirds, corner marks, a centre cross and a level */
+  html.tripod #aimview.on { display: block; position: fixed; inset: 0; z-index: 11; pointer-events: none;
+                            color: rgba(255, 255, 255, 0.55); font-size: 13px; letter-spacing: 0.08em; }
+  #aimview .frame { position: absolute; }
+  #aimview .thirds { position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent calc(33.333% - 0.5px), rgba(255,255,255,0.28) calc(33.333% - 0.5px) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px) calc(66.667% - 0.5px), rgba(255,255,255,0.28) calc(66.667% - 0.5px) calc(66.667% + 0.5px), transparent calc(66.667% + 0.5px)),
+                linear-gradient(0deg, transparent calc(33.333% - 0.5px), rgba(255,255,255,0.28) calc(33.333% - 0.5px) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px) calc(66.667% - 0.5px), rgba(255,255,255,0.28) calc(66.667% - 0.5px) calc(66.667% + 0.5px), transparent calc(66.667% + 0.5px)); }
+  #aimview .corner { position: absolute; width: 28px; height: 28px; border: 0 solid rgba(255, 255, 255, 0.8); }
+  #aimview .corner.tl { left: 10px; top: 10px; border-width: 2px 0 0 2px; }
+  #aimview .corner.tr { right: 10px; top: 10px; border-width: 2px 2px 0 0; }
+  #aimview .corner.bl { left: 10px; bottom: 10px; border-width: 0 0 2px 2px; }
+  #aimview .corner.br { right: 10px; bottom: 10px; border-width: 0 2px 2px 0; }
+  #aimview .cross { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%);
+    background: linear-gradient(rgba(255,255,255,0.8), rgba(255,255,255,0.8)) center / 2px 100% no-repeat,
+                linear-gradient(rgba(255,255,255,0.8), rgba(255,255,255,0.8)) center / 100% 2px no-repeat; }
+  #aimview .level { position: absolute; left: 50%; top: 50%; width: 38%; height: 0; margin-left: -19%;
+                    border-top: 2px solid rgba(255, 196, 120, 0.85); transition: border-color 0.2s; }
+  #aimview .level.flat { border-top-color: #7dff9a; }
+  #aimview .level[hidden] { display: none; }
+  #aimview .label { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); padding: 5px 12px; border-radius: 999px;
+                    background: rgba(0, 0, 0, 0.55); white-space: nowrap; }
+  #aimview .label b { color: #fff; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -133,7 +190,29 @@
   <div class="viewfinder">
     <video id="preview" muted playsinline autoplay></video>
     <span id="state">off</span>
-    <div id="tripod"></div>
+    <div id="tripod">
+      <div class="drift">
+        <div class="idle"><span class="tname"></span><small class="hint"></small><i class="saying"></i></div>
+        <div class="deck" aria-label="recording">
+          <svg class="reels" viewBox="0 0 200 70" aria-hidden="true">
+            <path class="band" d="M 22 62 L 100 68 L 178 62"></path>
+            <g transform="translate(50 32)"><circle class="pack" r="20"></circle><circle class="rim" r="28"></circle>
+              <g class="hub"><circle r="6"></circle><path d="M 0 -6 V -12 M 5.2 3 L 10.4 6 M -5.2 3 L -10.4 6"></path></g></g>
+            <g transform="translate(150 32)"><circle class="pack" r="9"></circle><circle class="rim" r="28"></circle>
+              <g class="hub"><circle r="6"></circle><path d="M 0 -6 V -12 M 5.2 3 L 10.4 6 M -5.2 3 L -10.4 6"></path></g></g>
+          </svg>
+          <div class="counter"><span class="dot"></span><span class="what">REC</span><b class="time">0:00:00</b><span class="side">A</span></div>
+          <div class="small"></div>
+        </div>
+      </div>
+    </div>
+    <button id="aim" class="tkey" hidden aria-label="Aim: show the picture to place the phone">
+      <svg viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="8"></circle><path d="M13 1v6M13 19v6M1 13h6M19 13h6"></path></svg>AIM</button>
+    <div id="aimview">
+      <div class="frame"><div class="thirds"></div><span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span><span class="cross"></span><span class="level" hidden></span></div>
+      <div class="label"></div>
+    </div>
   </div>
   <div class="controls">
     <div class="who">
@@ -226,8 +305,10 @@ function msg(t, err) {
   $("msg").textContent = t || ""; $("msg").className = err ? "err" : "";
   if (t && changed) hublog({ev: "msg", t});          // the tripod page retries: log each message once
 }
+let onState = null;               // the tripod page follows the state (aim mode off at REC, the deck on)
 function setState(s) {
   S.state = s;
+  if (onState) onState(s);
   const label = {off: "off", ready: "ready", recording: "rec", finishing: "finishing", uploading: "uploading"}[s] || s;   // the pill has its own LED
   $("state").textContent = label;
   $("state").className = {recording: "rec", uploading: "up", finishing: "up", ready: "ready"}[s] || "";
@@ -756,46 +837,164 @@ setInterval(() => {
 // refused as a second tab until this one has been quiet for a few seconds.
 addEventListener("pagehide", () => { try { navigator.sendBeacon("/api/phone/bye", JSON.stringify({device: DEVICE, page: PAGE})); } catch (e) {} });
 
-// ---------- the tripod page: a dark screen with the phone's name in big type, repeated all
-// over it (the clamp hides some), nothing else. From the home-screen icon it needs no touch
-// at all; in a tab a tap goes full screen (Chrome needs one). Holding 3 s goes to the full
-// page (only between takes). Everything else is on the hub page.
+// ---------- the tripod page (user, 2026-11-21): a dark screen with the phone's name, a saying
+// and one key. "aim" (between takes) shows the picture with framing guides and a level; while
+// recording a small tape deck runs. From the home-screen icon it needs no touch at all; in a tab
+// a tap goes full screen (Chrome needs one). Holding 3 s goes to the full page (only between
+// takes). Everything else is on the hub page.
 if (TRIPOD) {
+  const T = $("tripod"), q = sel => T.querySelector(sel);
   const screenFull = () => document.fullscreenElement || matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches;
-  let drawn = "";
-  const drawTiles = () => {
+  const AIM_FOR_MS = 3 * 60 * 1000;           // aim mode closes by itself: a lit screen costs battery
+  const DRIFT_MS = 60 * 1000, SAYING_MS = 10 * 60 * 1000;
+  let aimUntil = 0, recSince = 0, saying = "", sayingAt = 0, pickQuote = null;
+  import("/hub/js/quotes.js").then(m => { pickQuote = m.pickQuote; }).catch(() => {});
+
+  // The idle screen: the name once (the phones stand where their whole screen can be seen)
+  const drawIdle = () => {
     const err = $("msg").className === "err" ? $("msg").textContent : "";
     const hint = err || (S.state === "off" ? (S.starting ? "" : "tap to start the camera")
       : !screenFull() ? "tap for full screen" : !S.hubOk ? "no hub" : "");
-    const wide = innerWidth > innerHeight, cols = wide ? 3 : 2, rows = wide ? 3 : 5, name = shownName();
-    const key = [name, hint, !!err, cols, innerWidth, innerHeight].join("|");
-    $("tripod").classList.toggle("rec", S.state === "recording");
-    if (key === drawn) return;
-    drawn = key;
-    // as big as fits a tile: about 0.58 em per character, at most half the tile's height
-    const size = Math.max(14, Math.min(innerWidth / cols * 0.9 / (name.length * 0.58), innerHeight / rows * 0.5));
-    $("tripod").style.setProperty("--cols", cols);
-    $("tripod").style.setProperty("--tsize", Math.floor(size) + "px");
-    const tile = `<div class="tile"><b>${esc(name)}</b><small${err ? ' class="err"' : ""}>${esc(hint)}</small></div>`;
-    $("tripod").innerHTML = tile.repeat(cols * rows);
+    if (pickQuote && (!saying || performance.now() - sayingAt > SAYING_MS)) {
+      const qt = pickQuote(); saying = qt.text + (qt.by ? " — " + qt.by : ""); sayingAt = performance.now();
+    }
+    if (q(".tname").textContent !== shownName()) q(".tname").textContent = shownName();
+    if (q(".hint").textContent !== hint) q(".hint").textContent = hint;
+    q(".hint").classList.toggle("err", !!err);
+    const showSaying = hint ? "" : saying;
+    if (q(".saying").textContent !== showSaying) q(".saying").textContent = showSaying;
+    $("aim").hidden = S.state !== "ready";
   };
-  setInterval(drawTiles, 500);
-  addEventListener("resize", drawTiles);
+
+  // The tape deck: the tape winds from left to right over 30 min, then the cassette turns over
+  // (side A, B, A ...). The reels turn a step at a time, the fuller one slower, like real tape.
+  // After STOP, while the chunks still go to the hub, it rewinds in amber ("SEND").
+  const SIDE_S = 30 * 60, R_EMPTY = 8, R_FULL = 21;
+  const reels = Array.from(q(".reels").querySelectorAll(":scope > g"));
+  const angle = [0, 0];
+  let blink = 0;
+  const packRadius = share => Math.sqrt(R_EMPTY ** 2 + (R_FULL ** 2 - R_EMPTY ** 2) * share);
+  const drawDeck = () => {
+    const sending = S.state === "finishing" || S.state === "uploading";
+    const secs = (performance.now() - recSince) / 1000;
+    const wound = sending ? 0.5 : (secs % SIDE_S) / SIDE_S;
+    const radii = [packRadius(1 - wound), packRadius(wound)];
+    reels.forEach((g, i) => {
+      angle[i] = (angle[i] + (sending ? -1 : 1) * 160 / radii[i]) % 360;
+      g.querySelector(".pack").setAttribute("r", radii[i].toFixed(1));
+      g.querySelector(".hub").setAttribute("transform", `rotate(${angle[i].toFixed(0)})`);
+    });
+    blink = (blink + 1) % 8;
+    q(".dot").classList.toggle("off", blink >= 4);
+    q(".what").textContent = sending ? "SEND" : "REC";
+    if (!sending) {
+      q(".time").textContent = hms(secs).replace(/^0/, "");
+      q(".side").textContent = Math.floor(secs / SIDE_S) % 2 ? "B" : "A";
+    }
+    q(".small").textContent = sending ? (S.queue.length ? S.queue.length + " left" : "")
+      : shownName() + (S.missing ? " · " + S.missing + " dropped" : "");
+  };
+
+  // A little drift every minute, so nothing stays lit on the same pixels for hours
+  const drift = () => {
+    const dx = (Math.random() * 2 - 1) * innerWidth * 0.12, dy = (Math.random() * 2 - 1) * innerHeight * 0.12;
+    q(".drift").style.transform = `translate(${dx.toFixed(0)}px, ${dy.toFixed(0)}px)`;
+  };
+  setInterval(drift, DRIFT_MS);
+
+  // Aim mode: the black cover off, the guides on the picture's own rectangle
+  const isAiming = () => T.classList.contains("aiming");
+  const motion = e => {
+    const g = e.accelerationIncludingGravity;
+    if (!g || g.x === null) return;
+    // The device's tilt from upright, then the screen's turn on top of it; mod 90 whichever
+    // way round it stands (Chrome's angle convention doesn't matter then).
+    let tilt = Math.atan2(-g.x, g.y) * 180 / Math.PI + ((screen.orientation && screen.orientation.angle) || 0);
+    tilt -= 90 * Math.round(tilt / 90);
+    S.tilt = S.tilt === undefined ? tilt : S.tilt * 0.8 + tilt * 0.2;
+  };
+  const drawAim = () => {
+    const v = $("preview"), W = innerWidth, H = innerHeight;
+    const scale = v.videoWidth ? Math.min(W / v.videoWidth, H / v.videoHeight) : 1;
+    const w = v.videoWidth ? v.videoWidth * scale : W, h = v.videoWidth ? v.videoHeight * scale : H;
+    Object.assign($("aimview").querySelector(".frame").style, {left: (W - w) / 2 + "px", top: (H - h) / 2 + "px", width: w + "px", height: h + "px"});
+    const level = $("aimview").querySelector(".level");
+    level.hidden = S.tilt === undefined;
+    if (S.tilt !== undefined) {
+      level.style.transform = `rotate(${(-S.tilt).toFixed(1)}deg)`;
+      level.classList.toggle("flat", Math.abs(S.tilt) < 0.7);
+    }
+    const left = Math.max(0, Math.ceil((aimUntil - performance.now()) / 1000));
+    const tilt = S.tilt === undefined ? "" : ` · level ${Math.abs(S.tilt) < 0.7 ? "✓" : S.tilt.toFixed(1) + "°"}`;
+    $("aimview").querySelector(".label").innerHTML =
+      `<b>${esc(shownName())}</b> · ${v.videoWidth}×${v.videoHeight}${tilt} · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  };
+  const openAim = () => {
+    if (S.state !== "ready" || isAiming()) return;
+    aimUntil = performance.now() + AIM_FOR_MS;
+    S.tilt = undefined;
+    addEventListener("devicemotion", motion);
+    T.classList.add("aiming");
+    $("aimview").classList.add("on");
+    $("aim").hidden = false;
+    $("aim").innerHTML = `<svg viewBox="0 0 26 26" aria-hidden="true"><path d="M5 13.5l5 5L21 7"></path></svg>DONE`;
+    $("aim").setAttribute("aria-label", "Done: back to the dark screen");
+    drawAim();
+    hublog({ev: "aim", on: true});
+  };
+  const closeAim = () => {
+    if (!isAiming()) return;
+    removeEventListener("devicemotion", motion);
+    T.classList.remove("aiming");
+    $("aimview").classList.remove("on");
+    $("aim").innerHTML = `<svg viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="8"></circle><path d="M13 1v6M13 19v6M1 13h6M19 13h6"></path></svg>AIM`;
+    $("aim").setAttribute("aria-label", "Aim: show the picture to place the phone");
+    hublog({ev: "aim", on: false});
+  };
+  $("aim").addEventListener("pointerdown", e => e.stopPropagation());
+  $("aim").addEventListener("click", e => { e.stopPropagation(); if (isAiming()) closeAim(); else { if (!screenFull()) fullScreen(); openAim(); } });
+
+  // One clock for all of it: twice a second idle (text only changes when it must), eight times
+  // a second while the deck runs, ten while aiming. REC closes aim mode at once (onState).
+  let lastState = S.state;
+  onState = s => {
+    if (s !== "ready") closeAim();
+    $("aim").hidden = s !== "ready";
+    if (s === "recording" && lastState !== "recording") recSince = performance.now();
+    lastState = s;
+    T.classList.toggle("rec", s === "recording");
+    T.classList.toggle("send", s === "finishing" || s === "uploading");
+  };
+  let ticks = 0;
+  const tick = () => {
+    ticks++;
+    const deck = T.classList.contains("rec") || T.classList.contains("send");
+    if (isAiming()) {
+      if (ticks % 4 === 0) drawIdle();          // keeps the key's state
+      if (S.state !== "ready" || performance.now() > aimUntil || document.visibilityState !== "visible") closeAim();
+      else drawAim();
+    } else if (deck) drawDeck();
+    else if (ticks % 4 === 0) drawIdle();
+  };
+  setInterval(tick, 125);
+  addEventListener("resize", () => { drawIdle(); if (isAiming()) drawAim(); });
+  drawIdle();
+
   let hold = null;
-  const letGo = () => { clearTimeout(hold); hold = null; $("tripod").classList.remove("holding"); };
-  $("tripod").addEventListener("pointerdown", () => {
-    $("tripod").classList.add("holding");
+  const letGo = () => { clearTimeout(hold); hold = null; T.classList.remove("holding"); };
+  T.addEventListener("pointerdown", () => {
+    T.classList.add("holding");
     hold = setTimeout(() => {
       letGo();
       if ((S.state === "ready" || S.state === "off") && !S.queue.length) location.href = "/phone";
     }, 3000);
   });
-  $("tripod").addEventListener("pointerup", () => {
+  T.addEventListener("pointerup", () => {
     if (!hold) return;
     letGo();
     if (S.state === "off") startCamera(); else if (!screenFull()) fullScreen();
   });
-  $("tripod").addEventListener("pointercancel", letGo);
+  T.addEventListener("pointercancel", letGo);
 }
 if (!TRIPOD) {                  // the handheld page checks in only once its camera starts: ask for its name now
   fetch("/api/phone/me/" + DEVICE).then(r => r.json()).then(j => {

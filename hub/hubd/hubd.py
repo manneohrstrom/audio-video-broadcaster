@@ -34,7 +34,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.47.0"
+VERSION = "0.48.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
