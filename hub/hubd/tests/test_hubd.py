@@ -823,5 +823,18 @@ class DeleteTakeTest(unittest.TestCase):
         self.assertEqual(self.refused(), ["its drive isn't plugged in"])
 
 
+
+class StaticTypesTest(unittest.TestCase):
+    def test_every_shared_vendor_file_has_a_type(self):
+        """The hub serves only the types it knows: a font of a new kind (2026-11-21: .otf) was
+        a 404, and the editor's preview fell back to Times."""
+        folder = os.path.join(os.path.dirname(HERE), "static", "shared", "vendor")
+        for root, _, files in os.walk(folder):
+            for name in files:
+                if name.startswith("."):
+                    continue
+                self.assertIn(os.path.splitext(name)[1].lower(), hubd.STATIC_TYPES, os.path.join(root, name))
+
+
 if __name__ == "__main__":
     unittest.main()

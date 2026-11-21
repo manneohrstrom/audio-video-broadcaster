@@ -41,9 +41,10 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
       drawStrip(stripRef.current.getContext("2d"), linesBelow(store.title));
     };
     draw();
-    Promise.all([document.fonts.load(`700 ${CARD_SIZE}px ${FONT_FAMILY}`), document.fonts.load(`700 ${DETAIL_SIZE}px ${FONT_FAMILY}`),
-                 document.fonts.load(`${BRAND_STYLE.weight} ${CARD_SIZE}px ${BRAND_STYLE.family}`)])
-      .then(draw, () => {});
+    // allSettled: a font that doesn't load (2026-11-21: the hub didn't serve .otf) mustn't keep the others from showing.
+    Promise.allSettled([document.fonts.load(`700 ${CARD_SIZE}px ${FONT_FAMILY}`), document.fonts.load(`700 ${DETAIL_SIZE}px ${FONT_FAMILY}`),
+                        document.fonts.load(`${BRAND_STYLE.weight} ${CARD_SIZE}px ${BRAND_STYLE.family}`)])
+      .then(draw);
   }, [titleKey]);
 
   useEffect(() => {

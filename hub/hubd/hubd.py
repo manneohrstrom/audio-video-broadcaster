@@ -34,7 +34,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.53.0"
+VERSION = "0.53.1"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -1281,7 +1281,8 @@ class Hub:
 
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json",
                 ".css": "text/css", ".svg": "image/svg+xml", ".ico": "image/x-icon",
-                ".woff2": "font/woff2", ".ttf": "font/ttf", ".txt": "text/plain; charset=utf-8",   # editor fonts and their licences
+                ".woff2": "font/woff2", ".ttf": "font/ttf", ".otf": "font/otf",       # editor fonts
+                ".txt": "text/plain; charset=utf-8",                                     # and their licences
                 ".png": "image/png",                                           # the brand frame
                 ".webmanifest": "application/manifest+json"}                   # the tripod page on the home screen
 
