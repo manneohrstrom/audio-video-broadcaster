@@ -79,6 +79,7 @@
       state_dir: /var/lib/hubd
       lamp: "{{ hubd_lamp }}"
       scratch: "{{ hubd_scratch }}"
+      phone_picture: "{{ hubd_phone_picture }}"
   notify: Restart hubd
 
 - name: hubd systemd unit

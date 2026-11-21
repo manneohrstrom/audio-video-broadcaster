@@ -576,7 +576,7 @@ class SnapshotTest(unittest.TestCase):
         self.hub.set_camera_settings("cam2", {"lens_position": 0.8})
         jpg, info = self.hub.snap("cam2")
         self.assertIn(b'"lens_position": 0.8', jpg)
-        self.assertEqual((info["source"], info["settings"]), ("still", {"lens_position": 0.8, "shutter_us": 20000}))
+        self.assertEqual((info["source"], info["settings"]), ("still", {"lens_position": 0.8}))
         jpg, _ = self.hub.snap("cam2", {"lens_position": 1.4})
         self.assertIn(b'"lens_position": 1.4', jpg)
         self.assertEqual(self.hub.cam_settings["cam2"], {"lens_position": 0.8})   # a try isn't saved
@@ -592,38 +592,10 @@ class SnapshotTest(unittest.TestCase):
         self.assertEqual(again.cam_settings, {"cam1": {"lens_position": 0.5}})
         self.hub.rec()
         arms = {n: b for n, p, b in self.rig.bodies if p == "/take/arm"}
-        self.assertEqual(arms["cam1"]["settings"], {"lens_position": 0.5, "shutter_us": 20000})
-        self.assertEqual(arms["cam2"]["settings"], {"shutter_us": 20000})     # the rig's shutter, always
+        self.assertEqual(arms["cam1"]["settings"], {"lens_position": 0.5})
+        self.assertNotIn("settings", arms["cam2"])
         with self.assertRaises(hubd.Refused):
             self.hub.snap("cam1")                      # never during a take
-        self.hub.stop()
-
-    def test_picture_shutter_reaches_takes_stills_and_live(self):
-        self.hub.set_camera_settings("cam1", {"gain": 6.0, "lens_position": 0.5})
-        for bad in ({"pi_shutter_us": 25000}, {"phones": "manual"}, {"iso": 100}):
-            with self.assertRaises(ValueError):
-                self.hub.set_picture(bad)
-        out = self.hub.set_picture({"pi_shutter_us": 30000, "phones": "auto"})
-        self.assertEqual(out, {"pi_shutter_us": 30000, "phones": "auto"})
-        self.assertEqual(self.hub.cam_settings["cam1"]["gain"], 4.0)         # same brightness at 1.5x the light
-        again = hubd.Hub(self.cfg, nodes=self.rig, sleep=lambda s: None)
-        self.assertEqual(again.picture, out)
-        self.assertEqual(again.cam_settings["cam1"]["gain"], 4.0)
-        jpg, _ = self.hub.snap("cam2")
-        self.assertIn(b'"shutter_us": 30000', jpg)
-        self.hub.live(True)
-        self.assertEqual(self.rig.st["cam1"]["live_settings"],
-                         {"gain": 4.0, "lens_position": 0.5, "shutter_us": 30000})
-        self.assertEqual(self.rig.st["cam2"]["live_settings"], {"shutter_us": 30000})
-        self.hub.set_picture({"pi_shutter_us": 20000})                        # back, on the running streams
-        self.assertEqual(self.rig.st["cam1"]["live_settings"]["shutter_us"], 20000)
-        self.assertEqual(self.rig.st["cam1"]["live_settings"]["gain"], 6.0)
-        self.hub.live(False)
-        self.hub.rec()
-        arms = {n: b for n, p, b in self.rig.bodies if p == "/take/arm"}
-        self.assertEqual(arms["cam3"]["settings"], {"shutter_us": 20000})
-        with self.assertRaises(hubd.Refused):
-            self.hub.set_picture({"pi_shutter_us": 30000})                    # not during a take
         self.hub.stop()
 
     def test_offline_and_unknown_cameras(self):
@@ -648,6 +620,12 @@ class SnapshotTest(unittest.TestCase):
             with self.assertRaises(hubd.Refused):
                 self.hub.still("cam1", auto=True)
         self.hub.still("cam1", auto=True)          # free again afterwards
+
+    def test_phone_picture_comes_from_the_config(self):
+        body = {"device": "phone-pp01", "page": "abcdefgh1", "state": "ready"}
+        self.assertEqual(self.hub.phone_poll(body)["picture"], "auto")      # the default
+        self.cfg["phone_picture"] = "locked"
+        self.assertEqual(self.hub.phone_poll(body)["picture"], "locked")
 
     def test_phone_stills(self):
         ph = self.hub.phones

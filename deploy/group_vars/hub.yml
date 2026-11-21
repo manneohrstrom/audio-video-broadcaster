@@ -9,6 +9,9 @@ pinned_packages_group:
   alsa-utils: "1.2.14-1+rpt1"
 hubd_port: 80
 hubd_sync_server: cam1
+# Phones' picture: auto (their own exposure and white balance, also during a take) or
+# locked (card calibration, or a lock at REC). User, 2026-11-21: auto.
+hubd_phone_picture: auto
 # Recording light (Phase 4 C1, hub/hubd/lamp.py). type: tasmota | esphome | log | null.
 # Fill in when the bulb is set up: firmware type and its reserved IP (esphome also needs light_id).
 hubd_lamp:

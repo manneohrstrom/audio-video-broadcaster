@@ -61,7 +61,7 @@ class Helpers(unittest.TestCase):
         cfg = camnode.load_config(None)
         cmd = camnode.build_cmd(cfg, "client", "/x", cfg["settings"])
         s = " ".join(cmd)
-        for want in ("--sync client", "-t 0", "--denoise cdn_off", "--shutter 20000",
+        for want in ("--sync client", "-t 0", "--denoise cdn_off", "--shutter 30000",
                      "--awbgains 1.5,1.5", "--autofocus-mode manual", "--bitrate 16000000",
                      "--mode 2304:1296:10:P", "--metadata-format json"):
             self.assertIn(want, s)
@@ -188,10 +188,8 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(self.patched[-1], {"rpiCameraGain": 4.5, "rpiCameraAWBGains": [1.4, 3.6],
                                             "rpiCameraLensPosition": 0.8})
         self.assertEqual(r["applied"], self.patched[-1])
-        self.agent.live_settings({"shutter_us": 30000})
-        self.assertEqual(self.patched[-1], {"rpiCameraShutter": 30000})
         with self.assertRaises(ValueError):
-            self.agent.live_settings({"bitrate": 4000000})
+            self.agent.live_settings({"shutter_us": 10000})
         self.assertEqual(self.agent.status()["settings"]["gain"], 2.0)
 
     def wait_state(self, want, timeout=3):

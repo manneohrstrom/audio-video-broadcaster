@@ -510,7 +510,7 @@ function releaseRecLock() {
   S.locked = false; S.lockedAtRec = false;
   allAuto().catch(() => {});
 }
-// The rig's phone picture, set on the hub page (user, 2026-11-21): "locked" (the card
+// The phones' picture, from the hub's config (phone_picture; user, 2026-11-21): "locked" (the card
 // calibrates, or the picture locks at REC) or "auto" (the phone's own automatic exposure and
 // white balance, also during a take: the studio's ~2200 K bulbs are warmer than Chrome's
 // manual white balance reaches). Focus follows the tripod/handheld switch either way.
@@ -535,7 +535,7 @@ async function pictureAuto() {
   }
   await setC(c);
   S.locked = false; S.lockedAtRec = false; S.cal.inView = false;
-  calShow("automatic picture (set on the hub)");
+  calShow("automatic picture");
 }
 async function allAuto() {
   const caps = S.track.getCapabilities ? S.track.getCapabilities() : {};

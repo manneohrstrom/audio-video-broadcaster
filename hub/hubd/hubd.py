@@ -34,12 +34,8 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.56.0"
+VERSION = "0.57.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
-# The rig's picture choices (set_picture). 1/50 s is the settled default; 30 ms is on test
-# (user, 2026-11-21). Phones "locked": calibrated by the card or locked at REC.
-PICTURE_CHOICES = {"pi_shutter_us": (20000, 30000), "phones": ("locked", "auto")}
-PICTURE_DEFAULTS = {"pi_shutter_us": 20000, "phones": "locked"}
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
@@ -56,6 +52,10 @@ DEFAULT_CONFIG = {
     "youtube_spool_dir": "/var/lib/hubd/youtube/uploads",
     "drive_mount": "/mnt/studio",       # hub-ingest owns mounting; hubd only reads
     "static_dir": os.path.join(HERE, "static"),
+    # Phones' picture (user, 2026-11-21): "auto" = the phone's own exposure and white balance,
+    # also during a take (the studio's ~2200 K bulbs are warmer than Chrome's manual white
+    # balance reaches); "locked" = card calibration, or a lock at REC. Config only.
+    "phone_picture": "auto",
     # Phone cameras (docs/phone-plan.md): footage staged here during a take.
     "phones_dir": None,                 # default: <state_dir>/phones
     # Fixed capture->page delay per phone model (ms), subtracted from first-frame times.
@@ -214,13 +214,6 @@ class Refused(Exception):
         self.reasons = reasons
 
 
-def write_json_atomic(path, data):
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=1)
-    os.replace(tmp, path)
-
-
 def log(msg):
     """One line to the journal (stderr)."""
     sys.stderr.write(msg + "\n")
@@ -351,12 +344,6 @@ class Hub:
                 self.cam_settings = json.load(f)
         except (OSError, ValueError):
             self.cam_settings = {}
-        self.picture_path = os.path.join(cfg["state_dir"], "picture.json")
-        try:
-            with open(self.picture_path) as f:
-                self.picture = dict(PICTURE_DEFAULTS, **json.load(f))
-        except (OSError, ValueError):
-            self.picture = dict(PICTURE_DEFAULTS)
         self.calibrator = calibrate.Calibrator(self, clock=clock)
         self.phones.calib_watch = self.calibrator.watching
         self.phones.given_name = self.names.camera
@@ -497,7 +484,7 @@ class Hub:
                                                            still_is_idle=True)}
                               for n in self.cfg["nodes"]},
                     "phones": self.phones.snapshot(self.health.get("free_gb")),
-                    "budget": self.budget, "camera_settings": self.cam_settings, "picture": dict(self.picture),
+                    "budget": self.budget, "camera_settings": self.cam_settings,
                     "calibration": self.calibrator.status(), "lamp": self.lamp.status(),
                     "scratch": self.scratch.status(), "names": self.names.all(),
                     "last_take": self.last_take()}
@@ -508,7 +495,7 @@ class Hub:
             rig = {"state": self.state, "take_id": (self.take or {}).get("take_id")}
         answer = self.phones.poll(body, rig)
         answer["name"] = self.names.camera(answer["id"])     # given on the hub page, or None
-        answer["picture"] = self.picture["phones"]           # "locked" or "auto"
+        answer["picture"] = self.cfg["phone_picture"]        # "auto" or "locked"
         return answer
 
     # -- take log
@@ -680,58 +667,15 @@ class Hub:
                 log("live settings for %s not applied: %s" % (cam, e))
         return out
 
-    LIVE_KEYS = ("gain", "awb_gains", "lens_position", "shutter_us")
-
-    def pi_settings(self, cam):
-        """What a Pi records, streams and calibrates with: its own settings (calibration,
-        focus) plus the rig's shutter, the same for every Pi. Call with self.lock held."""
-        return dict(self.cam_settings.get(cam, {}), shutter_us=self.picture["pi_shutter_us"])
+    LIVE_KEYS = ("gain", "awb_gains", "lens_position")
 
     def push_live(self, cam, settings=None):
-        """Send settings (default: everything the hub keeps for this camera, shutter
-        included) to its running live stream, so LIVE looks the same as a take."""
+        """Send settings (default: the hub's for this camera) to its running live stream."""
         with self.lock:
-            s = {k: v for k, v in (settings or self.pi_settings(cam)).items() if k in self.LIVE_KEYS}
+            s = {k: v for k, v in (settings or self.cam_settings.get(cam, {})).items() if k in self.LIVE_KEYS}
         if s:
             self.nodes.post(cam, "/live/settings", {"settings": s}, timeout=10)
         return s
-
-    # -- the rig's picture choices (2026-11-21, user): the Pis' shutter, the phones' mode
-    def set_picture(self, body):
-        """pi_shutter_us: 20000 (1/50 s) or 30000 (30 ms: 1.5x the light, still three
-        whole flicker periods of the 50 Hz mains). Each Pi's gain is scaled by old/new so
-        the picture stays as bright until the card calibrates it again. Applied to takes,
-        stills, calibration and running live streams alike.
-        phones: "locked" (card calibration, or a lock at REC) or "auto" (the phone's own
-        automatic exposure and white balance, also during a take; focus as before)."""
-        new = {}
-        for k, v in (body or {}).items():
-            if k not in PICTURE_CHOICES:
-                raise ValueError("unknown picture setting %s" % k)
-            if v not in PICTURE_CHOICES[k]:
-                raise ValueError("%s must be one of %s" % (k, ", ".join(map(str, PICTURE_CHOICES[k]))))
-            new[k] = v
-        with self.lock:
-            if self.state != "idle":
-                raise Refused(["rig is %s: change the picture between takes" % self.state])
-            old_shutter = self.picture["pi_shutter_us"]
-            self.picture.update(new)
-            shutter = self.picture["pi_shutter_us"]
-            if shutter != old_shutter:
-                lo, hi = self.SETTING_RANGES["gain"]
-                for cam, cs in self.cam_settings.items():
-                    if "gain" in cs:
-                        cs["gain"] = round(min(hi, max(lo, cs["gain"] * old_shutter / shutter)), 3)
-                write_json_atomic(self.cam_settings_path, self.cam_settings)
-            write_json_atomic(self.picture_path, self.picture)
-            out = dict(self.picture)
-            live = [n for n in self.cfg["nodes"] if (self.status.get(n) or {}).get("mode") == "live"]
-        if new.get("pi_shutter_us") is not None and live:
-            _, err = self._parallel(live, self.push_live)
-            for n, e in err.items():
-                log("live shutter for %s not applied: %s" % (n, e))
-        log("picture: %s" % out)
-        return out
 
     # -- snapshot page (Track B, B1)
     def snap(self, cam, overrides=None):
@@ -767,7 +711,7 @@ class Hub:
             if self.status[cam] is None:
                 raise Refused(["%s is offline" % cam])
             self.snaps_in_flight += 1
-            body = {"settings": dict(self.pi_settings(cam), **(settings or {})), "auto": auto}
+            body = {"settings": dict(self.cam_settings.get(cam, {}), **(settings or {})), "auto": auto}
         try:
             with self.cam_locks[cam], self.taking_still(cam):
                 return self.nodes.still(cam, body)
@@ -806,7 +750,8 @@ class Hub:
         # within the hour, and a restart always gets a new take id.
         b = {"take_id": take_id, "role": role, "sync_port": 20000 + int(take_id[-4:])}
         with self.lock:
-            b["settings"] = self.pi_settings(cam)
+            if self.cam_settings.get(cam):
+                b["settings"] = dict(self.cam_settings[cam])
         return b
 
     def holding_cameras(self):
@@ -1695,8 +1640,6 @@ class Handler(BaseHTTPRequestHandler):
             m = self.P_CAM_SETTINGS.match(self.path)
             if m:
                 return self._send(200, h.set_camera_settings(m.group(1), b))
-            if self.path == "/api/picture":
-                return self._send(200, h.set_picture(b))
             m = self.P_PHONE_CALIB.match(self.path)
             if m:
                 return self._send(200, h.calibrator.phone_report(m.group(1), b))

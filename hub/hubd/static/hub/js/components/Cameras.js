@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { html } from "shared/html.js";
 import { Icon } from "shared/icons.js";
 import { focusDistance, focusParts, shownMode } from "../format.js";
-import { identifyPhone, setPicture } from "../api.js";
+import { identifyPhone } from "../api.js";
 import { EditableName, Name, givenCameraName } from "../names.js";
 
 // Focus is stored as libcamera's lens position (dioptres, 1 / metres) and shown in metres.
@@ -233,50 +233,6 @@ function columnsFor(count) {
   return count <= 1 ? 1 : count <= 4 ? 2 : count <= 9 ? 3 : 4;
 }
 
-// The rig's picture choices (user, 2026-11-21: a test of a longer shutter and automatic
-// phones). The shutter goes to every Pi at once, for takes and LIVE alike, so the two look
-// the same; each Pi's gain is scaled to keep the brightness until the card calibrates it again.
-const SHUTTERS = [
-  { value: 20000, label: "1/50 s", title: "20 ms: the rig's usual shutter, least motion blur" },
-  { value: 30000, label: "30 ms", title: "30 ms: 1.5× the light (less noise), more motion blur; still flicker-free" },
-];
-const PHONE_PICTURES = [
-  { value: "locked", label: "locked", title: "Calibrated by the card, or locked at REC: the same picture all take" },
-  { value: "auto", label: "automatic", title: "The phone's own exposure and white balance, also during a take" },
-];
-
-/** The two picture switches: the Pis' shutter and the phones' mode. Between takes only. */
-function PictureSwitches({ picture, rigIdle, say, refreshStatus }) {
-  const [busy, setBusy] = useState(false);
-  async function choose(choice, done) {
-    setBusy(true);
-    try {
-      await setPicture(choice);
-      say(done);
-      refreshStatus();
-    } catch (error) {
-      say(`Not changed: ${error.message}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-  const group = (label, options, current, key, done) => html`
-    <span class="picture-switch"><span class="picture-label">${label}</span>
-      <div class="segmented" role="group" aria-label=${label}>
-        ${options.map(option => html`
-          <button aria-pressed=${String(current === option.value)} title=${option.title}
-                  disabled=${busy || !rigIdle || current === option.value}
-                  onClick=${() => choose({ [key]: option.value }, done(option))}>${option.label}</button>`)}
-      </div></span>`;
-  return html`
-    <div class="picture-switches">
-      ${group("Pi shutter", SHUTTERS, picture.pi_shutter_us, "pi_shutter_us",
-              option => `Pi shutter ${option.label} on every Pi, for takes and LIVE. Show them the card to calibrate again.`)}
-      ${group("Phones", PHONE_PICTURES, picture.phones, "phones",
-              option => option.value === "auto" ? "Phones: automatic picture, also during takes." : "Phones: locked picture (card, or a lock at REC).")}
-    </div>`;
-}
-
 export function Cameras({ status, say, refreshStatus }) {
   const [shotRequest, setShotRequest] = useState(0);      // goes up by one per round of stills
   const [refreshUntil, setRefreshUntil] = useState(() => Date.now() + REFRESH_FOR_MS);
@@ -316,8 +272,6 @@ export function Cameras({ status, say, refreshStatus }) {
         <div class="archive-status">${!rigIdle ? html`<b class="warn">The rig is ${status.state}</b>: pictures pause during a take.`
           : refreshing ? "A new picture from every camera every 5 s, for 2 minutes."
           : "Paused after 2 minutes, to spare the cameras. Refresh all for 2 more."}</div>
-        <${PictureSwitches} picture=${status.picture || { pi_shutter_us: 20000, phones: "locked" }}
-                            rigIdle=${rigIdle} say=${say} refreshStatus=${refreshStatus} />
         <div class="archive-keys">
           <button class="key" disabled=${!rigIdle} onClick=${refreshAll}><${Icon} name="camera" size=${18} />refresh all</button>
         </div>
