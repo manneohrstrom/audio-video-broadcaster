@@ -125,32 +125,44 @@
                         -webkit-tap-highlight-color: transparent; transition: opacity 3s linear; }
   #tripod.holding { opacity: 0.3; }
   html.tripod #tripod.aiming { display: none; }
-  #tripod .idle { display: grid; justify-items: center; gap: 12px; }
-  #tripod .drift { display: grid; justify-items: center; gap: 10px; text-align: center; max-width: 86vw;
+  #tripod .drift { display: grid; place-items: center; width: 100vw; height: 100dvh; text-align: center;
                    transition: transform 4s ease-in-out; }
-  #tripod .tname { font-size: clamp(28px, 7vw, 64px); font-weight: 700; line-height: 1; letter-spacing: 0.02em; white-space: nowrap; }
-  #tripod .hint { font-size: 14px; color: #4a4540; }
-  #tripod .hint.err { color: #7a3a32; }
+  /* Idle: the name in the top half, the saying in the bottom half (above the key) */
+  #tripod .idle { display: grid; grid-template-rows: 1fr 1fr; width: 100%; height: 100%;
+                  padding: 0 6vw calc(112px + env(safe-area-inset-bottom)); }
+  #tripod .idle .top { display: grid; align-content: end; justify-items: center; gap: 12px; padding-bottom: 4dvh; }
+  #tripod .tname { font-size: clamp(28px, 7vw, 64px); font-weight: 700; line-height: 1; letter-spacing: 0.02em; white-space: nowrap; color: #77706a; }
+  #tripod .hint { font-size: 15px; color: #6b655d; }
+  #tripod .hint.err { color: #c0574a; }
   #tripod .hint:empty, #tripod .saying:empty { display: none; }
-  #tripod .saying { font-size: 13px; font-style: normal; color: #34312d; max-width: 60ch; line-height: 1.4; }
-  #tripod .deck { display: none; justify-items: center; gap: 6px; color: #6e2a25; }
+  #tripod .saying { align-self: center; font-size: clamp(18px, 3.4vw, 30px); font-style: normal; color: #b3aa9e;
+                    max-width: 32ch; justify-self: center; line-height: 1.35; text-wrap: balance; }
+  #tripod .saying small { display: block; margin-top: 0.5em; font-size: 0.6em; letter-spacing: 0.12em; text-transform: uppercase; color: #7d766d; }
+  /* Recording: a vintage cassette, outlines on black (few lit pixels), the classic stripes on
+     its label, the phone's name written on it, the reels turning in the window. */
+  @font-face { font-family: "Shrikhand"; font-display: swap; src: url("/shared/vendor/fonts/shrikhand-latin-400-normal.woff2") format("woff2"); }
+  #tripod .deck { display: none; justify-items: center; gap: 2dvh; --shell: #c7ad84; --tape: #4a2c18; --lit: #ffb347; }
   #tripod.rec .deck, #tripod.send .deck { display: grid; }
   #tripod.rec .idle, #tripod.send .idle { display: none; }
-  #tripod .reels { width: min(46vw, 260px); height: auto; overflow: visible; }
-  #tripod .reels .rim { fill: none; stroke: currentColor; stroke-width: 1.5; }
-  #tripod .reels .pack { fill: #2a1210; }
-  #tripod .reels .hub { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
-  #tripod .reels .band { fill: none; stroke: #3d1a17; stroke-width: 1; }
-  #tripod .counter { display: flex; align-items: baseline; gap: 12px; font-size: 13px; letter-spacing: 0.12em; }
-  #tripod .counter b { font-family: "DSEG7", monospace; font-size: clamp(20px, 4.5vw, 34px); font-weight: 700; letter-spacing: 0.04em; }
-  #tripod .dot { width: 9px; height: 9px; border-radius: 50%; background: #8a2e26; align-self: center; }
-  #tripod .dot.off { background: #2a1210; }
-  #tripod .side { border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; }
-  #tripod .small { font-size: 12px; color: #4a2420; letter-spacing: 0.08em; }
-  #tripod.send .deck { color: #6a5424; }
-  #tripod.send .dot { background: #8a6a24; }
-  #tripod.send .reels .pack { fill: #2a2210; }
-  #tripod.send .reels .band { stroke: #3d3317; }
+  #tripod .cassette { width: min(70vw, 440px, calc(66dvh * 1.58)); height: auto; overflow: visible; }
+  #tripod .cassette .line { fill: none; stroke: var(--shell); stroke-width: 2; }
+  #tripod .cassette .thin { fill: none; stroke: var(--shell); stroke-width: 1.2; opacity: 0.7; }
+  #tripod .cassette .win { fill: #000; stroke: var(--shell); stroke-width: 1.5; }
+  #tripod .cassette .pack { fill: var(--tape); }
+  #tripod .cassette .hub { fill: none; stroke: var(--shell); stroke-width: 2.2; stroke-linecap: round; }
+  #tripod .cassette .s1 { stroke: #e8732c; } #tripod .cassette .s2 { stroke: #d33f2f; } #tripod .cassette .s3 { stroke: #efb43a; }
+  #tripod .cassette .stripe { stroke-width: 4; }
+  #tripod .cassette .labeltext { font-family: "Shrikhand", "Jost", sans-serif; fill: #e9dcc4; font-size: 19px; }
+  #tripod .cassette .sidetext { font-family: "Jost", sans-serif; font-weight: 600; fill: var(--shell); font-size: 20px; }
+  #tripod .counter { display: flex; align-items: center; gap: 14px; font-size: 14px; letter-spacing: 0.16em; color: var(--shell); }
+  #tripod .counter b { font-family: "DSEG7", monospace; font-size: clamp(22px, 5vw, 38px); font-weight: 700; letter-spacing: 0.04em; color: var(--lit); }
+  #tripod .dot { width: 12px; height: 12px; border-radius: 50%; background: #ff4a36; box-shadow: 0 0 10px #ff4a36; }
+  #tripod .dot.off { background: #3a1410; box-shadow: none; }
+  #tripod .small { font-size: 13px; color: #8a7b62; letter-spacing: 0.08em; }
+  #tripod .small:empty { display: none; }
+  #tripod.send .deck { --lit: #7fd3ff; }
+  #tripod.send .dot { background: #7fd3ff; box-shadow: 0 0 10px #7fd3ff; }
+  #tripod.send .dot.off { background: #12303a; box-shadow: none; }
 
   /* The round key at the bottom: "aim" between takes, "done" in aim mode */
   .tkey { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 12;
@@ -192,16 +204,28 @@
     <span id="state">off</span>
     <div id="tripod">
       <div class="drift">
-        <div class="idle"><span class="tname"></span><small class="hint"></small><i class="saying"></i></div>
+        <div class="idle"><div class="top"><span class="tname"></span><small class="hint"></small></div><i class="saying"></i></div>
         <div class="deck" aria-label="recording">
-          <svg class="reels" viewBox="0 0 200 70" aria-hidden="true">
-            <path class="band" d="M 22 62 L 100 68 L 178 62"></path>
-            <g transform="translate(50 32)"><circle class="pack" r="20"></circle><circle class="rim" r="28"></circle>
-              <g class="hub"><circle r="6"></circle><path d="M 0 -6 V -12 M 5.2 3 L 10.4 6 M -5.2 3 L -10.4 6"></path></g></g>
-            <g transform="translate(150 32)"><circle class="pack" r="9"></circle><circle class="rim" r="28"></circle>
-              <g class="hub"><circle r="6"></circle><path d="M 0 -6 V -12 M 5.2 3 L 10.4 6 M -5.2 3 L -10.4 6"></path></g></g>
+          <svg class="cassette" viewBox="0 0 300 190" aria-hidden="true">
+            <defs><clipPath id="win"><rect x="58" y="60" width="184" height="46" rx="23"></rect></clipPath></defs>
+            <rect class="line" x="3" y="3" width="294" height="184" rx="12"></rect>
+            <g class="thin"><circle cx="15" cy="15" r="4"></circle><circle cx="285" cy="15" r="4"></circle>
+              <circle cx="15" cy="175" r="4"></circle><circle cx="285" cy="175" r="4"></circle><circle cx="150" cy="178" r="3.5"></circle></g>
+            <rect class="thin" x="22" y="16" width="256" height="124" rx="7"></rect>
+            <rect class="thin" x="30" y="22" width="24" height="28" rx="3"></rect>
+            <text class="sidetext side" x="42" y="43" text-anchor="middle">A</text>
+            <text class="labeltext lname" x="64" y="43"></text>
+            <path class="thin" d="M 64 50 H 268"></path>
+            <rect class="win" x="58" y="60" width="184" height="46" rx="23"></rect>
+            <g clip-path="url(#win)"><circle class="pack pl" cx="100" cy="83" r="30"></circle><circle class="pack pr" cx="200" cy="83" r="14"></circle></g>
+            <g class="hub hl" transform="translate(100 83)"><circle r="9"></circle><path d="M 0 -9 V -13 M 7.8 -4.5 L 11.3 -6.5 M 7.8 4.5 L 11.3 6.5 M 0 9 V 13 M -7.8 4.5 L -11.3 6.5 M -7.8 -4.5 L -11.3 -6.5"></path></g>
+            <g class="hub hr" transform="translate(200 83)"><circle r="9"></circle><path d="M 0 -9 V -13 M 7.8 -4.5 L 11.3 -6.5 M 7.8 4.5 L 11.3 6.5 M 0 9 V 13 M -7.8 4.5 L -11.3 6.5 M -7.8 -4.5 L -11.3 -6.5"></path></g>
+            <path class="stripe s1" d="M 22 116 H 278"></path><path class="stripe s2" d="M 22 123 H 278"></path><path class="stripe s3" d="M 22 130 H 278"></path>
+            <path class="line" d="M 64 187 L 78 150 H 222 L 236 187"></path>
+            <g class="thin"><circle cx="112" cy="170" r="5"></circle><circle cx="188" cy="170" r="5"></circle>
+              <rect x="138" y="160" width="24" height="12" rx="2"></rect></g>
           </svg>
-          <div class="counter"><span class="dot"></span><span class="what">REC</span><b class="time">0:00:00</b><span class="side">A</span></div>
+          <div class="counter"><span class="dot"></span><span class="what">REC</span><b class="time">0:00:00</b></div>
           <div class="small"></div>
         </div>
       </div>
@@ -847,7 +871,7 @@ if (TRIPOD) {
   const screenFull = () => document.fullscreenElement || matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches;
   const AIM_FOR_MS = 3 * 60 * 1000;           // aim mode closes by itself: a lit screen costs battery
   const DRIFT_MS = 60 * 1000, SAYING_MS = 10 * 60 * 1000;
-  let aimUntil = 0, recSince = 0, saying = "", sayingAt = 0, pickQuote = null;
+  let aimUntil = 0, recSince = 0, saying = null, sayingAt = 0, pickQuote = null;
   import("/hub/js/quotes.js").then(m => { pickQuote = m.pickQuote; }).catch(() => {});
 
   // The idle screen: the name once (the phones stand where their whole screen can be seen)
@@ -856,21 +880,24 @@ if (TRIPOD) {
     const hint = err || (S.state === "off" ? (S.starting ? "" : "tap to start the camera")
       : !screenFull() ? "tap for full screen" : !S.hubOk ? "no hub" : "");
     if (pickQuote && (!saying || performance.now() - sayingAt > SAYING_MS)) {
-      const qt = pickQuote(); saying = qt.text + (qt.by ? " — " + qt.by : ""); sayingAt = performance.now();
+      saying = pickQuote(); sayingAt = performance.now();
     }
     if (q(".tname").textContent !== shownName()) q(".tname").textContent = shownName();
     if (q(".hint").textContent !== hint) q(".hint").textContent = hint;
     q(".hint").classList.toggle("err", !!err);
-    const showSaying = hint ? "" : saying;
-    if (q(".saying").textContent !== showSaying) q(".saying").textContent = showSaying;
+    const showSaying = hint || !saying ? "" : saying.text + "|" + (saying.by || "");
+    if (q(".saying").dataset.shown !== showSaying) {
+      q(".saying").dataset.shown = showSaying;
+      q(".saying").innerHTML = showSaying ? esc(saying.text) + (saying.by ? `<small>${esc(saying.by)}</small>` : "") : "";
+    }
     $("aim").hidden = S.state !== "ready";
   };
 
-  // The tape deck: the tape winds from left to right over 30 min, then the cassette turns over
-  // (side A, B, A ...). The reels turn a step at a time, the fuller one slower, like real tape.
-  // After STOP, while the chunks still go to the hub, it rewinds in amber ("SEND").
-  const SIDE_S = 30 * 60, R_EMPTY = 8, R_FULL = 21;
-  const reels = Array.from(q(".reels").querySelectorAll(":scope > g"));
+  // The cassette: the tape winds from left to right over 30 min, then it "turns over" (side A,
+  // B, A ...). The reels turn a step at a time, the fuller one slower, like real tape. After
+  // STOP, while the chunks still go to the hub, it rewinds in blue ("SEND").
+  const SIDE_S = 30 * 60, R_EMPTY = 14, R_FULL = 36;
+  const hubs = [q(".hl"), q(".hr")], packs = [q(".pl"), q(".pr")], centres = [100, 200];
   const angle = [0, 0];
   let blink = 0;
   const packRadius = share => Math.sqrt(R_EMPTY ** 2 + (R_FULL ** 2 - R_EMPTY ** 2) * share);
@@ -879,25 +906,31 @@ if (TRIPOD) {
     const secs = (performance.now() - recSince) / 1000;
     const wound = sending ? 0.5 : (secs % SIDE_S) / SIDE_S;
     const radii = [packRadius(1 - wound), packRadius(wound)];
-    reels.forEach((g, i) => {
-      angle[i] = (angle[i] + (sending ? -1 : 1) * 160 / radii[i]) % 360;
-      g.querySelector(".pack").setAttribute("r", radii[i].toFixed(1));
-      g.querySelector(".hub").setAttribute("transform", `rotate(${angle[i].toFixed(0)})`);
-    });
+    for (let i = 0; i < 2; i++) {
+      angle[i] = (angle[i] + (sending ? -1 : 1) * 220 / radii[i]) % 360;
+      packs[i].setAttribute("r", radii[i].toFixed(1));
+      hubs[i].setAttribute("transform", `translate(${centres[i]} 83) rotate(${angle[i].toFixed(0)})`);
+    }
     blink = (blink + 1) % 8;
     q(".dot").classList.toggle("off", blink >= 4);
     q(".what").textContent = sending ? "SEND" : "REC";
+    if (q(".lname").textContent !== shownName()) {        // written on the label: squeezed to fit it
+      const label = q(".lname");
+      label.textContent = shownName();
+      label.removeAttribute("textLength");
+      if (label.getComputedTextLength() > 200) { label.setAttribute("textLength", "200"); label.setAttribute("lengthAdjust", "spacingAndGlyphs"); }
+    }
     if (!sending) {
       q(".time").textContent = hms(secs).replace(/^0/, "");
       q(".side").textContent = Math.floor(secs / SIDE_S) % 2 ? "B" : "A";
     }
-    q(".small").textContent = sending ? (S.queue.length ? S.queue.length + " left" : "")
-      : shownName() + (S.missing ? " · " + S.missing + " dropped" : "");
+    q(".small").textContent = sending ? (S.queue.length ? S.queue.length + " left to send" : "")
+      : S.missing ? S.missing + " dropped" : "";
   };
 
   // A little drift every minute, so nothing stays lit on the same pixels for hours
   const drift = () => {
-    const dx = (Math.random() * 2 - 1) * innerWidth * 0.12, dy = (Math.random() * 2 - 1) * innerHeight * 0.12;
+    const dx = (Math.random() * 2 - 1) * innerWidth * 0.04, dy = (Math.random() * 2 - 1) * innerHeight * 0.04;
     q(".drift").style.transform = `translate(${dx.toFixed(0)}px, ${dy.toFixed(0)}px)`;
   };
   setInterval(drift, DRIFT_MS);

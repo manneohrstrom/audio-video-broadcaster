@@ -9,7 +9,7 @@ import { html } from "shared/html.js";
 import { Icon } from "shared/icons.js";
 import { requestSync } from "../api.js";
 import { fmtBytes, fmtDur, fmtEta, takeStart } from "../format.js";
-import { STEPS, PREP_STEPS, camerasOf, notIngested, labelOf, prepOf, prepUnfinished } from "../takes.js";
+import { STEPS, PREP_STEPS, camerasOf, allCamerasOf, isPhone, notIngested, labelOf, prepOf, prepUnfinished } from "../takes.js";
 import { EditableName, takeName } from "../names.js";
 
 /** The take's heading: its name (click the pencil to change it), the id in brackets once named. */
@@ -31,10 +31,21 @@ function Chip({ state, name, percent, paused, extra, title }) {
   return html`<span class="chip">○ ${name}</span>`;
 }
 
-function IngestChips({ camera, paused }) {
+/** A phone's files are already on the hub: its "pull" takes them in from where they were
+ *  uploaded, and its "mark" clears that upload. Same steps, named for what they do. */
+const PHONE_NAMES = { pulled: "Take in", marked: "Clear upload" };
+
+/** A phone's first step, before ingest: sending the recording to the hub during and after the take. */
+function UploadChip({ camera }) {
+  if (camera.notYet && camera.uploading) return html`<span class="chip running"><span class="spinner"></span> Upload · the phone is sending it</span>`;
+  return html`<${Chip} state="done" name="Upload" />`;
+}
+
+function IngestChips({ camera, paused, phone }) {
   const done = camera.done || [];
   const next = STEPS.find(([step]) => !done.includes(step));
-  return STEPS.map(([step, name]) => {
+  return STEPS.map(([step, stepName]) => {
+    const name = (phone && PHONE_NAMES[step]) || stepName;
     if (done.includes(step)) return html`<${Chip} state="done" name=${name} />`;
     if (camera.error && next && step === next[0]) return html`<${Chip} state="error" name=${name} />`;
     if (camera.step === step) {
@@ -262,7 +273,7 @@ function TakeFoot({ id, take, openDialog }) {
 function TakeCard({ id, take, paused, driveOk, names, ...rest }) {
   const activity = rest.activity;
   const label = camera => labelOf(take, camera, names);
-  const cameras = camerasOf(take);
+  const cameras = allCamerasOf(take);
   const recorded = take.recorded;
   const preps = Object.fromEntries(cameras.map(([c, v]) => [c, prepOf(v, id, c, activity)]));
   const prepSteps = Object.values(preps).flatMap(prep => Object.values(prep));
@@ -293,7 +304,8 @@ function TakeCard({ id, take, paused, driveOk, names, ...rest }) {
         ? html`<p class="note">${cameras.map(([c, v], i) => html`${i ? " · " : ""}${label(c)}: ${v.frames_out != null ? v.frames_out + " frames" : "done"}${v.repeated > 0 ? ` (${v.repeated} repeated)` : v.repeated < 0 ? ` (${-v.repeated} skipped to fit 30 fps)` : ""}${v.dropped ? `, ${v.dropped} dropped on camera` : ""}<${RoughNote} camera=${v} />`)}</p>`
         : cameras.map(([c, v]) => html`
           <div class="camera-row"><span class="camera-name" title=${label(c) !== c ? `${label(c)} (${c})` : c}>${label(c)}</span>
-            <div class="chips">${(v.done || []).includes("marked") ? html`<${Chip} state="done" name="Ingested" />` : html`<${IngestChips} camera=${v} paused=${paused} />`}<${PrepChips} prep=${preps[c]} adopted=${take.adopted} paused=${paused} />${v.rough && v.rough.length ? html`<span class="chip"><${RoughNote} camera=${v} /></span>` : null}</div></div>
+            <div class="chips">${(v.done || []).includes("marked") ? html`<${Chip} state="done" name="Ingested" />`
+              : html`${isPhone(take, c) && html`<${UploadChip} camera=${v} />`}<${IngestChips} camera=${v} paused=${paused} phone=${isPhone(take, c)} />`}${v.notYet && !v.uploading && html`<span class="chip">· next ingest round</span>`}<${PrepChips} prep=${preps[c]} adopted=${take.adopted} paused=${paused} />${v.rough && v.rough.length ? html`<span class="chip"><${RoughNote} camera=${v} /></span>` : null}</div></div>
           ${v.error && html`<p class="note bad">${v.error}</p>`}
           ${PREP_STEPS.filter(([step]) => (preps[c][step] || {}).state === "failed").map(([step, name]) =>
             html`<p class="note bad">${name}: ${preps[c][step].error || "failed"} (tried again after the next update)</p>`)}`)}

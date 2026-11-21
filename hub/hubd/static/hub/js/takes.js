@@ -30,6 +30,25 @@ export function camerasOf(take) {
     key !== "recorded" && key !== "audio" && value && typeof value === "object" && !Array.isArray(value));
 }
 
+/** Is this camera entry a phone? (Pi cameras are camN; hubd marks phones in its record.) */
+export function isPhone(take, cameraId) {
+  const recorded = take.recorded && take.recorded.cameras && take.recorded.cameras[cameraId];
+  return !!(recorded && recorded.phone) || !/^cam\d+$/.test(cameraId);
+}
+
+/** Every camera the take recorded, in ingest's order, then the ones ingest hasn't picked up
+ *  yet (a phone still sending, or one that finished after this round began: user 2026-11-21,
+ *  "everything that is part of the engine should be represented in the UI"). Those come as
+ *  [id, { notYet: true, uploading }]. */
+export function allCamerasOf(take) {
+  const known = camerasOf(take);
+  const have = new Set(known.map(([id]) => id));
+  const recorded = (take.recorded && take.recorded.cameras) || {};
+  const later = Object.entries(recorded).filter(([id]) => !have.has(id))
+    .map(([id, r]) => [id, { notYet: true, uploading: !!r.uploading }]);
+  return known.concat(later);
+}
+
 /** Nothing done or running yet: the take is still only on the cameras. */
 export function notIngested(take) {
   return camerasOf(take).every(([, camera]) => !(camera.done || []).length && !camera.step && !camera.error);
