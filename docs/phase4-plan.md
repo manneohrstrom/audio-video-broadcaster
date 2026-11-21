@@ -111,9 +111,9 @@ When a phone finishes calibrating, the phone itself plays the chime too (the pho
 - Pis (fixed on the wall): one fixed focus per camera, set once with the focus help (a zoomed crop and a sharpness number on the snapshot page) and kept. The wide lens is sharp from about 1 m to infinity at 1080p and nobody comes closer than about 75 cm, so **no autofocus on the Pis** (the first version's B5 and spike B-S4 are dropped).
 - Phones: the user marks each phone **tripod** or **handheld** when setting up (on its card on the hub page; the phone remembers it). Tripod: focus measured once and locked (as now). Handheld: continuous autofocus. Both keep calibrated exposure and white balance locked for the take; handheld phones are not framing-checked on the snapshot page.
 
-**B6. "Auto, then lock" at REC (fallback).** *Phones too since 2026-11-17 (user): a phone the card hasn't calibrated locks itself when REC starts (a quick version of its measuring lock, a few seconds, so it joins the take late), and goes back to auto after the take; the phone page's "auto, then lock" and "all auto" buttons are gone, and tripod/handheld is shown as "focus locked / focus follows".* For a take with no time or no card: on REC every device meters for about 1–1.5 s (B-S2: gain settles in 0.4–0.5 s) and locks. Less exact than the card (each device meters its own view; B-S2 measured a 0.26-stop spread across the Pis).
+**B6. "Auto, then lock" at REC (fallback).** *Status (checked against the code 2026-11-21): built for the phones only (`lockAtRec`). Not built for the Pis: they record with their stored settings (calibration, or camnode's defaults).* *Phones too since 2026-11-17 (user): a phone the card hasn't calibrated locks itself when REC starts (a quick version of its measuring lock, a few seconds, so it joins the take late), and goes back to auto after the take; the phone page's "auto, then lock" and "all auto" buttons are gone, and tripod/handheld is shown as "focus locked / focus follows".* For a take with no time or no card: on REC every device meters for about 1–1.5 s (B-S2: gain settles in 0.4–0.5 s) and locks. Less exact than the card (each device meters its own view; B-S2 measured a 0.26-stop spread across the Pis).
 
-**B7. Manual trims.** On the snapshot page: an overall brightness trim and warmer/cooler, applied to every device on top of its calibration, and a per-device trim. Contrast, saturation and "looks" belong to the editor's colour step (`docs/editor-plan.md`), not to capture.
+**B7. Manual trims.** *Status 2026-11-21: not built; the hub page sets only focus by hand.* On the snapshot page: an overall brightness trim and warmer/cooler, applied to every device on top of its calibration, and a per-device trim. Contrast, saturation and "looks" belong to the editor's colour step (`docs/editor-plan.md`), not to capture.
 
 ### Spikes
 
@@ -130,7 +130,7 @@ When a phone finishes calibrating, the phone itself plays the chime too (the pho
 
 1. From the hub page alone, the user sets up a new room or light and calibrates every device in the take just by showing the card, with no buttons and no SSH.
 2. After calibration, the card filmed by every Pi: grey brightness and white balance match within a set tolerance (fixed after B-S5/B-S6). Phones: within a looser tolerance, with the leftover recorded for the editor.
-3. Calibrated and auto-then-lock takes keep the same exposure and white balance for their whole length, on every device.
+3. Calibrated and auto-then-lock takes keep the same exposure and white balance for their whole length, on every device. *(Auto-then-lock exists for phones only, see B6.)*
 4. Handheld phones refocus as the distance changes; tripod phones and Pis stay at their set focus.
 
 ## Track C: studio polish
@@ -172,7 +172,7 @@ Order: **B (picture) first** (user priority), then A, then C. C1 whenever the bu
 ## Decisions for the user
 
 1. **Autofocus: answered (2026-11-15).** Build continuous AF as a per-camera, per-take option, off by default, without a separate test first. B-S4 becomes the check of the built option. CLAUDE.md updated.
-2. **Auto-then-lock: answered (2026-11-15).** Yes, as an option next to manual settings; values are fixed for the whole take. CLAUDE.md updated.
+2. **Auto-then-lock: answered (2026-11-15).** Yes, as an option next to manual settings; values are fixed for the whole take. CLAUDE.md updated. *(Built for the phones only, as their lock at REC; not for the Pis. See B6.)*
 3. **Order: answered.** Visuals first (user, 2026-11-15): B, then A, then C.
 4. **C3: answered (2026-11-15).** None selected, so all four (tally LEDs, GPIO REC button, OBS export, LTC) move to future ideas.
 5. **Bounce upload: answered (2026-11-15).** Yes: uploads are written to the drive like ingest. Plus songs and versions per take (see Track A).
