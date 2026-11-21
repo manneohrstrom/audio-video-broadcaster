@@ -39,13 +39,13 @@ export function isPhone(take, cameraId) {
 /** Every camera the take recorded, in ingest's order, then the ones ingest hasn't picked up
  *  yet (a phone still sending, or one that finished after this round began: user 2026-11-21,
  *  "everything that is part of the engine should be represented in the UI"). Those come as
- *  [id, { notYet: true, uploading }]. */
+ *  [id, { notYet: true, uploading, joining }]. */
 export function allCamerasOf(take) {
   const known = camerasOf(take);
   const have = new Set(known.map(([id]) => id));
   const recorded = (take.recorded && take.recorded.cameras) || {};
   const later = Object.entries(recorded).filter(([id]) => !have.has(id))
-    .map(([id, r]) => [id, { notYet: true, uploading: !!r.uploading }]);
+    .map(([id, r]) => [id, { notYet: true, uploading: !!r.uploading, joining: !!r.joining }]);
   return known.concat(later);
 }
 

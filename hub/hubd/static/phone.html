@@ -142,8 +142,8 @@
      its label, the phone's name written on it, the reels turning in the window. */
   @font-face { font-family: "Shrikhand"; font-display: swap; src: url("/shared/vendor/fonts/shrikhand-latin-400-normal.woff2") format("woff2"); }
   #tripod .deck { display: none; justify-items: center; gap: 2dvh; --shell: #c7ad84; --tape: #4a2c18; --lit: #ffb347; }
-  #tripod.rec .deck, #tripod.send .deck { display: grid; }
-  #tripod.rec .idle, #tripod.send .idle { display: none; }
+  #tripod.rec .deck, #tripod.send .deck, #tripod.done .deck { display: grid; }
+  #tripod.rec .idle, #tripod.send .idle, #tripod.done .idle { display: none; }
   #tripod .cassette { width: min(70vw, 440px, calc(66dvh * 1.58)); height: auto; overflow: visible; }
   #tripod .cassette .line { fill: none; stroke: var(--shell); stroke-width: 2; }
   #tripod .cassette .thin { fill: none; stroke: var(--shell); stroke-width: 1.2; opacity: 0.7; }
@@ -163,6 +163,12 @@
   #tripod.send .deck { --lit: #7fd3ff; }
   #tripod.send .dot { background: #7fd3ff; box-shadow: 0 0 10px #7fd3ff; }
   #tripod.send .dot.off { background: #12303a; box-shadow: none; }
+  /* Done: the hub has every piece; the phone can be moved or switched off */
+  #tripod.done .deck { --lit: #7dff9a; }
+  #tripod.done .dot { background: #7dff9a; box-shadow: 0 0 10px #7dff9a; }
+  #tripod.done .small { font-size: clamp(14px, 2.6vw, 20px); color: #b3e8c0; letter-spacing: 0.04em; }
+  #tripod .last { font-size: 15px; color: #7fbf8f; }
+  #tripod .last:empty { display: none; }
 
   /* The round key at the bottom: "aim" between takes, "done" in aim mode */
   .tkey { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 12;
@@ -204,7 +210,7 @@
     <span id="state">off</span>
     <div id="tripod">
       <div class="drift">
-        <div class="idle"><div class="top"><span class="tname"></span><small class="hint"></small></div><i class="saying"></i></div>
+        <div class="idle"><div class="top"><span class="tname"></span><small class="hint"></small><small class="last"></small></div><i class="saying"></i></div>
         <div class="deck" aria-label="recording">
           <svg class="cassette" viewBox="0 0 300 190" aria-hidden="true">
             <defs><clipPath id="win"><rect x="58" y="60" width="184" height="46" rx="23"></rect></clipPath></defs>
@@ -302,6 +308,7 @@ const S = {
   clock: [], doneCmd: null, queue: [], uploaded: 0, bytesUp: 0, uploading: false, chunkDir: null,
   battery: null, lastErr: "", hidden: 0, wake: null, opfs: null, maxGapMs: 0, lastArr: null, locked: false,
   model: null, storageFreeGb: null, rig: null, hubOk: false, recStart: 0,
+  lastDone: null,         // {take, length_s, at}: the hub has every piece of this phone's last take
 };
 $("origin").textContent = location.origin;
 
@@ -761,6 +768,7 @@ async function finish(take, part, body, opfsName) {
     const m = await r.json();
     if (!r.ok) throw new Error(m.error || r.status);
     if (m.complete) {
+      S.lastDone = {take, length_s: m.duration_s, at: performance.now()};
       msg(`Take ${take} is on the hub: ${hms(m.duration_s)}, ${m.frames} frames${m.dropped_frames ? ", " + m.dropped_frames + " dropped" : ""}.`);
       if (opfsName) { try { await S.opfs.removeEntry(opfsName, {recursive: true}); } catch (e) {} }
     } else msg(`Take ${take}: ${m.missing_chunks.length} pieces still to send; they'll go when the hub is reachable.`);
@@ -885,6 +893,8 @@ if (TRIPOD) {
     if (q(".tname").textContent !== shownName()) q(".tname").textContent = shownName();
     if (q(".hint").textContent !== hint) q(".hint").textContent = hint;
     q(".hint").classList.toggle("err", !!err);
+    const last = S.lastDone && S.state !== "off" ? `✓ take ${S.lastDone.take.slice(9, 11)}:${S.lastDone.take.slice(11, 13)} is on the hub` : "";
+    if (q(".last").textContent !== last) q(".last").textContent = last;
     const showSaying = hint || !saying ? "" : saying.text + "|" + (saying.by || "");
     if (q(".saying").dataset.shown !== showSaying) {
       q(".saying").dataset.shown = showSaying;
@@ -903,17 +913,19 @@ if (TRIPOD) {
   const packRadius = share => Math.sqrt(R_EMPTY ** 2 + (R_FULL ** 2 - R_EMPTY ** 2) * share);
   const drawDeck = () => {
     const sending = S.state === "finishing" || S.state === "uploading";
-    const secs = (performance.now() - recSince) / 1000;
+    const done = T.classList.contains("done");
+    const secs = done ? S.lastDone.length_s || 0 : (performance.now() - recSince) / 1000;
     const wound = sending ? 0.5 : (secs % SIDE_S) / SIDE_S;
     const radii = [packRadius(1 - wound), packRadius(wound)];
     for (let i = 0; i < 2; i++) {
+      if (done) break;                                     // stopped: nothing moves
       angle[i] = (angle[i] + (sending ? -1 : 1) * 220 / radii[i]) % 360;
       packs[i].setAttribute("r", radii[i].toFixed(1));
       hubs[i].setAttribute("transform", `translate(${centres[i]} 83) rotate(${angle[i].toFixed(0)})`);
     }
     blink = (blink + 1) % 8;
-    q(".dot").classList.toggle("off", blink >= 4);
-    q(".what").textContent = sending ? "SEND" : "REC";
+    q(".dot").classList.toggle("off", !done && blink >= 4);
+    q(".what").textContent = done ? "DONE" : sending ? "SEND" : "REC";
     if (q(".lname").textContent !== shownName()) {        // written on the label: squeezed to fit it
       const label = q(".lname");
       label.textContent = shownName();
@@ -924,7 +936,8 @@ if (TRIPOD) {
       q(".time").textContent = hms(secs).replace(/^0/, "");
       q(".side").textContent = Math.floor(secs / SIDE_S) % 2 ? "B" : "A";
     }
-    q(".small").textContent = sending ? (S.queue.length ? S.queue.length + " left to send" : "")
+    q(".small").textContent = done ? "on the hub · free to move or switch off"
+      : sending ? (S.queue.length ? S.queue.length + " left to send" : "")
       : S.missing ? S.missing + " dropped" : "";
   };
 
@@ -998,10 +1011,13 @@ if (TRIPOD) {
     T.classList.toggle("rec", s === "recording");
     T.classList.toggle("send", s === "finishing" || s === "uploading");
   };
+  const DONE_FOR_MS = 30 * 1000;               // the green cassette, then the idle screen with "✓ take … is on the hub"
   let ticks = 0;
   const tick = () => {
     ticks++;
-    const deck = T.classList.contains("rec") || T.classList.contains("send");
+    T.classList.toggle("done", S.state === "ready" && !!S.lastDone && performance.now() - S.lastDone.at < DONE_FOR_MS && !isAiming());
+    const deck = T.classList.contains("rec") || T.classList.contains("send") || T.classList.contains("done");
+    if (T.classList.contains("done")) $("aim").hidden = true;      // it would cover the counter; back with the idle screen
     if (isAiming()) {
       if (ticks % 4 === 0) drawIdle();          // keeps the key's state
       if (S.state !== "ready" || performance.now() > aimUntil || document.visibilityState !== "visible") closeAim();

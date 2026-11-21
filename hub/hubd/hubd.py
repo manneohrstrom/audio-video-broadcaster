@@ -34,7 +34,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.49.0"
+VERSION = "0.50.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -973,9 +973,10 @@ class Hub:
             }
             for part, m in self.phones.manifests(tid).items():
                 done = bool(m and m.get("complete"))
+                joining = not done and self.phones.is_joining(tid, part)    # all on the hub, being joined
                 takes[tid]["recorded"]["cameras"][part] = {"label": (m or {}).get("label"),
                     "frames": m.get("frames") if done else None, "dropped": (m.get("dropped_frames") or 0) if done else 0,
-                    "phone": True, "uploading": not done}
+                    "phone": True, "uploading": not done and not joining, "joining": joining}
                 if done:
                     takes[tid]["recorded"]["length_s"] = max(takes[tid]["recorded"]["length_s"], m.get("duration_s") or 0)
         for tid in self.deletes_asked():
@@ -1122,6 +1123,8 @@ class Hub:
             songs = []
         if any(not v.get("complete") for song in songs for v in song["versions"]):
             reasons.append("a bounce is still uploading")
+        if any(self.phones.is_joining(take_id, part) for part in self.phones.manifests(take_id)):
+            reasons.append("a phone's recording is still being joined on the hub")
         spool = self.cfg["youtube_spool_dir"]
         for name in sorted(os.listdir(spool)) if os.path.isdir(spool) else []:
             if name.startswith(take_id + "_") and name.endswith(".json"):

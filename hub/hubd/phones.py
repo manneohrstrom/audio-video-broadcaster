@@ -21,6 +21,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import threading
 import time
 
@@ -102,6 +103,31 @@ def capture_delay_ms(table, model):
     return float(table.get("default", 0))
 
 
+def missing_chunks(d, meta):
+    """(chunk numbers on the hub, chunk numbers still missing) for a phone's part folder."""
+    cdir = os.path.join(d, "chunks")
+    seqs = sorted(int(f[:-5]) for f in os.listdir(cdir) if f.endswith(".json")) if os.path.isdir(cdir) else []
+    last = meta.get("chunks")
+    want = range(last) if isinstance(last, int) and last >= 0 else range(seqs[-1] + 1 if seqs else 0)
+    have = set(seqs)
+    return seqs, [s for s in want if s not in have]
+
+
+def quick_summary(d, seqs):
+    """What the phone shows when the hub has every piece (frames, length, dropped), read
+    from the chunks' small frame lists without joining the video: the join runs after."""
+    frames = []
+    for s in seqs:
+        with open(os.path.join(d, "chunks", "%06d.json" % s)) as f:
+            frames += json.load(f)["frames"]
+    if not frames:
+        return {"frames": 0, "duration_s": 0, "dropped_frames": 0}
+    ts0 = frames[0]["ts_us"]
+    pts = [(f["ts_us"] - ts0) / 1000.0 for f in frames]
+    return {"frames": len(frames), "duration_s": round(pts[-1] / 1000.0, 3),
+            "dropped_frames": sum(g["missing"] for g in find_gaps(pts))}
+
+
 def assemble(d, meta, delay_table):
     """Join d/chunks into video.h264 + video.pts + manifest.json.
 
@@ -110,11 +136,7 @@ def assemble(d, meta, delay_table):
     manifest is written, with complete=false, and the chunks are kept so the phone
     can send the rest and finish again. When complete, the chunks are deleted."""
     cdir = os.path.join(d, "chunks")
-    seqs = sorted(int(f[:-5]) for f in os.listdir(cdir) if f.endswith(".json")) if os.path.isdir(cdir) else []
-    last = meta.get("chunks")
-    want = range(last) if isinstance(last, int) and last >= 0 else range(seqs[-1] + 1 if seqs else 0)
-    have = set(seqs)
-    missing = [s for s in want if s not in have]
+    seqs, missing = missing_chunks(d, meta)
     model = (meta.get("info") or {}).get("model")
     man = {"schema": 1, "camera": meta.get("phone"), "label": meta.get("label"), "take_id": meta.get("take_id"), "source": "phone",
            "phone_model": model, "complete": not missing, "chunks": len(seqs), "missing_chunks": missing,
@@ -207,7 +229,14 @@ class Phones:
         except (OSError, ValueError):
             self.mounts = {}
         self.identify_until = {}    # device id -> time: flash its screen until then
+        # Joining a phone's pieces into one file takes minutes on the SD card for a long take
+        # (more while ingest reads the disk). The phone's part is done once every piece is on
+        # the hub, so the join runs in the background (user, 2026-11-21: the phone should say
+        # it's done as soon as it isn't needed). Tests can turn it off.
+        self.join_in_background = cfg.get("phone_join_in_background", True)
+        self.joining = {}           # part folder -> thread joining its pieces
         os.makedirs(self.dir, exist_ok=True)
+        self.resume_joins()
 
     # -- registry
     def _online(self, p, now):
@@ -443,18 +472,78 @@ class Phones:
         cdir = os.path.join(d, "chunks")
         man = self.manifest(take_id, phone)
         have = sorted(int(f[:-5]) for f in os.listdir(cdir) if f.endswith(".json")) if os.path.isdir(cdir) else []
-        return {"have": have, "complete": bool(man and man.get("complete"))}
+        return {"have": have, "complete": bool(man and man.get("complete")) or self.is_joining(take_id, phone)}
 
     def finish(self, take_id, phone, meta):
-        """phone is the part folder (phone1, phone1-2 …)."""
+        """phone is the part folder (phone1, phone1-2 …). With every piece on the hub the
+        answer is complete at once (frames and length from the pieces' frame lists) and the
+        video is joined in the background; the manifest is written when that's done."""
         d = self.take_dir(take_id, phone)
         old = self.manifest(take_id, phone)
         if old and old.get("complete"):
             return old
         os.makedirs(d, exist_ok=True)
+        with self.lock:
+            busy = d in self.joining
+        if busy:                                   # a retry while it joins: the pieces are all here
+            return dict(quick_summary(d, missing_chunks(d, {})[0]), complete=True, joining=True)
         meta = dict(meta, phone=phone, take_id=take_id)
         write_json(os.path.join(d, "finish.json"), meta)
-        return assemble(d, meta, self.delay)
+        seqs, missing = missing_chunks(d, meta)
+        if missing or not self.join_in_background:
+            return assemble(d, meta, self.delay)
+        summary = quick_summary(d, seqs)
+        self._join_later(d, meta)
+        return dict(summary, complete=True, joining=True, missing_chunks=[])
+
+    def _join_later(self, d, meta):
+        def run():
+            try:
+                assemble(d, meta, self.delay)
+            except Exception as e:  # noqa: BLE001 - logged; the chunks stay for the next start
+                sys.stderr.write("phone join %s: %s\n" % (d, e))
+            finally:
+                with self.lock:
+                    self.joining.pop(d, None)
+        t = threading.Thread(target=run, name="phone-join", daemon=True)
+        with self.lock:
+            self.joining[d] = t
+        t.start()
+
+    def is_joining(self, take_id, phone):
+        with self.lock:
+            return self.take_dir(take_id, phone) in self.joining
+
+    def wait_joins(self, timeout=None):
+        """Wait for the background joins (tests)."""
+        with self.lock:
+            threads = list(self.joining.values())
+        for t in threads:
+            t.join(timeout)
+
+    def resume_joins(self):
+        """After a restart: finish the joins that were cut off (every piece there, the phone
+        finished, no complete manifest yet)."""
+        if not self.join_in_background or not os.path.isdir(self.dir):
+            return
+        for take_id in sorted(os.listdir(self.dir)):
+            if not TAKE.match(take_id):
+                continue
+            for part in sorted(os.listdir(os.path.join(self.dir, take_id))):
+                d = os.path.join(self.dir, take_id, part)
+                if not PART.match(part) or not os.path.isfile(os.path.join(d, "finish.json")):
+                    continue
+                man = self.manifest(take_id, part)
+                if man and man.get("complete"):
+                    continue
+                try:
+                    with open(os.path.join(d, "finish.json")) as f:
+                        meta = json.load(f)
+                except (OSError, ValueError):
+                    continue
+                if missing_chunks(d, meta)[1] or not os.path.isdir(os.path.join(d, "chunks")):
+                    continue
+                self._join_later(d, meta)
 
     def manifest(self, take_id, phone):
         try:

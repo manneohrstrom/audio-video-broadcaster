@@ -38,6 +38,7 @@ const PHONE_NAMES = { pulled: "Take in", marked: "Clear upload" };
 /** A phone's first step, before ingest: sending the recording to the hub during and after the take. */
 function UploadChip({ camera }) {
   if (camera.notYet && camera.uploading) return html`<span class="chip running"><span class="spinner"></span> Upload · the phone is sending it</span>`;
+  if (camera.notYet && camera.joining) return html`<span class="chip running"><span class="spinner"></span> Upload · the hub is joining the pieces</span>`;
   return html`<${Chip} state="done" name="Upload" />`;
 }
 
@@ -252,7 +253,7 @@ function WaitingTake({ id, take, queued, names, ...rest }) {
       <header><i class="led amber" aria-hidden="true"></i><${TakeTitle} id=${id} names=${names} say=${rest.say} />
         <small>${[takeStart(id), length ? fmtDur(length) : "", rows.length + (rows.length === 1 ? " camera" : " cameras")].filter(Boolean).join(" · ")}</small>
         <span class="take-state warn">${queued ? "queued for ingest" : "on the cameras · not ingested yet"}</span></header>
-      <p class="note">${rows.map(([c, v], i) => html`${i ? " · " : ""}${labelOf(take, c, names)}${v.uploading ? ": uploading…" : v.frames != null ? ": " + v.frames + " frames" : ""}${v.dropped ? html` <span class="bad">(${v.dropped} dropped)</span>` : ""}<${RoughNote} camera=${take[c]} />`)}
+      <p class="note">${rows.map(([c, v], i) => html`${i ? " · " : ""}${labelOf(take, c, names)}${v.uploading ? ": uploading…" : v.joining ? ": joining on the hub…" : v.frames != null ? ": " + v.frames + " frames" : ""}${v.dropped ? html` <span class="bad">(${v.dropped} dropped)</span>` : ""}<${RoughNote} camera=${take[c]} />`)}
         ${!dropped && html` · <span class="good">no dropped frames</span>`}</p>
       <${Problems} recorded=${recorded} />
       <${HubMic} id=${id} take=${take} activity=${rest.activity} />
@@ -305,7 +306,7 @@ function TakeCard({ id, take, paused, driveOk, names, ...rest }) {
         : cameras.map(([c, v]) => html`
           <div class="camera-row"><span class="camera-name" title=${label(c) !== c ? `${label(c)} (${c})` : c}>${label(c)}</span>
             <div class="chips">${(v.done || []).includes("marked") ? html`<${Chip} state="done" name="Ingested" />`
-              : html`${isPhone(take, c) && html`<${UploadChip} camera=${v} />`}<${IngestChips} camera=${v} paused=${paused} phone=${isPhone(take, c)} />`}${v.notYet && !v.uploading && html`<span class="chip">· next ingest round</span>`}<${PrepChips} prep=${preps[c]} adopted=${take.adopted} paused=${paused} />${v.rough && v.rough.length ? html`<span class="chip"><${RoughNote} camera=${v} /></span>` : null}</div></div>
+              : html`${isPhone(take, c) && html`<${UploadChip} camera=${v} />`}<${IngestChips} camera=${v} paused=${paused} phone=${isPhone(take, c)} />`}${v.notYet && !v.uploading && !v.joining && html`<span class="chip">· next ingest round</span>`}<${PrepChips} prep=${preps[c]} adopted=${take.adopted} paused=${paused} />${v.rough && v.rough.length ? html`<span class="chip"><${RoughNote} camera=${v} /></span>` : null}</div></div>
           ${v.error && html`<p class="note bad">${v.error}</p>`}
           ${PREP_STEPS.filter(([step]) => (preps[c][step] || {}).state === "failed").map(([step, name]) =>
             html`<p class="note bad">${name}: ${preps[c][step].error || "failed"} (tried again after the next update)</p>`)}`)}

@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -39,7 +40,8 @@ class PhonesTest(unittest.TestCase):
     def setUp(self):
         self.now = [1000.0]
         cfg = hubd.load_config(None)
-        cfg.update(state_dir=tempfile.mkdtemp())
+        cfg.update(state_dir=tempfile.mkdtemp(), phone_join_in_background=False)   # joins in the call (see below)
+        self.cfg = cfg
         self.ph = phones.Phones(cfg, clock=lambda: self.now[0])
         self.rig = {"state": "idle", "take_id": None}
 
@@ -78,6 +80,37 @@ class PhonesTest(unittest.TestCase):
         # finishing again (a retry from the phone) returns the same result
         self.assertEqual(self.ph.finish("20261116-100000", "phone1", {})["frames"], 180)
         self.assertTrue(self.ph.have("20261116-100000", "phone1")["complete"])
+
+    def test_finish_answers_at_once_and_joins_in_the_background(self):
+        # user, 2026-11-21: the phone is done as soon as every piece is on the hub
+        ph = phones.Phones(dict(self.cfg, phone_join_in_background=True), clock=lambda: self.now[0])
+        chunks(ph, "20261116-100000", "phone1", drop_at=100)
+        gate = threading.Event()
+        real = phones.assemble
+        phones.assemble = lambda *a: (gate.wait(5), real(*a))[1]
+        try:
+            quick = ph.finish("20261116-100000", "phone1", {"clock": clock_samples(), "chunks": 3})
+            self.assertEqual((quick["complete"], quick["joining"], quick["frames"], quick["dropped_frames"]), (True, True, 180, 2))
+            self.assertTrue(ph.is_joining("20261116-100000", "phone1"))
+            self.assertIsNone(ph.manifest("20261116-100000", "phone1"))          # ingest waits for this
+            self.assertTrue(ph.have("20261116-100000", "phone1")["complete"])    # the phone won't resend
+            self.assertTrue(ph.finish("20261116-100000", "phone1", {})["joining"])   # a retry meanwhile
+        finally:
+            gate.set()
+            ph.wait_joins(5)
+            phones.assemble = real
+        man = ph.manifest("20261116-100000", "phone1")
+        self.assertEqual((man["complete"], man["frames"]), (True, 180))
+        self.assertFalse(ph.is_joining("20261116-100000", "phone1"))
+
+    def test_a_join_cut_off_by_a_restart_is_finished_on_start(self):
+        chunks(self.ph, "20261116-100000", "phone1")
+        d = self.ph.take_dir("20261116-100000", "phone1")
+        phones.write_json(os.path.join(d, "finish.json"), {"clock": clock_samples(), "chunks": 3,
+                                                           "phone": "phone1", "take_id": "20261116-100000"})
+        ph = phones.Phones(dict(self.cfg, phone_join_in_background=True), clock=lambda: self.now[0])
+        ph.wait_joins(5)
+        self.assertEqual(ph.manifest("20261116-100000", "phone1")["frames"], 180)
 
     def test_delay_per_model(self):
         self.assertEqual(phones.capture_delay_ms({"default": 40, "Pixel 9": 25}, "Pixel 9"), 25)
@@ -237,6 +270,7 @@ class HubPhonesTest(unittest.TestCase):
         self.assertTrue(cams["phone-0001"]["uploading"])
         chunks(self.hub.phones, take["take_id"], "phone-0001")
         self.hub.phones.finish(take["take_id"], "phone-0001", {"clock": clock_samples(), "chunks": 3})
+        self.hub.phones.wait_joins(5)
         cams = self.hub.ingest_state()["takes"][take["take_id"]]["recorded"]["cameras"]
         self.assertEqual((cams["phone-0001"]["frames"], cams["phone-0001"]["uploading"]), (180, False))
         self.assertIn("cam1", cams)
