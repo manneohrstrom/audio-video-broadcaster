@@ -221,7 +221,7 @@ function PhoneStill({ id, phone, shotRequest, names, say, refreshStatus }) {
         <i class="led green" aria-hidden="true"></i>
         <b><${EditableName} kind="cameras" id=${id} given=${givenCameraName(names, id)} fallback=${phone.label || id}
                             say=${say} onSaved=${refreshStatus} /></b>
-        <span class="tile-note">${phone.mode === "tripod" ? "tripod phone" : "phone"}${still ? ` · ${(phone.status || {}).locked ? "settings locked" : "not locked"} · ${still.info.age_s} s old` : ""}</span>
+        <span class="tile-note">${phone.mode === "tripod" ? "tripod phone" : "phone"}${still ? ` · ${phone.picture !== "locked" ? "automatic picture" : (phone.status || {}).locked ? "settings locked" : "not locked"} · ${still.info.age_s} s old` : ""}</span>
         <button class="key small" onClick=${() => identifyPhone(id).catch(error => say(error.message, true))}
                 title="Flash this phone's screen, to find it">identify</button>
       </footer>

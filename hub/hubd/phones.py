@@ -220,6 +220,7 @@ class Phones:
         self.uploaded = {}      # take_id -> video bytes received (record-time estimate)
         self.snaps = {}         # name -> (jpeg, time): latest still for the snapshot page
         self.snap_wanted = 0.0  # phones send a still on their next poll until then
+        self.picture = cfg.get("phone_picture", "auto")     # "auto", or "locked" (card, or a lock at REC)
         self.calib_watch = lambda: False    # set by hubd: is the hub watching for the card?
         self.given_name = lambda name: None  # set by hubd: the name given on the hub page
         self.mounts_path = os.path.join(self.dir, "mounts.json")
@@ -397,7 +398,7 @@ class Phones:
                 st = p["status"] or {}
                 out[n] = {"label": n, "mode": p.get("mode"),
                           "online": online, "age_s": round(now - p["seen"], 1), "status": st,
-                          "mount": self.mounts.get(n, "tripod"),
+                          "mount": self.mounts.get(n, "tripod"), "picture": self.picture,
                           "problems": self.problems(n, st, free_gb, n_on) if online else []}
             return out
 
@@ -411,7 +412,7 @@ class Phones:
             p.append("%s not charging (battery %s%%)" % (name, st.get("battery")))
         if st.get("visible") not in (None, "visible"):
             p.append("%s page is not in front: it may stop recording" % name)
-        if st.get("state") == "ready" and not st.get("locked"):
+        if self.picture == "locked" and st.get("state") == "ready" and not st.get("locked"):
             p.append("%s not calibrated: show it the card (otherwise it locks itself at REC)" % name)
         rtt = st.get("rtt_ms")
         if rtt is not None and rtt > 60:

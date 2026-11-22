@@ -30,11 +30,12 @@ import calibrate  # noqa: E402
 import lamp  # noqa: E402
 import names  # noqa: E402
 import phones  # noqa: E402
+import request_guard  # noqa: E402
 import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.57.0"
+VERSION = "0.58.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -1349,6 +1350,17 @@ class Handler(BaseHTTPRequestHandler):
     P_AUDIO_CHOOSE = re.compile(r"^/api/audio/(\d{8}-\d{6})/([a-z0-9-]+)/choose$")
     QUIET = ("/api/status", "/api/time", "/api/phone/poll", "/api/phone/chunk", "/api/phone/log", "/api/calib/measure",
              "/api/snap/", "/api/phone/snap/")
+
+    def parse_request(self):
+        """Every method passes the request guard before its do_ method runs."""
+        if not super().parse_request():
+            return False
+        reason = request_guard.refusal(self.headers)
+        if reason:
+            self.close_connection = True        # the body, if any, isn't read
+            self._send(403, {"error": reason})
+            return False
+        return True
 
     def do_HEAD(self):
         if self.MEDIA.match(self.path.split("?")[0]):

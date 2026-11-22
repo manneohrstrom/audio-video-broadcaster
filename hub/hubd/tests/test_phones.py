@@ -225,7 +225,14 @@ class PhonesTest(unittest.TestCase):
         self.assertFalse(self.poll()["reload"])                              # once
         self.poll(page="pageBBBBBBBB")                                       # the reloaded page takes over at once
 
+    def test_automatic_picture_never_asks_for_the_card(self):
+        self.poll(state="ready", locked=False)
+        snap = self.ph.snapshot(free_gb=100)["phone-aaaa"]
+        self.assertEqual(snap["picture"], "auto")
+        self.assertEqual([p for p in snap["problems"] if "calibrated" in p or "card" in p], [])
+
     def test_problems_are_warnings(self):
+        self.ph.picture = "locked"                                           # "not calibrated" is this mode's warning
         self.poll(charging=False, battery=30, visible="hidden", locked=False, rtt_ms=90, storage_free_gb=2)
         p = self.ph.snapshot(free_gb=3.0)["phone-aaaa"]["problems"]
         text = " | ".join(p)

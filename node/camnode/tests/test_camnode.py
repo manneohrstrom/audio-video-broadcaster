@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import time
+import threading
 import unittest
 from unittest import mock
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -400,6 +401,43 @@ class AgentTest(unittest.TestCase):
     def test_live_toggle(self):
         self.assertEqual(self.agent.live(True), "live")
         self.assertEqual(self.agent.live(False), "idle")
+
+
+class BrowserRequestTest(unittest.TestCase):
+    """Only the hub and tools talk to camnode: a request from a web page is refused."""
+
+    def test_a_request_with_an_origin_never_reaches_the_agent(self):
+        import http.client
+        calls = []
+
+        class FakeAgent:
+            def stop(self):
+                calls.append("stop")
+                return {}
+
+        before = camnode.Handler.agent
+        self.addCleanup(setattr, camnode.Handler, "agent", before)
+        camnode.Handler.agent = FakeAgent()
+        server = camnode.ThreadingHTTPServer(("127.0.0.1", 0), camnode.Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+
+        def post(headers):
+            connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
+            try:
+                connection.request("POST", "/take/stop", headers=headers)
+                response = connection.getresponse()
+                response.read()
+                return response.status
+            finally:
+                connection.close()
+
+        for origin in ("http://evil.example", "http://studio-hub.local", "null", ""):
+            self.assertEqual(post({"Origin": origin}), 403, origin)
+        self.assertEqual(calls, [])
+        self.assertEqual(post({}), 200)                         # the hub
+        self.assertEqual(calls, ["stop"])
 
 
 if __name__ == "__main__":

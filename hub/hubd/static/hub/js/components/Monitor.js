@@ -114,6 +114,7 @@ function PhonePanel({ id, phone, calibration, onChange, names, say, refresh }) {
   const recording = st.state === "recording";
   const settings = st.settings || {};
   const mode = recording ? "● rec" : { ready: "ready", off: "camera off", finishing: "finishing", uploading: "uploading" }[st.state] || st.state || "–";
+  const automatic = phone.picture !== "locked";      // then there's no card and no lock
   const canReload = (st.state === "ready" || st.state === "off") && !st.queue;
   async function mount(choice) { await setPhoneMount(id, choice).catch(() => {}); onChange(); }
   async function act(call, done) {
@@ -126,12 +127,12 @@ function PhonePanel({ id, phone, calibration, onChange, names, say, refresh }) {
       st.take && ["take", `${st.take} · ${st.frames ?? 0} fr`],
       st.take && ["dropped", st.dropped ? `${st.dropped} frames` : "0", st.dropped ? "bad" : "good"],
       st.take && ["upload", `${st.uploaded ?? 0} pieces · ${st.queue ? st.queue + " waiting" : "up to date"}`, st.queue ? "warn" : ""],
-      ["picture", st.locked ? `locked · ISO ${settings.iso ?? "–"} · ${settings.colorTemperature ?? "–"} K` : "not calibrated: locks itself at REC", st.locked ? "" : "warn"],
+      automatic ? ["picture", "automatic"] : ["picture", st.locked ? `locked · ISO ${settings.iso ?? "–"} · ${settings.colorTemperature ?? "–"} K` : "not calibrated: locks itself at REC", st.locked ? "" : "warn"],
       ["battery", `${st.battery ?? "–"}%${st.charging ? " · charging" : st.charging === false ? " · not charging" : ""}`, st.charging === false ? "bad" : ""],
       ["clock", st.rtt_ms != null ? `round trip ${st.rtt_ms} ms` : "–"],
       ["model", st.model || "–"],
     ]} />
-    <${CalibrationLine} entry=${(calibration.phones || {})[id]} watching=${calibration.watching} phone />
+    ${!automatic && html`<${CalibrationLine} entry=${(calibration.phones || {})[id]} watching=${calibration.watching} phone />`}
     ${!recording && html`<div class="segmented" role="group" aria-label="Focus">
       ${["tripod", "handheld"].map(choice => html`
         <button aria-pressed=${String((phone.mount || "tripod") === choice)} onClick=${() => mount(choice)}

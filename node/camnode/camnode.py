@@ -18,7 +18,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.9.1"
+VERSION = "0.10.0"
 NOMINAL_MS = 1000.0 / 30
 TAKE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WC_RE = re.compile(rb'"FrameWallClock":\s*(\d+)')
@@ -885,6 +885,17 @@ class Handler(BaseHTTPRequestHandler):
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
         return json.loads(self.rfile.read(n) or b"{}") if n else {}
+
+    def parse_request(self):
+        """Only the hub and tools talk to camnode, and they send no Origin. A request with
+        one comes from a web page (any site open on the network), so it is refused."""
+        if not super().parse_request():
+            return False
+        if self.headers.get("Origin") is not None:
+            self.close_connection = True        # the body, if any, isn't read
+            self._send(403, {"error": "requests from web pages are refused"})
+            return False
+        return True
 
     def do_GET(self):
         a = self.agent
