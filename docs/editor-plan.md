@@ -1,5 +1,7 @@
 # Editor plan: from takes to finished videos
 
+> **Closed at 1.0 (2026-11-22).** This is a record of the work as planned, kept for reference. Nothing in it is still to do: see [release-1.0.md](release-1.0.md).
+
 Status: **accepted by the user (2026-11-16), with the recommended answers to all four decisions below. Sections 4 and 5 (the UI) revised from the user's requirements the same day; a clickable mock-up first, then building M-E3 against the S1 take (user OK to start now).** Spikes E1–E3 run alongside Phase 4 Track B; the main work (M-E2 on) follows Track A. Sources: the user's direction of 2026-11-15 (our own editor; `docs/design.md`, "Editing"), the conversation of 2026-11-16 (web editor on the hub, bounce upload, automatic cut, changes by hand, render for YouTube), Phase 3 results (`docs/phase3-results.md`) and the ingest-time question (`docs/phone-plan.md`).
 
 ## Goal
@@ -9,9 +11,9 @@ Get from a take on `STUDIO` to a finished, synced video with no outside editing 
 1. Upload the Logic bounce, one or more per take (one per song is normal). It's synced to the take automatically (Phase 4 Track A).
 2. The hub makes an **automatic cut** for each song: which camera is on, from when to when.
 3. In the browser, the user **changes the cut** if they want: chooses which camera is on at each moment (step 1), then picks a look for the whole video (step 2).
-4. The hub **renders** the result: a YouTube master with the bounce as its soundtrack, and optionally (a maybe, see below) a vertical story version.
+4. The hub **renders** the result: a YouTube master with the bounce as its soundtrack.
 
-The first automatic cut uses simple rules. An agent that listens to the music, watches the video and cuts in a style the user asks for comes later. This plan only makes sure the data is ready for it.
+The automatic cut uses simple rules.
 
 ## Where it runs
 
@@ -69,36 +71,11 @@ Per synced song segment (from Track A), using the rules already in `docs/design.
 
 It runs right after a bounce is synced, so the cut is ready the first time the user opens the song.
 
-**Built 2026-11-17 (hub-ingest 0.16.0, hubd 0.24.0; not yet deployed: the hub was down).** As built, with the user's ear checks on their own studio tracks (mostly jazz improvisation: the tempo shifts quickly on purpose):
+**Built 2026-11-17 (hub-ingest 0.16.0, hubd 0.24.0; deployed later that day).** As built, with the user's ear checks on their own studio tracks (mostly jazz improvisation: the tempo shifts quickly on purpose):
 - Beats (`hub/ingest/beats.py`, `beats.json` next to each bounce version): tempo per 20 s chunk, re-measured every 2 s (user: "20 s chunks"); beats that float with the band from beat to beat; bar lines; per beat a confidence (pulse × how busy the music is) and a hit strength. Six of eight ear-checked passages had the right tempo; the two wrong ones are not in the onsets (one 4:3, the band pulses at 120 where the user feels 90; one at half the felt 155). Accepted for v1: cuts prefer beats with a real hit, so they land on the music either way.
 - Movement (`hub/ingest/motion.py`): from the proxies' keyframes (every 0.5 s), 64×36 grey, the camera's noise floor removed.
 - Rules (`hub/hubd/auto_cut.py`): shots 4–10 s, longer in calm music and shorter in busy; cut on the best beat in reach (the one of a bar, a strong hit, trusted beats); start on the wide camera and back about every 30 s; else the camera moving most among those not just shown. The editor starts from it once `beats.json` exists (`made_by: "rules-v1"`), ahead of the quick mix's cut. Pi cameras only.
-- Not built: choosing the wide camera per take on the hub page (it is the sync server for now).
-
-## 3b. Automatic cut, version 2: music-aware, with AI listening and watching (backlog, user 2026-11-17)
-
-**When:** after a few real sessions recorded the way they're meant to sound (full band, real mixes), not before: it has to be judged on real music. Version 1 (section 3, rules) comes first and is the baseline to beat. Today the editor still starts from the quick mix's 10 s rotation; neither version is built.
-
-**The question it answers:** given the music playing at each moment, which camera shows it best? Not "a new camera every N seconds", but a cut that follows the song the way a good live director would.
-
-**Listening (the bounce, and the stems if the user uploads them):**
-- the song's structure: intro, verse, chorus, bridge, solo, breakdown, ending, and the build-ups between them;
-- energy and density over time (how much is going on), tempo, beats and bars;
-- who is playing or leading right now: vocals, a solo instrument, drums fills, a riff; from stems when there are any, otherwise from source separation of the mix.
-
-**Watching (every camera, at low resolution, after ingest):**
-- who and what each camera sees: which player, which instrument, faces, hands on the instrument; wide or close;
-- movement and expression over time; picture quality (rough sections, focus, exposure) as hard limits.
-
-**Deciding:**
-- show who carries the music: the singer on the vocal line, the soloist during a solo, the drummer on a fill;
-- pace follows the music: longer holds in quiet verses, faster cuts in a chorus or a build, a cut on the downbeat where a section changes; always on beats, preferably bars;
-- variety and rhythm across the song (back to a wide shot regularly, no ping-pong), never into a rough section or a camera that wasn't recording;
-- every cut has a reason the editor can show ("chorus starts", "guitar solo: cam3 sees the guitarist"), so the user can see why and change it.
-
-**Learning from the user:** the edit records who made each cut (`made_by`: rules, agent, user); what the user changes after an automatic cut is the feedback for the next one.
-
-**To explore first (spikes, before any plan):** which models do the listening and watching (on the hub, on the Mac, or a cloud model: a decision for the user, since the rig is offline-first); how long it takes per song; and a blind comparison on the same real songs: the user watches version 1 and this one and picks.
+- The wide camera is the sync server.
 
 ## 4. Editor UI: step 1, the cut
 
@@ -192,7 +169,7 @@ A second step (a tab, after the cut is done): **what's the vibe of this video?**
 - **Progress** on the hub page, as with ingest: progress bar, ETA, pauses for REC and LIVE.
 - **Check after rendering:** duration matches the song; frame count is exactly 30 × duration; one spot-check per segment that the rendered frame matches the expected source frame. Same spirit as ingest's verify.
 
-## 6b. Video versions (polish backlog, user 2026-11-16)
+## 6b. Video versions (user 2026-11-16; built)
 
 - Rendered videos are numbered per song: **video v1, v2, v3, …** (not "final" / "quick"), each noting the bounce version inside it ("video v3 · bounce v2"), on the take card and in the editor.
 - **The edit (cut, dissolve, look) belongs to the song, not to a bounce version.** Today the working copy is stored per bounce version (`edits/<take>/<song>/v<N>.json`); move it to one per song. Its times are on the hub clock, so a newly uploaded and synced bounce (e.g. a new mix) fits it as is (the range is rebased if the new bounce starts or ends elsewhere).
@@ -208,15 +185,6 @@ Every video on the channel has a white border and the Brockley Live logo in the 
 - Colour (user, same day): a colour picker next to the switch, white by default, saved as `branding_colour` ("#rrggbb"). The image is white with transparency, so the editor uses it as a CSS mask over the colour and the render multiplies it by the colour (lutrgb) before the overlay: both give exactly that colour.
 - Sizes (user, option A of three mock-ups): border 24 px on every side, covering the picture's edges; logo 345 px wide (18 % of the width, its empty margin trimmed); 32 px in from the border's inner edge, right and below; no shadow.
 - One image does both: `hub/hubd/static/editor/brand/brand-frame.png` (1920x1080, transparent except border and logo), made by `hub/tools/make_brand_frame.py` from `hub/brand/brockley-live-logo.png`. The editor lays it over the video window; the render overlays it last in the encoder's ffmpeg graph (`edit_render.brand_overlay`). Change the numbers in the script and rerun it to restyle.
-
-## 7. Vertical story version (a maybe, not decided)
-
-A 9:16 version for Instagram stories, rendered from the same edit, is **a possible addition, not part of v1.** The user will decide later whether it's worth doing.
-
-What's known so far:
-- A vertical crop of a 1080p frame is only about 608×1080. A 1080×1920 story then needs an upscale of almost 1.8×, which looks soft.
-- Options if it goes ahead: accept the softness; mount one or two phones vertically for story angles (the phone page would need to record portrait); or reframe per shot (a crop position per cut in the edit, which costs UI work).
-- The edit format leaves room for it (`outputs`, and a crop per cut could be added later) so it can be added without redoing anything.
 
 ## Spikes (before building)
 
@@ -249,13 +217,9 @@ What's known so far:
 4. Ingest of a real session with `-c copy` keeps every frame's time and passes verify (if section 1 is accepted).
 5. REC or LIVE during a render pauses it at once without affecting the take, and the render then resumes.
 
-## Not in this plan
-
-The agent (listening to the music, analysing video, cutting in a style the user asks for), beyond the backlog item in section 3b; the vertical story version (section 7, a maybe); transitions, split screen, picture-in-picture; keyframed or masked colour; rendering on the Mac; editing from outside the LAN.
-
 ## Decisions for the user
 
 1. **Ingest switch to `-c copy` with real timing: answered (2026-11-16).** Yes, once spike E1 passes. Until then the conform stays as built. `CLAUDE.md` updated.
 2. **Order: answered (2026-11-16).** Spikes E1–E3 alongside Track B; the editor's main work (M-E2 on) after Track A, which it depends on. Phase 4's B, A, C order stays.
 3. **Colour in v1: answered (2026-11-16).** The basic controls in section 5 (plus an optional `.cube` look).
-4. **Vertical story version: a maybe (user, 2026-11-16).** Decide later, after the YouTube render works.
+4. **Vertical story version: dropped at 1.0.**

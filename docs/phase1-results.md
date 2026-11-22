@@ -110,7 +110,7 @@ The hub, now wired at 1 Gb/s, ran four one-off `iperf3` servers. Each node sent 
 4. **Provision with Ansible** from `docs/versions.md`: chrony configs, the power-save config, MediaMTX, and package holds. Today's setup was done by hand.
 5. **White balance, exposure and focus** are placeholders (green cast). Calibrate with a grey card under the studio lights before real takes, and check the `cdn_off` picture quality there.
 
-## Not done / open
+## Not done on that date (closed at 1.0)
 
 - The sync drift readable span was 36.5 min, not 60. Accepted by the user.
 - The cause of the client-only stalls under load is unconfirmed (`--sync off` control run).

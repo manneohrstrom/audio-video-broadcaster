@@ -1,5 +1,7 @@
 # Phone camera spike (Pixel 3, browser)
 
+> **Closed at 1.0 (2026-11-22).** This is a record of the work as planned, kept for reference. Nothing in it is still to do: see [release-1.0.md](release-1.0.md).
+
 Status: started 2026-11-15 at the user's request, before Phase 4 Track B. Exploratory: nothing here changes hubd, ingest or the main UI. Background: "phones as offline camera units" in `docs/design.md`.
 
 ## Question

@@ -1,26 +1,17 @@
 # Studio Multicam
 
-Synchronised multi-camera capture for a home music studio: Raspberry Pi Zero 2 W + Camera Module 3 Wide camera nodes, a Raspberry Pi 5 hub, OBS for live, and our own AI-assisted editor for editing (planned; user decision 2026-11-15, see `docs/design.md`, "Editing").
+Synchronised multi-camera capture for a home music studio: Raspberry Pi Zero 2 W + Camera Module 3 Wide camera nodes, a Raspberry Pi 5 hub, OBS for live, and our own browser editor on the hub for editing (see `docs/design.md`, "Editing"). The repository is public.
 
 The full design is in `docs/design.md`. Read it before proposing any architectural change.
 
 ## Current phase
 
-**Phone cameras first: plan accepted 2026-11-15 (`docs/phone-plan.md`), after the spike's GO (`docs/phone-spike-results.md`). P1–P5 are built and deployed (2026-11-15); left: robustness tests on the rig and the ingest-time question. Then Phase 4 (plan accepted 2026-11-15, `docs/phase4-plan.md`): Track B (visuals), then A (audio sync), then C (polish). Editor plan accepted 2026-11-16 (`docs/editor-plan.md`): spikes E1–E3 alongside Track B, the main work after Track A.** Phase 3 is done: GO on 2026-11-15 (`docs/phase3-results.md`). Stay within the plans; ask before adding scope.
-
-Earlier phases: Phase 1 GO on 2026-11-14 (`docs/phase1-results.md`); its five conditions still apply. Phase 2 passed on 2026-11-14 (`docs/phase2-results.md`). Phase 3 scope, kept for reference:
-- pull takes from the nodes;
-- conform or rewrap to `.mov` with timecode, keeping sync (see Ingest below);
-- verify, and lazy delete on the nodes;
-- `STUDIO` drive handling (mount on demand, Eject);
-- optional network share and Mac auto-pull.
-
-Start by writing a Phase 3 plan in `docs/phase3-plan.md` and get my OK before building. Don't write Phase 4 code until I say so.
+**1.0: finished (user decision 2026-11-22). There is no backlog.** `docs/release-1.0.md` lists what 1.0 is, its known issues, what wasn't verified and what was dropped. The plans and results in `docs/` are history: don't pick up "next" or "open" items from them, and don't propose dropped items again. Work only on what the user asks for, and ask before adding scope. Phase 1's five conditions (`docs/phase1-results.md`) still apply.
 
 ## Settled decisions (ask before changing any of these)
 
 - **Hosts:** `studio-hub` (Pi 5, wired Ethernet). Nodes `cam1`–`cam4` now, possibly scaling to `cam6`. SSH user `studio`. All reachable as `<name>.local`.
-- **Video:** 1080p30 H.264, the hardware encoder's ceiling. Pi shutter locked at 30 ms (30000 µs, user decision 2026-11-21; was 1/50 s), set once for every Pi in `deploy/group_vars/nodes.yml` (`cam_shutter_us`), for takes and LIVE alike: LIVE must look the same as a take. No switch on the hub page or API. Gain and AWB gains are fixed for each take and never changed during it. Pis: set by calibration (show the camera the calibration card while idle; it locks on its own); an uncalibrated Pi records with its last settings, or camnode's defaults (gain 2.0, WB 1.5/1.5). There is no "auto, then lock" for the Pis, and the hub page sets only their focus by hand (gain and WB by hand only through `POST /api/camera/<cam>/settings`; the planned manual trims, B7, aren't built). Phones: automatic exposure and white balance, also during a take (user decision 2026-11-21; config `hubd_phone_picture: auto` in `deploy/group_vars/hub.yml`); `locked` (card calibration, or a quick lock at REC, `lockAtRec` in `phone.html`) is the config's other value. (Verified against the code 2026-11-21.) Focus: the Pis are fixed on the wall with one fixed focus each (no autofocus); phones are marked tripod (focus locked) or handheld (continuous autofocus) (user decisions 2026-11-15 and 2026-11-16, Phase 4, `docs/phase4-plan.md` Track B).
+- **Video:** 1080p30 H.264, the hardware encoder's ceiling. Pi shutter locked at 30 ms (30000 µs, user decision 2026-11-21; was 1/50 s), set once for every Pi in `deploy/group_vars/nodes.yml` (`cam_shutter_us`), for takes and LIVE alike: LIVE must look the same as a take. No switch on the hub page or API. Gain and AWB gains are fixed for each take and never changed during it. Pis: set by calibration (show the camera the calibration card while idle; it locks on its own); an uncalibrated Pi records with its last settings, or camnode's defaults (gain 2.0, WB 1.5/1.5). There is no "auto, then lock" for the Pis, and the hub page sets only their focus by hand (gain and WB by hand only through `POST /api/camera/<cam>/settings`; manual trims, B7, were dropped at 1.0). Phones: automatic exposure and white balance, also during a take (user decision 2026-11-21; config `hubd_phone_picture: auto` in `deploy/group_vars/hub.yml`); `locked` (card calibration, or a quick lock at REC, `lockAtRec` in `phone.html`) is the config's other value. (Verified against the code 2026-11-21.) Focus: the Pis are fixed on the wall with one fixed focus each (no autofocus); phones are marked tripod (focus locked) or handheld (continuous autofocus) (user decisions 2026-11-15 and 2026-11-16, Phase 4, `docs/phase4-plan.md` Track B).
 - **Live mode:** MediaMTX on each node with its built-in Raspberry Pi camera source. OBS pulls SRT (fallback RTSP over TCP) at 4–5 Mbps per camera, or 3–4 at six cameras. Pis do not record in live mode; ISOs are recorded in OBS.
 - **Offline mode:** `rpicam-vid` software camera sync, with `--sync client` on all nodes but one, started first, then `--sync server` on the last. Raw H.264 plus `--save-pts`, about 16 Mbps, to SD. `--denoise cdn_off` (the default `cdn_fast` drops ~6% of frames on the Zero 2 W at normal clocks; see `docs/progress.md`).
 - **Clocks:** chrony on every node; the hub is the NTP server.
@@ -30,9 +21,9 @@ Start by writing a Phase 3 plan in `docs/phase3-plan.md` and get my OK before bu
   - It writes to temporary names and renames when done, and checks the filesystem on plug-in.
   - The hub deletes from the drive only when asked: the archive's **delete take** removes a whole take (its folder and everything the hub keeps for it), after a confirmation, for ingested takes and ones whose ingest failed or stopped half way, with nothing running for them (the drive must be in when part of the take is on it) (user decisions 2026-11-21: with YouTube the drive rarely leaves the hub; "should operate also on faulty data"). Nothing else on the hub deletes from the drive.
 - **Phone cameras** (user decisions 2026-11-15, `docs/phone-plan.md`): Pixel phones join offline takes from a page on the hub (browser, no app; camera access through a one-off Chrome flag, no HTTPS). Ready phones record on the hub's REC/STOP; phones never block REC. Chunks upload live to the hub's SD card during the take. One capture-delay correction per model (default −40 ms); one tested phone stands for all, so no per-phone tests. Dropped frames, on phones and Pi cameras alike, are tolerated: marked as rough sections, not fixed. *(2026-11-21, user: phones are known by a device id kept in Chrome (`phone-k7q2`), are shown by that id until named on the hub page (no colours: user, confusing); a tripod page `/phone/tripod` for the studio's own phones in brackets: dark, nothing to press, set up from the hub page.)*
-- **Editing** (user decision 2026-11-15): our own editor. The plan is a custom editor with an agent that listens to the music, analyses the video and proposes cut points, plus a simple timeline UI to pick which camera is on at each point. Everything the rig produces (timecode, manifests, `gaps`, rough sections, bounce sync) is data for that editor; nothing targets a commercial editor's formats. Plan: `docs/editor-plan.md` (accepted 2026-11-16): web editor on the hub, rule-based automatic cut first (agent later), one look per song (filters and effects with a strength, Instagram-style; camera matching automatic from the card readings), a short dissolve at every cut, hub renders a YouTube master; a vertical story version is a maybe.
+- **Editing** (user decisions 2026-11-15 and 2026-11-22): our own editor, with a rule-based automatic cut and a simple timeline UI to pick which camera is on at each point. The AI agent and the vertical story version were dropped at 1.0. Everything the rig produces (timecode, manifests, `gaps`, rough sections, bounce sync) is data for that editor; nothing targets a commercial editor's formats. As built (`docs/editor-plan.md`): web editor on the hub, one look per song (filters and effects with a strength, Instagram-style), a short dissolve at every cut, a title sequence, hub renders a YouTube master. No colour matching between cameras (dropped at 1.0).
 - **YouTube** (user decision 2026-11-18, `docs/youtube-plan.md`): finished videos marked "YouTube" in the editor upload to the band's channel as **private** videos, one after another as they're rendered (hub-upload; resumable; pauses while recording). Upload-only login, made on the Mac, never in git. The STUDIO drive keeps the master.
-- **Audio sync:** a clap or slate by default. LTC from the hub is Phase 4 and optional.
+- **Audio sync:** automatic, by matching the bounce to the hub mic's recording; by hand in the editor otherwise (a clap helps). Clap-only sync and LTC were dropped at 1.0.
 - **Network:** cameras on their own 2.4 GHz channel. Wi-Fi power saving off on the nodes.
 
 ## Hardware constraints
@@ -46,7 +37,7 @@ Start by writing a Phase 3 plan in `docs/phase3-plan.md` and get my OK before bu
 
 - `node/`: camera agent, MediaMTX config template, systemd units
 - `hub/`: control API and web UI, ingest worker, chrony config
-- `mac/`: optional auto-pull script
+- `mac/`: the one-time YouTube sign-in script
 - `deploy/`: Ansible inventory and playbooks (run from the dev machine)
 - `docs/`: design, phase results, progress log, runbook
 
@@ -61,4 +52,4 @@ The editor (user decision 2026-11-16, `docs/editor-plan.md`) and, since 2026-11-
 - Ask before rebooting, reflashing, or deleting anything on a Pi. Installing packages is fine.
 - Keep command output short: tail and grep logs instead of dumping them.
 - Once something works, pin the package versions and record them in `docs/versions.md`.
-- At the end of each session, update `docs/progress.md` with what changed and what's next. That file is the memory between sessions.
+- At the end of each session, update `docs/progress.md` with what changed. That file is the memory between sessions.

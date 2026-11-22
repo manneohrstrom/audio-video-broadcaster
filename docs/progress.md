@@ -1,5 +1,7 @@
 # Progress log
 
+> The project was closed as [1.0](release-1.0.md) on 2026-11-22. The "Next", "Open" and "Backlog" notes below are history, not a to-do list.
+
 ## 2026-11-14 — Setup before Phase 1
 
 ### What changed
@@ -860,3 +862,22 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - **Take `20261121-184414` in the editor (user asked):** the automatic cut "went away" because the user had saved an edit (a saved working copy always wins over the rules' cut; there's no "back to the automatic cut" button) and the Pis recorded only ~10 s, so the rules' cut would have had one or two shots. The automatic sync failed ("0 windows with sound") because the bounce wasn't played in the studio during that take, so the hub mic (peak -42 dBFS) had nothing to match; the user placed it by hand. The mic is fine (user). Cameras have no audio: a clap seen on video is never used for sync on its own.
 - **Next:** the user's proper music test (a few minutes, the song played in the room, a clap at the start) to check the automatic sync and the automatic cut with 30 ms and automatic phones.
 
+
+## 2026-11-22: READMEs for the public repo, and 1.0
+
+- **User decision: the project is finished, 1.0, with no backlog.** The AI agent and every other unbuilt idea are dropped. `docs/release-1.0.md` has the list, the known issues and what was never verified. All earlier "Next", "Open" and "Backlog" notes in this log are closed by this entry.
+- **READMEs rewritten against the code:** the main one explains the system, workflow, hardware, assembly, installation, security and limits; `deploy/` has first-install steps; `hub/`, `node/` and `docs/` are brought up to date (editor, automatic sync, YouTube, delete on verify, delete take, 30 ms shutter).
+- **Backlog removed from the living docs:** CLAUDE.md's phase and decisions, `design.md`, the editor and Phase 4 plans (wish-list sections deleted; git has them), closing notes on the other plans and results. Runbook corrected; `versions.md` gains the libraqm pin that was already deployed.
+- **Found in the review, not fixed (no code changed, nothing deployed):**
+  - hubd accepts POSTs from any origin (reproduced on loopback with a fake hub: stop and delete take reached the handler);
+  - with automatic phone picture, hubd and both pages still say "not calibrated / locks itself at REC";
+  - minor: the docstrings in `ingest.py` still say it never deletes from the drive; the look's `overlay:<id>` isn't validated before it's joined to a path.
+- **Checked:** Markdown links and anchors; the four diagrams rendered with Mermaid 11.4.1 (desktop, phone, dark); playbook syntax from a clean venv and the no-bulb setting; tests on a clean copy (camnode 34, hubd 213, ingest 158 with 1 skipped for want of raqm, JS 23). **Not checked:** the rig, a real install, GitHub's own rendering.
+
+### 2026-11-22, later: the two bugs, and licensing
+
+- **Other websites can no longer command the rig (hubd 0.58.0, camnode 0.10.0):** `hub/hubd/request_guard.py` checks Host (local names and IPs, against DNS rebinding) and Origin on every request; camnode refuses any request with an Origin. Tools without an Origin work as before.
+- **Phones on automatic picture are no longer asked for the card:** hubd's warning, the monitor and cameras views and the phone page follow `phone_picture`.
+- **Licensing:** `THIRD_PARTY_NOTICES.md` and the license texts for everything bundled or derived; Barlow-Elastic's license completed; Righteous, Nixie One and Orbitron (reserved names) replaced by the unmodified originals; qrcode.js's CC BY-SA snippet replaced by TextEncoder; copyright notice in the README. Personal details taken out of two docs.
+- **Checked:** camnode 35, hubd 218, ingest 158 (1 skipped), JS 23; headless Chrome against a local hubd (own pages, phone with a fake camera, fonts, QR, cross-site fetch, beacon and form, rebinding), which fails on the old code.
+- **NOT deployed: the hub and cameras are switched off (user).** When they're on and idle: `cd deploy && .venv/bin/ansible-playbook site.yml`, then check the versions on the monitor, one REC and STOP from the page and from a phone, and reload open phone pages. The three replaced `.woff2` fonts stay on the hub until removed by hand (ask first).

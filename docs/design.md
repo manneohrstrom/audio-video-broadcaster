@@ -1,5 +1,7 @@
 # Studio Multicam — Design Proposal
 
+> **The project is finished at [1.0](release-1.0.md).** This is the proposal it was built from, with notes added along the way. It explains why; the [main README](../README.md) describes what was built. Where they differ (shutter now 30 ms, four cameras, ingest at real frame times, YouTube upload), the README and the code win.
+
 Nov 7, 2026 · @Manne
 
 ## Summary
@@ -47,7 +49,7 @@ The sensor-mode and lens figures come from reseller pages that reproduce Raspber
 
 ## Architecture
 
-&#91;embedded content: studio multicam architecture · cameras, hub, Mac\]
+See the diagram in the [main README](../README.md#how-it-works).
 
 The nodes only capture; the hub owns orchestration, time and storage; the Mac only consumes. Live video never passes through the hub, so a hub crash can't take down a live show. The control API is plain HTTP, so a physical button, a Stream Deck or a phone shortcut can drive it later.
 
@@ -88,11 +90,9 @@ Four things have to line up, and each gets its own mechanism; only the last one 
 | Frames across cameras | libcamera software sync. Clients keep adjusting frame timing to match the server for the whole take, so long takes don't drift apart ([libcamera](https://patchwork.libcamera.org/patch/22684/raw/)). | *Measured:* time-aligned within about 17 ms (the stopwatch's resolution) on all four nodes, with no drift from 25 to 61.5 min |
 | Node clocks | chrony on every node, served by the hub. The sync algorithm passes wall-clock time between devices ([libcamera](https://patchwork.libcamera.org/patch/21512/)), so I inferred NTP quality bounds sync quality. *Phase 1:* one node's chrony reported offsets up to 41 ms during a Wi-Fi dropout, and its frames didn't shift, so frame sync seems less sensitive to NTP than inferred. Clocks still matter for timecode. | *Measured:* ±0.1–2.5 ms with the hub on Wi-Fi; 13–144 µs with the hub wired |
 | Files on the editor's timeline | The hub stamps each `.mov` with a start timecode from that node's first-frame wall-clock time, rounded to the take's common frame grid. A single shared timecode isn't enough, because a node can start one frame early (Phase 1). | Identical across cameras once start offsets are applied |
-| Video against studio audio | Default: a clap or slate at the start of each take. Planned (Phase 4): a scratch mic on the hub, matched against the DAW bounce. Optional: LTC timecode from the hub into a spare interface input, recorded by the DAW. | Clap: about a frame, by hand. Scratch mic: automatic when the room and the bounce share sound. LTC: automatic. |
+| Video against studio audio | Default: a clap or slate at the start of each take. Built: a scratch mic on the hub, matched against the DAW bounce. | Clap: about a frame, by hand. Scratch mic: automatic when the room and the bounce share sound. |
 
 The editor lines the take's clips up by **timecode**. Audio-waveform sync is not an option for these cameras because they record no sound.
-
-**LTC in practice.** The hub plays 30 fps LTC, derived from its NTP clock, through a small USB audio adapter into one spare line input on the Behringer; the DAW records it on its own always-armed track. After a session you export the mix and the LTC track from the same start point and drop both into the take folder. The hub decodes the LTC with x42's [ltc-tools](https://github.com/x42/ltc-tools) and writes the start timecode into the mix's Broadcast-WAV header, so the editor places the audio with the cameras by timecode.
 
 **Why not just NTP and a scheduled start:** that aligns the first frame, but each camera module runs off its own clock and the angles slide apart over an hour. I haven't measured the drift for Camera Module 3; the software sync makes it moot. This is reasoning, not a measurement.
 
@@ -109,8 +109,7 @@ After STOP the hub does everything; your only step is pressing Eject and moving 
 | Getting it to the Mac | Your steps | Notes |
 | --- | --- | --- |
 | Swap the drive (default) | Press Eject on the hub page, move the drive to the Mac | exFAT, so the Mac reads it directly; edit from it or copy off |
-| Network share | Drag the take folder across | No swap; slower; the drive must be on the hub |
-| Mac auto-pull (optional) | None | Copies finished takes over the network when the Mac is on the studio network |
+| Download | Press download on a video or bounce in the archive | No swap; finished videos and bounces only |
 
 **Swapping safely:**
 
@@ -199,67 +198,16 @@ Four phases, each ending in something usable. Phase 1 is a go/no-go on the two r
    - Gate: under one frame of offset after an hour, and 30 Mbps of combined live traffic without drops (two nodes at 15 Mbps each, standing in for six at 5 Mbps).
 2. **Phase 2, control.** Node agent (Python, systemd), hub API and web UI (REC/STOP, LIVE, status), chrony, mDNS, Ansible provisioning for nodes and hub. You get synced takes on SD and live feeds in OBS.
 3. **Phase 3, ingest.** Pull, rewrap with timecode, verify, lazy delete, exFAT swap-drive handling (mount on demand, Eject), optional network share and Mac auto-pull. You get the full loop from the REC button to files ready to edit.
-4. **Phase 4, polish (optional).** Per-camera image profiles with snapshot preview, tally LEDs, a physical REC button on the hub's GPIO, OBS scene-collection export, LTC audio timecode.
-   - **Snapshot overview page for setup** (added 2026-11-15). One page on the hub shows a still from every camera side by side, with a "Take snapshots" button (optionally refreshing every few seconds). It's for placing, framing, focusing and matching cameras, and for a quick look at the whole rig. Each tile has the camera's status: temperature, clock, free space, settings.
-     - Not a live stream, and not kept: snapshots live in memory only and are never saved to the cameras' SD cards or the drive.
-     - When idle, each camera grabs one frame with its normal locked settings (a short `rpicam-still`, light on the Zero). In live mode, the frame is taken from the existing stream instead. Never during a take.
-     - Fits with the planned per-camera image controls and focus help (snapshot preview, sharpness readout).
-   - **Hub scratch mic for audio sync** (added 2026-11-15; the user has bought a USB mic for the hub). The hub records a low-gain scratch WAV during every take, timestamped against its own clock, which is the clock the cameras' frames are stamped against. The user uploads the DAW bounce, and optionally one stem the room can hear, such as the vocal mic or a drum overhead. The hub matches scratch against bounce with GCC-PHAT at several points in the take, which gives both the offset and the audio clock drift, and stamps the bounce with the take's timecode.
-     - The result doesn't have to be perfect. If the match points disagree or confidence is low, the take is marked "needs sync" and falls back to a clap marked by hand, or to LTC. It never guesses silently.
-     - Known weak case: mostly-DI sessions in a quiet room. The stem upload or LTC covers it.
-     - Needs the bounce upload (see the next item).
-     - **Multi-room sessions (user requirement, 2026-11-15).** Sessions sometimes use several rooms in the house. Cameras and players in other rooms can't be heard by the hub mic.
-       - Pi cameras in any room still share the hub-clock timecode (if on the rig's Wi-Fi), so syncing the bounce once to the timeline syncs all of them. The hub mic only needs to hear *something* of the performance.
-       - When the hub mic hears nothing usable, the anchor is a clap that's in the bounce (through the instrument mics) and visible on a camera in that room. Sync must then work from claps alone: find the clap in the bounce and the motion peak on that camera (as in `hub/tools/clap_check.py`).
-       - Video not on the shared clock (phones, handhelds) always needs its own anchor: a clap it can see that's in the bounce, or its own audio matched against the bounce.
-       - Per take, the hub picks the anchor (hub mic match, or claps) and says which one it used and how confident it is. "Needs sync" if neither works.
-       - Cameras in other rooms need good Wi-Fi there (−60 dBm or better); check before a session.
-     - **Acceptance test (user, 2026-11-15):** a real session with claps at regular intervals (say every 5 minutes), visible to all cameras and audible in the bounce. The claps are ground truth: the automatic scratch-mic match must agree with them within one frame at every clap, start to end. This also measures the audio interface's clock drift over a long take. Use the clap finder from the Phase 3 sync check (audio onsets, per-camera motion peaks), kept in the repo for this.
-   - **Add media to a take from the web page** (added 2026-11-15): phone or handheld video, the DAW bounce, and stems. An "Add media" button on the hub page works from a phone or the DAW computer. Files land in the take's folder on `STUDIO` (`cameras/`, `handheld/`, `audio/`), so each take keeps all its media in one place.
-     - The take is picked automatically from the file's recording time; the user confirms.
-     - Uploads go in resumable chunks (phone browsers drop uploads when the screen locks) and stream straight to disk (the hub has 1 GB of RAM). They pause during takes and live sessions, like ingest. The hub deletes from the drive only on the archive's "delete take".
-     - Sync: handheld video with sound is matched by audio against the bounce (or the hub scratch mic), the same way as above, and gets the take's timecode. Phone clocks (about ±1 s) are used only to pick the take. Optionally conform variable-frame-rate phone video to 30 fps.
-     - Same fallback: "needs sync" if the match isn't confident. Video without sound can't be synced automatically.
-   - **Editing: our own AI-assisted editor** (user direction 2026-11-15).
-     - An agent listens to the music (the synced bounce, per song) and analyses the video from every camera, and proposes the cut: which camera, from when to when, cut on musical boundaries.
-     - A basic UI: a timeline per take/song with a lane per camera; pick the camera for any point in time, move cut points, accept or change the agent's proposal, render.
-     - Inputs it relies on, all produced by the rig already or planned: every camera on one clock and timecode (`first_frame_wallclock_ns`, `.mov` timecode), per-camera `gaps` and rough sections (never cut to a rough camera), the bounce synced to the take (Track A), song segments within a take, motion and framing per camera.
-     - The "automatic edit on the hub" idea below is the first version of the agent; its switching rules are a starting point. It writes no EDL/XML for other editing software.
-     - Plan: `docs/editor-plan.md` (accepted 2026-11-16). The UI runs in the browser, the hub stores, cuts and renders. Ingest moves to `-c copy` at real frame timing once spike E1 passes (passed 2026-11-16; ingest 0.4.0 does it); the render does the 30 fps conform for the final cut only.
-   - **Future idea: automatic edit on the hub** (added 2026-11-15). This would give a finished video with no editing step, aimed mainly at sessions using only the Pi cameras. It depends on the scratch mic and the bounce upload above.
-     - **Many partial bounces per take.** A long session is often bounced one song at a time, because each song is mastered separately. The bounces arrive at different times (song 1, then 2, then 3), and each covers only part of the take. The hub searches each bounce against the whole take's scratch audio (coarse to fine, so a 4-min bounce against a 2-hour take stays quick), finds where it sits, and shows it as a segment on the take's timeline: "Song 2: 00:41:12–00:45:30, synced (confidence high)".
-     - **Edits and mastering.** EQ, compression, limiting and fades are fine. If a bounce was edited in time (sections moved or cut, tempo changed), the match points won't agree. The hub then flags it "doesn't match the take as one piece" rather than producing a bad edit.
-     - **Auto edit button** on each synced segment: the hub cuts the conformed camera files (already on one exact 30 fps grid, so cuts are frame-accurate) into one video with the bounce as its soundtrack.
-     - Switching rules, as a start: hold shots for 4–10 s, cut on the beat (tempo and onsets detected from the bounce), come back to a wide shot regularly, favour cameras with movement, and never cut to a camera with dropped frames at that moment (from the manifest `gaps`).
-     - Output goes to the take folder on `STUDIO` under `edits/`: an `.mp4` per song, plus the cut as data (cameras and cut points) that the editor's timeline opens for changes.
-     - Cost: cutting means one encode at a time (libx264, about real time on the Pi 5, Phase 3 S2), so a 4-min song takes about 4–5 min. It runs when the rig is idle, like ingest.
-     - Later options: split screen or picture-in-picture, a per-song choice of style, and a preview in the hub UI.
-   - **Future idea: phones as offline camera units** (added 2026-11-15). The user has several old Pixel 3s, already confirmed to handle long recording sessions with good quality. Live mode stays on DroidCam; this is for offline takes only.
-     - A web page on the hub (`https://studio-hub.local/phone`), not a native app. The phone takes a name (`phone1`, …) and joins the rig like a Pi camera: status on the hub page (battery, temperature, free space), and REC/STOP from the hub along with the Pi cameras.
-     - Preview on the phone's own screen, plus a still sent to the hub page every few seconds, for placing the camera.
-     - Records 1080p30 in the browser (hardware encoder) in small pieces saved as it goes, so a Wi-Fi drop or crash loses seconds, not the take.
-     - Uploads to the hub over 5 GHz, so the phones never touch the Pi cameras' 2.4 GHz channel. Files land in the take's `handheld/` folder and go through the same conform and timecode as the Pi cameras.
-     - Sync: per-frame capture timestamps from the browser, offset against the hub's clock (measured by the page), and cross-checked by matching the phone's audio against the hub scratch mic. "Needs sync" if they disagree.
-     - Camera access in the browser needs a secure context: a one-off Chrome flag per phone (`unsafely-treat-insecure-origin-as-secure`), the user's choice (2026-11-15); no HTTPS or local CA.
-     - The page keeps the screen awake and must stay in the foreground during a take. Keep the phones plugged in. The hub shows temperature and warns, since old Pixel 3 batteries can swell.
-     - First step: test the page on one Pixel 3. Can Chrome lock exposure, white balance and focus? Are its frame timestamps accurate? Does browser-recorded video match the quality the user already confirmed? The browser doesn't get the Google Camera app's processing.
-     - If the browser falls short: a native Android app, possibly starting from Google Research's open-source RecSync (synchronised multi-phone capture).
-     - **Dropped frames are tolerated: marked, not fixed** (user decision 2026-11-15, after the phone spike). Phone footage is one angle in a cut, so a rough stretch just means using another angle there. Every frame keeps its own hub-clock time, so drops never shift sync. The hub marks rough sections per camera (e.g. any 2 s window missing more than a few frames) in `take.json` and on the hub page, and the editor and its agent avoid them. Bad chunks are not blanked or discarded. Applies to the Pi cameras' `gaps` too.
-     - Step one: record a scratch WAV during one real take and test the matching offline before building anything.
+4. **Phase 4 and after.** Calibration and focus help, the recording light, phones as cameras, bounce upload and automatic sync, the editor and render, and YouTube upload. What was built is described in the [main README](../README.md); what was dropped is in [release-1.0.md](release-1.0.md).
+
+### Editing
+
+The editor is our own (user decision 2026-11-15). It runs in the browser; the hub stores, cuts and renders. Its inputs all come from the rig: every camera on one clock and timecode, each camera's gaps and rough sections, the synced bounce, beats and movement. The automatic cut uses rules. See [editor-plan.md](editor-plan.md).
 
 One repository:
 
 - `node/`: camnode agent, MediaMTX config template, systemd units
-- `hub/`: control API and UI, ingest worker, chrony and Samba config
-- `mac/`: optional auto-pull script and launchd job
+- `hub/`: control API and UI, editor, ingest and upload workers, chrony config
+- `mac/`: the YouTube sign-in script
 - `deploy/`: Ansible inventory and playbooks
 - `docs/`: runbook for setup, daily use and troubleshooting
-
-## Open questions
-
-Settled on 7 November: the cameras stay wireless; a clap is the default audio sync, with LTC as the upgrade; the hub (Pi 5, originally planned as a Pi 4) goes on Ethernet with an external USB drive, transfers can run overnight, the drive (exFAT) moves to the Mac for editing, everything runs at 1080p30 with the shutter at 1/50 s, and the rig starts with two nodes, scaling to four and possibly six, on their own 2.4 GHz channel; per-camera ISOs are recorded on the OBS machine, not the Pis. What's left only changes settings.
-
-- [ ] How long is a typical session?
-- [ ] Is the Mac wired or on 5 GHz for live sessions?
-- [ ] Before Phase 3: portable SSD or hard drive for the swap drive, and what size?
-- [ ] Which router or access point will carry the cameras' channel? Phase 1: the home router passes the sync broadcasts, but the cameras currently share its channel 7 with the household.

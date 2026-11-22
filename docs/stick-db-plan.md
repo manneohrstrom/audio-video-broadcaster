@@ -1,5 +1,7 @@
 # Plan: the stick is the database
 
+> **Closed at 1.0 (2026-11-22).** This is a record of the work as planned, kept for reference. Nothing in it is still to do: see [release-1.0.md](release-1.0.md).
+
 Status: accepted 2026-11-17 (user). Agreed in outline on 2026-11-16 (`docs/progress.md`).
 
 ## Goal

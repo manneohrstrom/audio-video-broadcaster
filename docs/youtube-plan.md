@@ -42,4 +42,4 @@ To sign the hub out: remove the app at myaccount.google.com → Security → Thi
 - `hub/ingest/tests/test_youtube_upload.py` against a fake YouTube following Google's resumable protocol: in pieces and byte for byte, private and Music; after a dropped connection (same session); after a restart (the record on disk is enough); pausing for a take; an expired session; the daily limit; a refused video; an expired token renewed once; a revoked login; not signed in. Also that Python's HTTP client returns YouTube's 308 instead of following it.
 - `test_ingest.py`: a finished video with YouTube goes to the upload folder with its details, without it nothing is queued.
 - `test_hubd.py`: only when signed in; the upload's progress comes back with the render's, without YouTube's session address.
-- Not yet: a real upload to the channel (needs the setup above).
+- Not verified at 1.0: a real upload to the channel ([release-1.0.md](release-1.0.md)).

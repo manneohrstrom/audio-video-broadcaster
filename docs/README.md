@@ -1,25 +1,36 @@
 # docs/: design and project history
 
-Where to look, depending on what you want to know:
+New here? Start with the [main README](../README.md). The project is finished at [version 1.0](release-1.0.md); these are its working documents. **The plans, spikes and results are records of their date** and can describe things that changed later. Where they disagree with the code, the code wins.
+
+## Using and understanding the rig
 
 | File | Read it when you want to know… |
 |---|---|
-| [`design.md`](design.md) | **Why the system is built this way.** Hardware limits, live and offline modes, how sync works, ingest, storage, the risks, and the phase plan. Start here. |
-| [`runbook.md`](runbook.md) | **How to run the rig.** Mounting a camera, OBS, the `STUDIO` drive, bounces and the quick mix, phones as cameras, the recording light. |
-| [`progress.md`](progress.md) | **What happened and what's next.** A dated log, session by session, with measurements, problems found and fixes. The latest "Next" entries are the current to-do list. |
-| [`versions.md`](versions.md) | Exactly which package versions are installed and pinned on the Pis, and why |
-| [`phase1-results.md`](phase1-results.md) | Phase 1 feasibility: does software camera sync hold over an hour, and does Wi-Fi carry the bandwidth? (Yes, with five conditions.) |
-| [`phase2-plan.md`](phase2-plan.md), [`phase2-results.md`](phase2-results.md) | Phase 2 control (REC/STOP/LIVE, camera agent, Ansible): plan and results |
-| [`phase3-plan.md`](phase3-plan.md), [`phase3-results.md`](phase3-results.md) | Phase 3 ingest: the frame-timing problem (the sensor runs at 30.011 fps, plus dropped frames), the two ways to keep sync, the drive rules, and the results |
-| [`phone-spike-plan.md`](phone-spike-plan.md), [`phone-spike-results.md`](phone-spike-results.md), [`phone-plan.md`](phone-plan.md) | Android phones as cameras from a web page: the feasibility spike and the plan that was built |
-| [`phase4-plan.md`](phase4-plan.md), [`phase4-spikes.md`](phase4-spikes.md) | Phase 4: picture (calibration by card, snapshot and focus page), sound (bounce upload, hub mic, sync, the one-button quick mix) and polish (recording light, runbook), and the spikes behind them |
-| [`editor-plan.md`](editor-plan.md), [`editor-spikes.md`](editor-spikes.md) | Our own editor on the hub: the edit format, automatic cut, timeline, colour and render, and the spikes (real-timing copy, browser playback, render cost) |
+| [`release-1.0.md`](release-1.0.md) | What 1.0 is, its known issues, and what was left out |
+| [`runbook.md`](runbook.md) | How to run the rig: mounting a camera, OBS, the drive, phones, the editor's browser setting, the recording light |
+| [`design.md`](design.md) | Why the system is built this way: hardware limits, sync, ingest, storage, risks. It began as the proposal of 2026-11-07, so some details (shutter, ingest method, number of cameras) have since moved on. |
+| [`../CLAUDE.md`](../CLAUDE.md) | The decisions that are settled, with dates. It is also the instruction file for the AI assistant used on the project. |
+| [`versions.md`](versions.md) | The pinned package versions and bundled libraries |
+| [`progress.md`](progress.md) | What happened during development: a dated log, newest at the bottom |
+
+## Project history
+
+| Files | Topic |
+|---|---|
+| [`phase1-results.md`](phase1-results.md) | Feasibility: does camera sync hold for an hour, and does Wi-Fi carry the bandwidth? |
+| [`phase2-plan.md`](phase2-plan.md), [`phase2-results.md`](phase2-results.md) | Control: REC, STOP, LIVE, the camera agent, Ansible |
+| [`phase3-plan.md`](phase3-plan.md), [`phase3-results.md`](phase3-results.md) | Ingest, the frame-timing problem and the drive rules |
+| [`phone-spike-plan.md`](phone-spike-plan.md), [`phone-spike-results.md`](phone-spike-results.md), [`phone-plan.md`](phone-plan.md) | Android phones as cameras |
+| [`phase4-plan.md`](phase4-plan.md), [`phase4-spikes.md`](phase4-spikes.md) | Calibration, audio sync, recording light |
+| [`editor-plan.md`](editor-plan.md), [`editor-spikes.md`](editor-spikes.md) | The editor, automatic cut, looks, titles and render |
+| [`stick-db-plan.md`](stick-db-plan.md) | The USB drive as the record of every take |
+| [`youtube-plan.md`](youtube-plan.md) | YouTube uploads, including how to set them up |
 
 ## Key facts in one place
 
-- **Sync between cameras:** within about a frame over an hour, and typically tens of microseconds at the start (Phase 1 and 2 measurements).
-- **Real frame rate:** about 30.011 fps, not 30.000. Ingest keeps every frame at its real time, and the render puts frames onto an exact 30 fps grid locked to the bounce, so the video stays in sync with the studio audio.
-- **Dropped frames:** rare, mainly on sync-client cameras under Wi-Fi load. They're recorded in each take's manifest, marked as rough sections, and avoided by the automatic cut. Sync is never lost.
+- **Sync between cameras:** within about a frame over an hour, and typically tens of microseconds at the start. A start that is more than a frame out is restarted automatically, up to twice; then it records with a warning.
+- **Real frame rate:** about 30.011 fps, not 30.000. Ingest keeps every frame at its real time, and the render puts frames on an exact 30 fps grid locked to the mix.
+- **Dropped frames:** recorded in each take's manifest, marked as rough sections and avoided by the automatic cut. They don't shift later frames.
 - **Wi-Fi is the limit, not CPU:** about 30 Mbps of camera traffic was tested without loss. Aim for −60 dBm or better at each camera.
-- **Ingest speed:** copying at real timing is fast (no re-encode); pulling over Wi-Fi is the slow part.
-- **Render speed:** about real time on the hub for a 1080p30 quick mix (the hub has 1 GB of RAM, so the render is tuned to stay well inside it).
+- **Ingest speed:** there's no re-encode, so pulling over Wi-Fi is the slow part.
+- **Render speed:** depends on the look and effects, and can be several times the song's length on the Pi 5.

@@ -37,7 +37,7 @@ Date: 2026-11-15. Plan: `docs/phase3-plan.md`. Detailed log: `docs/progress.md`.
 - Hub card (temperature, fan, CPU, throttling, SD free); offline cameras grey, recording red; a camera counts as offline only after 3 missed polls.
 - `hub/tools/clap_check.py`, the sync check used for criterion 1.
 
-## Findings for later
+## Findings noted on that date (closed at 1.0)
 
 - The sensor's frame length moves in 2-line steps: 30.0107 fps (+1.28 s/h) or 29.9866 fps (−1.61 s/h). Neither gets within 0.5 s/h, so gapless takes can't skip conversion by changing the frame rate (user decision: keep converting). Copying at the native rate remains an option once an editor is chosen.
 - The DAW interface's clock may differ from real time by about 30–60 ppm. Clap at the end of long takes, or use the Phase 4 scratch-mic sync.

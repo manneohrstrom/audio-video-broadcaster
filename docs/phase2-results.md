@@ -71,7 +71,7 @@ Method: for each instant, each camera's frame is chosen by `FrameWallClock` (nea
   **Decided by the user (2026-11-14): prioritise sync.** CLAUDE.md's Ingest decision is updated to match. The method is for the Phase 3 plan.
 - Ingest must align cameras by `first_frame_wallclock_ns`, not frame number, and allow for frame counts that differ.
 
-## Next steps (suggested)
+## Next steps suggested on that date (closed at 1.0)
 
 1. ~~Isolate the stalls with an A/B test~~. **The user declined (2026-11-14).** Stalls are accepted as they are: detected, reported, and handled at ingest.
 2. Router: DHCP reservations, and a dedicated 2.4 GHz channel for the cameras.

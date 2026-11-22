@@ -1,5 +1,7 @@
 # Pinned versions
 
+Licenses of what is bundled: [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+
 These are the versions verified working in Phase 1 (2026-11-14). Provisioning (Ansible, Phase 2) should install exactly these and hold them (`apt-mark hold`), so an OS update can't change camera behaviour mid-project.
 
 ## Camera nodes (cam1–cam4: identical package sets)
@@ -37,6 +39,7 @@ These are the versions verified working in Phase 1 (2026-11-14). Provisioning (A
 | python3-opencv | 4.10.0+dfsg-5 (ArUco detection of the calibration card, Track B) |
 | python3-numpy | 1:2.2.4+ds-1 (the editor's render, the shared grade maths, `hub/tools/add_overlay.py`; pinned and held 2026-11-17) |
 | python3-pil | 11.1.0-5+deb13u4 (the title sequence's cards, `hub/ingest/title_render.py`; pinned 2026-11-21) |
+| libraqm0 | 0.10.2-1 (Pillow's text shaping, for the title sequence) |
 | cloud-guest-utils | 0.33-1 (`growpart`, used once to grow the root partition after the move to the 128 GB card, 2026-11-16) |
 | SD card | 128 GB (116.5 GB raw), cloned from the original 32 GB card 2026-11-16; root partition 115 GB |
 
@@ -71,7 +74,7 @@ No software installed; the page runs in Chrome. Tested: Pixel 3 (Chrome 157) and
 
 | Library | Version | Where |
 |---|---|---|
-| qrcode-generator (Kazuhiko Arase, MIT) | 1.4.4, sha256 `18ae399f…1780` (from jsdelivr), unmodified | `hub/hubd/static/qrcode.js`: the phone-page QR code on the hub page |
+| qrcode-generator (Kazuhiko Arase, MIT) | 1.4.4, sha256 `18ae399f…1780` (from jsdelivr); modified 2026-11-22: UTF-8 helper replaced by TextEncoder (licensing) | `hub/hubd/static/qrcode.js`: the phone-page QR code on the hub page |
 | mp4box.js (GPAC, BSD-3-Clause) | 0.5.2, sha256 `07ccf31d…1391219` (from jsdelivr), unmodified | `hub/spike/e2/vendor/mp4box.all.min.js`: editor spike E2 (MP4/MOV sample tables for WebCodecs) |
 
 ## Editor (browser, served by the hub; no build step)
@@ -85,7 +88,8 @@ No software installed; the page runs in Chrome. Tested: Pixel 3 (Chrome 157) and
 | Outfit Bold (`Outfit-Bold.ttf`, SIL OFL) | github.com/Outfitio/Outfit-Fonts `fonts/ttf/` at commit `902773808e` (2023-03-26), in `hub/hubd/static/shared/vendor/fonts/` (sha256 `f620b695…`; licence `OFL-outfit.txt`). The title sequence: the editor's preview and the render's cards use the same file. |
 | DSEG7 Classic Bold (`DSEG7Classic-Bold.woff2`, SIL OFL) | dseg 0.46.0, from jsDelivr, same folder (sha256 `ec2e7499…`; licence `OFL-dseg.txt`): the editor's LCD readouts |
 | DSEG14 Classic Bold (`DSEG14Classic-Bold.woff2`, SIL OFL) | dseg 0.46.0, from jsDelivr, same folder (sha256 `a73df6e6…`): the hub page's 14-segment rig display |
-| Hub page theme fonts (SIL OFL; `hub/styles/themes.css`) | @fontsource 5.3.0, from jsDelivr, in `hub/hubd/static/shared/vendor/fonts/`, licences `OFL-<name>.txt`: Righteous (`righteous-latin-400-normal.woff2`, sha256 `17055c53…`), Nixie One (`nixie-one-latin-400-normal.woff2`, `bad30060…`), Shrikhand (`shrikhand-latin-400-normal.woff2`, `ae958e0d…`), Bungee (`bungee-latin-400-normal.woff2`, `126eec70…`), Orbitron 700 (`orbitron-latin-700-normal.woff2`, `ee6acc5a…`), Oswald 600 (`oswald-latin-600-normal.woff2`, `f6cb541f…`), Archivo Black (`archivo-black-latin-400-normal.woff2`, `25f33e61…`), VT323 (`vt323-latin-400-normal.woff2`, `8ddbebcc…`) |
+| Hub page theme fonts (SIL OFL; `hub/styles/themes.css`) | @fontsource 5.3.0, from jsDelivr, in `hub/hubd/static/shared/vendor/fonts/`, licences `OFL-<name>.txt`: Shrikhand (`shrikhand-latin-400-normal.woff2`, `ae958e0d…`), Bungee (`bungee-latin-400-normal.woff2`, `126eec70…`), Oswald 600 (`oswald-latin-600-normal.woff2`, `f6cb541f…`), Archivo Black (`archivo-black-latin-400-normal.woff2`, `25f33e61…`), VT323 (`vt323-latin-400-normal.woff2`, `8ddbebcc…`) |
+| Theme fonts with reserved names (SIL OFL) | github.com/google/fonts `main`, fetched 2026-11-22, unmodified (a subset or converted copy may not keep the name): Righteous (`Righteous-Regular.ttf`, `2ffb3fe5…`), Nixie One (`NixieOne-Regular.ttf`, `69030eb0…`), Orbitron (`Orbitron-Variable.ttf`, `f42db2dd…`) |
 | htm (`htm.module.js`) | 3.1.1 (sha256 `ab33dd3f…e9e4`) |
 | mp4box.js (`mp4box.all.min.js`) | 0.5.2 (same file as spike E2) |
 | uPlot (`uPlot.iife.min.js`, `uPlot.min.css`) | 1.6.30, from jsDelivr, in `hub/hubd/static/` (hub page "Last hour" charts; sha256 `7f29cd14…`, `df630c6a…`) |

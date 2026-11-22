@@ -1,5 +1,7 @@
 # Phase 4 plan: sound, picture and studio polish
 
+> **Closed at 1.0 (2026-11-22).** This is a record of the work as planned, kept for reference. Nothing in it is still to do: see [release-1.0.md](release-1.0.md).
+
 Status: **accepted by the user (2026-11-15). Work starts 2026-11-16 with Track B (visuals).** Decisions below are all answered. Written 2026-11-15 after Phase 3's GO (`docs/phase3-results.md`). Sources: the Phase 4 list in `docs/design.md`, the user's requirements of 2026-11-14 and 2026-11-15 (`docs/progress.md`).
 
 ## Goal
@@ -28,32 +30,6 @@ Three things the rig can't do yet:
 - **Where files go:** `STUDIO/takes/<take>/audio/scratch.wav`, and per song `audio/<song>/v<N>/` with the uploaded file as sent plus `synced.wav` with timecode (BWF) and a small `sync.json` (offset, drift, anchor, confidence). Written via `.part` and renamed, like the video. The hub never deletes from the drive.
 - **Upload:** "Add audio" on each take in the hub page: pick or create the song, then the file. Resumable chunked upload (8 MB pieces). It pauses during takes and live sessions, like ingest. *Built 2026-11-16 (hubd 0.9.0, ingest 0.5.0) with one change: uploads are staged on the hub's SD card and hub-ingest copies them to the drive like video (`.part`, fsync, checksum, rename), instead of streaming straight to the drive. So uploading works without the drive plugged in, and hub-ingest stays the only thing that mounts it.*
 - **Scratch recording (built 2026-11-16, before the mic arrived):** `arecord` from the first USB mic for every take, from REC (before the cameras arm) to after STOP; each 100 ms block stamped with the hub's clock (`scratch.times.tsv`), so the mic's drift (A2) can be fitted out whatever it is. No mic or a failing mic never affects REC.
-
-### Backlog: focus during recorded takes (user, 2026-11-17)
-
-**How we got here:**
-- 2026-11-15: the user wanted autofocus, e.g. when someone walks up to a camera. That conflicted with "no auto focus during takes"; answered as continuous AF per camera and per take, off by default (Decisions, 1).
-- 2026-11-16 (B5, revised with the user): **no autofocus on the Pis.** They're fixed on the wall, the wide lens is sharp from about 1 m to infinity at 1080p, and nobody comes closer than about 75 cm; mid-take hunting or breathing is worse than slight softness. One fixed lens position per Pi, set with the focus help (loupe and sharpness, now the hub page's focus view).
-- Phones are marked **tripod** (focus measured once, then locked) or **handheld** (continuous autofocus). Exposure and white balance stay locked either way.
-- Bug fixed on the way: the phone's focus sweep locked a Pixel 9a at 0.05 m because readings were taken before the picture had settled; each reading now waits until two agree.
-
-**Built today:** the Pis' saved lens position is used for every take; phones follow tripod/handheld. Nothing checks focus during or after a take.
-
-**Open, to explore with real sessions:**
-1. **Does fixed focus hold up?** Watch real takes for soft stretches: players or instruments closer than ~1 m, a camera knocked off its saved position. Only if it doesn't hold: bring back autofocus on the Pis as the per-take option decided on 2026-11-15.
-2. **Handheld phones:** how much continuous AF hunts or breathes in a take; log the phone's focus distance per chunk so the hunting is visible afterwards.
-3. **A focus check before REC:** compare each Pi's sharpness with the value saved with its focus and warn on the deck when a camera has been bumped or someone moved it.
-4. **Soft stretches as data for the editor:** sharpness per second per camera (from the thumbnails or proxies, after ingest), marked like rough sections, so the cut avoids them (automatic cut v2, `docs/editor-plan.md` section 3b, already treats focus as a hard limit).
-5. **Focus changes mid-take by hand** (a focus pull from the hub) are not planned: a Pi's settings are fixed when `rpicam-vid` starts, and changing them would need a restart.
-6. **Phone focus from the hub's focus view** (nudges, find sharpest, save, like the Pis): proposed 2026-11-17, **declined by the user** ("not the right solution"). Phones keep focusing by card calibration, the focus switch, or a single autofocus at REC.
-
-### Polish backlog: sparklines of health metrics (user, 2026-11-16)
-
-Small sparkline charts on the hub page showing each metric over time (e.g. the last hour), next to the current value:
-- **Hub:** memory used and available, swap used, temperature, CPU frequency, throttling, CPU load; possibly disk space (SD card and drive), network throughput, ingest/render progress.
-- **Cameras:** temperature, Wi-Fi signal and link rate, free space, CPU load, dropped frames during a take.
-
-hubd keeps a short history (it already polls everything every 2 s); the page draws the lines. Would have shown the 2026-11-16 memory leak at a glance.
 
 ### Minor: phones signal their own calibration (user, 2026-11-16) — done 2026-11-17
 
@@ -113,8 +89,6 @@ When a phone finishes calibrating, the phone itself plays the chime too (the pho
 
 **B6. "Auto, then lock" at REC (fallback).** *Status (checked against the code 2026-11-21): built for the phones only (`lockAtRec`). Not built for the Pis: they record with their stored settings (calibration, or camnode's defaults).* *Phones too since 2026-11-17 (user): a phone the card hasn't calibrated locks itself when REC starts (a quick version of its measuring lock, a few seconds, so it joins the take late), and goes back to auto after the take; the phone page's "auto, then lock" and "all auto" buttons are gone, and tripod/handheld is shown as "focus locked / focus follows".* For a take with no time or no card: on REC every device meters for about 1–1.5 s (B-S2: gain settles in 0.4–0.5 s) and locks. Less exact than the card (each device meters its own view; B-S2 measured a 0.26-stop spread across the Pis).
 
-**B7. Manual trims.** *Status 2026-11-21: not built; the hub page sets only focus by hand.* On the snapshot page: an overall brightness trim and warmer/cooler, applied to every device on top of its calibration, and a per-device trim. Contrast, saturation and "looks" belong to the editor's colour step (`docs/editor-plan.md`), not to capture.
-
 ### Spikes
 
 | | Spike | Done when |
@@ -142,18 +116,7 @@ When a phone finishes calibrating, the phone itself plays the chime too (the pho
   - Bump camnode's version number (the LED and lint changes still say 0.1.0).
   - Runbook (`docs/runbook.md`): mounting checklist, Wi-Fi −60 dBm per spot, OBS "Close file when inactive", phone local-network permission, stick repair (First Aid, eject).
   - Pin versions in `docs/versions.md`.
-- **C3.** The rest of the original Phase 4 list (tally LEDs, GPIO REC button, OBS scene export, LTC) moved to future ideas (decision 4).
-
-## Not in Phase 4 (future ideas, unless the user moves them in)
-
-- Automatic edit on the hub beyond A4's fixed rotation (beats, movement, wide shots): the editor plan, `docs/editor-plan.md`.
-- Pixel phones as offline camera units: moved ahead of Phase 4 as its own plan (`docs/phone-plan.md`, accepted 2026-11-15).
-- Network share and Mac auto-pull (`docs/phase3-plan.md`, decision 6).
-- "Discard take" button (parked 2026-11-15).
-- Copying takes at their native timing without re-encoding: likely, now that the editor is our own (user, 2026-11-15: our own editor; `docs/design.md`, "Editing").
-- The AI-assisted editor itself (`docs/design.md`, "Editing").
-- Live latency tuning (deferred 2026-11-14).
-- From the original Phase 4 list (decision 4): tally LEDs on the cameras (the board LED and the bulb cover it), a physical REC button on the hub's GPIO, OBS scene-collection export, LTC timecode (only if Track A disappoints).
+- **C3.** The rest of the original Phase 4 list (tally LEDs, GPIO REC button, OBS scene export, LTC) was dropped (decision 4, and 1.0).
 
 ## Milestones
 
@@ -174,6 +137,6 @@ Order: **B (picture) first** (user priority), then A, then C. C1 whenever the bu
 1. **Autofocus: answered (2026-11-15).** Build continuous AF as a per-camera, per-take option, off by default, without a separate test first. B-S4 becomes the check of the built option. CLAUDE.md updated.
 2. **Auto-then-lock: answered (2026-11-15).** Yes, as an option next to manual settings; values are fixed for the whole take. CLAUDE.md updated. *(Built for the phones only, as their lock at REC; not for the Pis. See B6.)*
 3. **Order: answered.** Visuals first (user, 2026-11-15): B, then A, then C.
-4. **C3: answered (2026-11-15).** None selected, so all four (tally LEDs, GPIO REC button, OBS export, LTC) move to future ideas.
+4. **C3: answered (2026-11-15).** None selected, so all four (tally LEDs, GPIO REC button, OBS export, LTC) are out, and were dropped at 1.0.
 5. **Bounce upload: answered (2026-11-15).** Yes: uploads are written to the drive like ingest. Plus songs and versions per take (see Track A).
 6. **Quick mix (A4): answered (2026-11-16).** Yes, as described: fixed 10 s rotation, Pi cameras only (phones once they have their own anchor). Cuts on beats stay with the editor.

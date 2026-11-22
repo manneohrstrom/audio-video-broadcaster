@@ -1,5 +1,7 @@
 # Phase 2 plan: control
 
+> **Closed at 1.0 (2026-11-22).** This is a record of the work as planned, kept for reference. Nothing in it is still to do: see [release-1.0.md](release-1.0.md).
+
 Status: **complete. All exit criteria pass (`docs/phase2-results.md`, 2026-11-14).** Written 2026-11-14 after Phase 1 GO (`docs/phase1-results.md`).
 
 ## Goal
