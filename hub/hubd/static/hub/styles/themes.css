@@ -11,11 +11,11 @@
    Fonts: all SIL OFL, copied into shared/vendor/fonts and pinned (docs/versions.md). A
    browser only downloads a font when something uses it. */
 
-@font-face { font-family: "Righteous"; font-display: swap; src: url("/shared/vendor/fonts/righteous-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "Nixie One"; font-display: swap; src: url("/shared/vendor/fonts/nixie-one-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Righteous"; font-display: swap; src: url("/shared/vendor/fonts/Righteous-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Nixie One"; font-display: swap; src: url("/shared/vendor/fonts/NixieOne-Regular.ttf") format("truetype"); }
 @font-face { font-family: "Shrikhand"; font-display: swap; src: url("/shared/vendor/fonts/shrikhand-latin-400-normal.woff2") format("woff2"); }
 @font-face { font-family: "Bungee"; font-display: swap; src: url("/shared/vendor/fonts/bungee-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "Orbitron"; font-weight: 400 900; font-display: swap; src: url("/shared/vendor/fonts/orbitron-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Orbitron"; font-weight: 400 900; font-display: swap; src: url("/shared/vendor/fonts/Orbitron-Variable.ttf") format("truetype"); }
 @font-face { font-family: "Oswald"; font-weight: 400 700; font-display: swap; src: url("/shared/vendor/fonts/oswald-latin-600-normal.woff2") format("woff2"); }
 @font-face { font-family: "Archivo Black"; font-weight: 400 900; font-display: swap; src: url("/shared/vendor/fonts/archivo-black-latin-400-normal.woff2") format("woff2"); }
 @font-face { font-family: "VT323"; font-weight: 400 700; font-display: swap; src: url("/shared/vendor/fonts/vt323-latin-400-normal.woff2") format("woff2"); }
