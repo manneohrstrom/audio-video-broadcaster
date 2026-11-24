@@ -170,8 +170,8 @@ def validate_cuts(cuts, camera_ids, range_length_ns):
             continue                                   # same camera again: the earlier cut holds
         clean.append({"at_ns": cut["at_ns"], "camera": cut["camera"],
                       "by": cut.get("by") if cut.get("by") in ("auto", "user") else "user"})
-        if cut.get("story_dissolve") is True:          # the story dissolves here instead of gliding (story_render.py)
-            clean[-1]["story_dissolve"] = True
+        if cut.get("story_glide") is True:             # the story glides here instead of dissolving (story_render.py)
+            clean[-1]["story_glide"] = True
     clean[0]["at_ns"] = 0
     return clean
 

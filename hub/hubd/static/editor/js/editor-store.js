@@ -393,8 +393,8 @@ export class EditorStore {
     this.beginChange();
     const cuts = this.cuts.map((cut, index) => {
       if (!indexes.includes(index)) return cut;
-      const { storyDissolve, ...rest } = cut;
-      return on ? { ...rest, storyDissolve: true } : rest;
+      const { storyGlide, ...rest } = cut;            // dissolve is the default: only a glide is marked
+      return on ? rest : { ...rest, storyGlide: true };
     });
     this.setCuts(cuts);
   }

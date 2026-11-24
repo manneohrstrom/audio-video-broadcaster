@@ -7,9 +7,9 @@ Its last step crops a 9:16 slice out of each 1920x1080 frame and scales it to 10
 Where the slice sits is set per camera (story "framing": {camera: 0..1}, 0 at the left edge,
 1 at the right, 0.5 in the middle; the cameras don't move, so neither does what they show).
 At a cut the slice glides from one camera's place to the next one's over the dissolve, with
-the dissolve's own curve, so it never jumps while two pictures are mixed. Or, for a cut marked
-"story_dissolve" (user, 2026-11-24: "sometimes you want a dissolve instead of a move"), the
-slice stays where the outgoing camera's is and the incoming picture is shifted sideways so its
+the dissolve's own curve, so it never jumps while two pictures are mixed (a cut marked
+"story_glide"). Otherwise, by default (user, 2026-11-24: "sometimes you want a dissolve instead
+of a move", then "can it default to the dissolve mode?"), the slice stays where the outgoing camera's is and the incoming picture is shifted sideways so its
 own slice lands there: the two slices cross-fade, and after the dissolve the slice is at the
 incoming camera's place, unshifted (the same picture). The editor's preview
 (static/editor/js/story.js) does the same.

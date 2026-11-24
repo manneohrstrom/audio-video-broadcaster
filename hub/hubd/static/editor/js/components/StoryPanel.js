@@ -4,8 +4,8 @@
 // showing, or use the sliders here. The preview at the top is the story as it will look
 // (VideoWindow draws it every frame into store.storyPreviewCanvas). "Make story" is in the
 // header; the stories show on the hub page with the song's videos, ready to download.
-// At each cut the slice glides to the next camera's place, or (chosen per cut under "Cuts")
-// stays put while the two slices dissolve (story.js).
+// At each cut the two slices dissolve with the slice staying put (the default), or (chosen per
+// cut under "Cuts") the slice glides to the next camera's place (story.js).
 import { html } from "./html.js";
 import { formatSeconds } from "../time-format.js";
 import { CENTRE, INSTAGRAM_CLIP_SECONDS, cutsInStory, sliceLeftShare } from "../story.js";
@@ -24,8 +24,8 @@ export function StoryPanel({ store, transport }) {
         <div class="story-intro">
           <span class="row-title">Instagram story</span>
           <p class="look-hint">A 9:16 slice of the video, with its look, without the title sequence and the border.
-            Drag on the video to move the slice: each camera keeps its own place. At a cut the slice glides
-            across, or dissolves: choose under Cuts.</p>
+            Drag on the video to move the slice: each camera keeps its own place. At a cut the two slices
+            dissolve, or the slice glides across: choose under Cuts.</p>
           <p class="look-hint">The slice is a third of the frame's width, so the story is that part scaled up.</p>
           <div class="strength-actions">
             <button class="button small" onClick=${playStory}>Play the story</button>
@@ -108,12 +108,12 @@ function StoryCuts({ store, transport }) {
         <span class="row-title">Cuts</span>
         ${cuts.length > 1 && html`
           <span class="story-places">
-            <button class="button small" onClick=${() => store.setStoryDissolveEverywhere(false)}>All glide</button>
             <button class="button small" onClick=${() => store.setStoryDissolveEverywhere(true)}>All dissolve</button>
+            <button class="button small" onClick=${() => store.setStoryDissolveEverywhere(false)}>All glide</button>
           </span>`}
       </div>
-      <p class="look-hint">Glide: the slice moves to the next camera's place during the dissolve.
-        Dissolve: it stays, and the next camera's slice fades in where it is.</p>
+      <p class="look-hint">Dissolve: the slice stays, and the next camera's slice fades in where it is.
+        Glide: the slice moves to the next camera's place during the dissolve.</p>
       ${cuts.length === 0 && html`<p class="look-hint">No cuts between the story's start and end.</p>`}
       <div class="story-cuts">
         ${cuts.map(({ index, cut, from }) => {
@@ -126,10 +126,10 @@ function StoryCuts({ store, transport }) {
               <span class="story-cut-cameras" title=${samePlace ? "Both cameras' slices are at the same place: it's a plain dissolve either way" : ""}>
                 ${fromCamera.number} → ${toCamera.number} ${toCamera.label}${samePlace ? html` <small>· same place</small>` : ""}</span>
               <span class="story-places" role="group" aria-label=${`At the cut at ${formatSeconds(cut.atSeconds)}`}>
-                ${[[false, "Glide"], [true, "Dissolve"]].map(([on, name]) => html`
-                  <button class=${"button small" + (!!cut.storyDissolve === on ? " selected" : "")}
-                          aria-pressed=${String(!!cut.storyDissolve === on)}
-                          onClick=${() => { if (!!cut.storyDissolve !== on) store.setStoryDissolve(index, on); }}>${name}</button>`)}
+                ${[[true, "Dissolve"], [false, "Glide"]].map(([on, name]) => html`
+                  <button class=${"button small" + (!cut.storyGlide === on ? " selected" : "")}
+                          aria-pressed=${String(!cut.storyGlide === on)}
+                          onClick=${() => { if (!cut.storyGlide !== on) store.setStoryDissolve(index, on); }}>${name}</button>`)}
               </span>
             </div>`;
         })}

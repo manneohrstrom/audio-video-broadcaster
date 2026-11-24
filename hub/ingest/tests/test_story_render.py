@@ -163,7 +163,7 @@ class StoryRenderTest(unittest.TestCase):
             subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=8", "-ar", "48000", bounce],
                            check=True)
             edit = {"range_ns": [T0 + NS // 10, T0 + 5 * NS], "bounce_start_ns": T0, "dissolve_s": 0.3, "look": None,
-                    "cuts": [{"at_ns": 0, "camera": "cam1"}, {"at_ns": 2 * NS, "camera": "cam2", "story_dissolve": True}],
+                    "cuts": [{"at_ns": 0, "camera": "cam1"}, {"at_ns": 2 * NS, "camera": "cam2"}],          # dissolve: the default
                     "story": {"range_ns": [NS // 2, 3 * NS + NS // 2], "framing": {"cam1": 0.0, "cam2": 1.0}}}
             with open(os.path.join(REPO, "hub/hubd/static/editor/looks.json")) as f:
                 looks = json.load(f)
@@ -220,7 +220,7 @@ class StoryRenderTest(unittest.TestCase):
             subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=8", "-ar", "48000", bounce],
                            check=True)
             edit = {"range_ns": [T0 + NS // 10, T0 + 5 * NS], "bounce_start_ns": T0, "dissolve_s": 0.3, "look": None,
-                    "cuts": [{"at_ns": 0, "camera": "cam1"}, {"at_ns": 2 * NS, "camera": "cam2"}],
+                    "cuts": [{"at_ns": 0, "camera": "cam1"}, {"at_ns": 2 * NS, "camera": "cam2", "story_glide": True}],
                     "title": {"on": True, "text": "Not in a story", "lines": [], "colour": "#ffffff", "duration_s": 6},
                     "branding": True,
                     "story": {"range_ns": [NS // 2, 3 * NS + NS // 2], "framing": {"cam1": 0.0, "cam2": 1.0}}}

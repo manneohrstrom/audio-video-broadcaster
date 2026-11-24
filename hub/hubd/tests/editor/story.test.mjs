@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { sliceLeftShare, sliceLeftAt, positionCentredAt, SLICE_SHARE, SLICE_WIDTH } from "../../static/editor/js/story.js";
 
-const cuts = [{ atSeconds: 0, cameraId: "cam1" }, { atSeconds: 10, cameraId: "cam2" }];
+const cuts = [{ atSeconds: 0, cameraId: "cam1" }, { atSeconds: 10, cameraId: "cam2", storyGlide: true }];
 const pixels = share => Math.round(share * 1920);
 
 test("left, middle and right in whole 1080p pixels, as the render", () => {
@@ -37,21 +37,21 @@ test("a press puts the slice's middle under it", () => {
 
 test("a dissolve cut holds the slice at the outgoing camera's place and moves the incoming picture", async () => {
   const { incomingShiftShare, cutsInStory } = await import("../../static/editor/js/story.js");
-  const marked = [{ atSeconds: 0, cameraId: "cam1" }, { atSeconds: 10, cameraId: "cam2", storyDissolve: true }];
+  const marked = [{ atSeconds: 0, cameraId: "cam1" }, { atSeconds: 10, cameraId: "cam2" }];       // dissolve: the default
   const framing = { cam1: 0, cam2: 1 };
   for (const seconds of [9.85, 10, 10.15]) assert.equal(pixels(sliceLeftAt(marked, framing, 0.4, seconds)), 0);
   assert.equal(pixels(sliceLeftAt(marked, framing, 0.4, 10.25)), 1312);
   assert.equal(pixels(incomingShiftShare(marked[0], marked[1], framing)), -1312);   // as story_render.dissolve_shift
-  assert.equal(incomingShiftShare(cuts[0], cuts[1], framing), 0);
+  assert.equal(incomingShiftShare(marked[0], { ...marked[1], storyGlide: true }, framing), 0);
   assert.deepEqual(cutsInStory(marked, 5, 20).map(c => c.index), [1]);
   assert.deepEqual(cutsInStory(marked, 11, 20), []);
 });
 
 test("the flag goes to the edit file and back", async () => {
   const { cutsToFile, cutsFromFile } = await import("../../static/editor/js/time-format.js");
-  const file = cutsToFile([{ atSeconds: 0, cameraId: "cam1", by: "auto" }, { atSeconds: 2, cameraId: "cam2", by: "user", storyDissolve: true }]);
-  assert.equal(file[0].story_dissolve, undefined);
-  assert.equal(file[1].story_dissolve, true);
-  assert.equal(cutsFromFile(file)[1].storyDissolve, true);
-  assert.equal(cutsFromFile(file)[0].storyDissolve, undefined);
+  const file = cutsToFile([{ atSeconds: 0, cameraId: "cam1", by: "auto" }, { atSeconds: 2, cameraId: "cam2", by: "user", storyGlide: true }]);
+  assert.equal(file[0].story_glide, undefined);
+  assert.equal(file[1].story_glide, true);
+  assert.equal(cutsFromFile(file)[1].storyGlide, true);
+  assert.equal(cutsFromFile(file)[0].storyGlide, undefined);
 });

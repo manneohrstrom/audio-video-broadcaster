@@ -51,7 +51,7 @@ class Shot:
 
     def __init__(self, camera_id, first_frame, end_frame, story_dissolve=False):
         self.camera_id = camera_id
-        self.story_dissolve = story_dissolve       # the story dissolves into this shot instead of gliding (story_render)
+        self.story_dissolve = story_dissolve       # the story dissolves into this shot, or glides (story_render)
         self.first_frame, self.end_frame = first_frame, end_frame       # what's on screen
         self.decode_from, self.decode_to = first_frame, end_frame       # plus dissolve overlap
         self.covered_from, self.covered_to = first_frame, end_frame
@@ -72,7 +72,8 @@ def plan_shots(edit, take_doc, dissolve_s):
     range_start, range_end = edit["range_ns"]
     total = int(round((range_end - range_start) * FPS / NS))
     bounds = [int(round(cut["at_ns"] * FPS / NS)) for cut in edit["cuts"]] + [total]
-    shots = [Shot(cut["camera"], first, end, cut.get("story_dissolve") is True)
+    # Stories dissolve at a cut unless it's marked story_glide (user, 2026-11-24: dissolve by default).
+    shots = [Shot(cut["camera"], first, end, cut.get("story_glide") is not True)
              for cut, first, end in zip(edit["cuts"], bounds, bounds[1:]) if end > first]
     half = int(round(dissolve_s * FPS / 2))
     for i, shot in enumerate(shots):

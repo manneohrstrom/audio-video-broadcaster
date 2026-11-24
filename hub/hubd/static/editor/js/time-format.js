@@ -14,11 +14,11 @@ export function formatSeconds(seconds) {
 /** Cuts from the edit file (nanoseconds) to the editor's model (seconds). */
 export function cutsFromFile(fileCuts) {
   return fileCuts.map(cut => ({ atSeconds: cut.at_ns / NS_PER_SECOND, cameraId: cut.camera, by: cut.by || "auto",
-                                ...(cut.story_dissolve ? { storyDissolve: true } : {}) }));
+                                ...(cut.story_glide ? { storyGlide: true } : {}) }));
 }
 
 /** Cuts from the editor's model back to the edit file's format. */
 export function cutsToFile(cuts) {
   return cuts.map(cut => ({ at_ns: Math.round(cut.atSeconds * NS_PER_SECOND), camera: cut.cameraId, by: cut.by,
-                            ...(cut.storyDissolve ? { story_dissolve: true } : {}) }));
+                            ...(cut.storyGlide ? { story_glide: true } : {}) }));
 }
