@@ -911,3 +911,4 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 
 - **User: "can it default to the dissolve mode?"** A cut now dissolves in the story unless marked `story_glide: true` (`storyGlide` in the editor); `story_dissolve` from earlier tonight is ignored (it meant what is now the default). Cuts panel: Dissolve first, then Glide. A move takes as long as the dissolve (footer slider, 0-0.8 s), half before the cut, half after (answered the user).
 - **Checked:** hubd 220, ingest 171 + 1 skipped (the dissolve render test now uses an unmarked cut; the framing test marks its cut as a glide), JS 29.
+- **Deployed** (`site.yml --limit hub`, rig idle, ingest only waiting): ok=51 changed=8 failed=0; hubd 0.61.0 and hub-ingest 0.36.0 running, no restarts. Pushed to GitHub with the stories work.
