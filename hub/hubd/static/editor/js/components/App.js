@@ -1,4 +1,5 @@
 // The editor page, step 1 (the cut): header, video, transport, splitter, timeline, footer.
+// Steps 2-4 (look, title, story) show their panel beside the video and a slim timeline.
 // Loads the project from the hub, then hands one EditorStore to everything below.
 // In Sync mode (sync by hand) the header is the SyncBar and there are no steps.
 import { useEffect, useMemo, useState } from "preact/hooks";
@@ -15,6 +16,7 @@ import { Splitter, savedVideoHeight } from "./Splitter.js";
 import { Timeline } from "./Timeline.js";
 import { LookPanel } from "./LookPanel.js";
 import { TitlePanel } from "./TitlePanel.js";
+import { StoryPanel } from "./StoryPanel.js";
 import { MakeVideo } from "./MakeVideo.js";
 import { SyncBar } from "./SyncBar.js";
 import { Icon } from "shared/icons.js";
@@ -105,6 +107,8 @@ function Editor({ project }) {
           <button aria-current=${store.step === "cut" ? "step" : null} onClick=${() => store.setStep("cut")}><${Icon} name="scissors" />Cut</button>
           <button aria-current=${store.step === "look" ? "step" : null} onClick=${() => store.setStep("look")}><${Icon} name="eye" />Look</button>
           <button aria-current=${store.step === "title" ? "step" : null} onClick=${() => store.setStep("title")}><${Icon} name="title" />Title</button>
+          <button aria-current=${store.step === "story" ? "step" : null} onClick=${() => store.setStep("story")}
+                  title="An Instagram story: a 9:16 slice of the video"><${Icon} name="phone" />Story</button>
         </nav>
         <div class="header-actions">
           <span class=${"save-state " + store.saveState} title=${store.saveProblem || ""}>${saveLabel}</span>
@@ -112,7 +116,7 @@ function Editor({ project }) {
           <button class="round-key" disabled=${!store.history.canRedo} onClick=${() => store.redo()} aria-label="Redo" title="Redo (⇧⌘Z)"><${Icon} name="redo" /></button>
           <button class="button" onClick=${() => openSyncMode(store)}
                   title=${`Check or fix where the bounce sits (sync: ${project.bounce.sync.anchor || "by hand"}${project.bounce.sync.confidence ? ", confidence " + project.bounce.sync.confidence : ""})`}><${Icon} name="tuningFork" size=${16} />Sync</button>
-          <${MakeVideo} store=${store} />
+          ${store.step === "story" ? html`<${MakeVideo} key="story" store=${store} kind="story" />` : html`<${MakeVideo} key="video" store=${store} />`}
         </div>
       </header>`}
       <div class="video-area">
@@ -122,6 +126,7 @@ function Editor({ project }) {
         </div>
         ${store.step === "look" && !store.syncMode && html`<${LookPanel} store=${store} />`}
         ${store.step === "title" && !store.syncMode && html`<${TitlePanel} store=${store} transport=${transport} />`}
+        ${store.step === "story" && !store.syncMode && html`<${StoryPanel} store=${store} transport=${transport} />`}
       </div>
       ${(store.step === "cut" || store.syncMode) && html`<${Splitter} onResize=${setVideoHeight} />`}
       <div class="below-splitter">${timeline}</div>
@@ -144,7 +149,7 @@ function Editor({ project }) {
         <span class="shortcuts">
           drag on a camera to use it there · drag a shot to slide it · <kbd>space</kbd> play ·
           <kbd>1</kbd>–<kbd>${store.cameras.length}</kbd> camera from the playhead · <kbd>←</kbd><kbd>→</kbd> frame ·
-          <kbd>⌫</kbd> remove cut · <kbd>I</kbd><kbd>O</kbd> video start / end · <kbd>⌘Z</kbd> undo
+          <kbd>⌫</kbd> remove cut · <kbd>I</kbd><kbd>O</kbd> ${store.step === "story" ? "story" : "video"} start / end · <kbd>⌘Z</kbd> undo
         </span>
         <${ModelPlate} />
       </footer>`}

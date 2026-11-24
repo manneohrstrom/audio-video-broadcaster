@@ -694,6 +694,22 @@ class YouTubeTest(unittest.TestCase):
         self.assertEqual([(c["youtube"], c["song_name"]) for c in self.commands()],
                          [(False, "Blue in Green"), (True, "Blue in Green"), (False, "Blue in Green")])
 
+    def test_a_story_is_its_own_render_and_never_uploaded(self):
+        self.sign_in()
+        self.hub.request_edit_render("20261117-201741", "track-1", 1, youtube=True, kind="story")
+        self.assertEqual([(c["kind"], c["youtube"]) for c in self.commands()], [("story", False)])
+        with self.assertRaises(ValueError):
+            self.hub.request_edit_render("20261117-201741", "track-1", 1, kind="reel")
+        os.makedirs(os.path.join(self.tmp, "ingest"), exist_ok=True)
+        with open(os.path.join(self.tmp, "ingest", "state.json"), "w") as f:
+            json.dump({"renders": {"20261117-201741/track-1:edit": {"status": "done", "video_number": 4},
+                                   "20261117-201741/track-1:story": {"status": "rendering", "progress": 0.5}}}, f)
+        self.assertEqual(self.hub.edit_render_status("20261117-201741", "track-1", 1, "story")["status"], "rendering")
+        self.assertEqual(self.hub.edit_render_status("20261117-201741", "track-1", 1)["video_number"], 4)
+        song = {"id": "track-1", "render": None, "videos": [{"number": 1, "format": "story"}]}
+        self.hub.add_youtube("20261117-201741", song, {})
+        self.assertIsNone(song["videos"][0]["youtube"])
+
     def test_the_takes_name_goes_with_the_render(self):
         self.hub.request_edit_render("20261117-201741", "track-1", 1)
         self.hub.names.set("takes", "20261117-201741", "Sunday jam")

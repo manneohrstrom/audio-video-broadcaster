@@ -1,7 +1,7 @@
 // The archive: every take hub-ingest knows, newest first. A take's card has two parts
 // (user, 2026-11-16): the recording on top (cameras and their ingest steps, the hub mic),
 // and under a divider the music: one group per song with its bounces, sync, "Edit video"
-// and the videos made in the editor.
+// and the videos made in the editor (and its Instagram stories, marked "9:16 story").
 //
 // The list follows the STUDIO drive (docs/stick-db-plan.md): takes on another drive are
 // only counted; while the drive is out, its takes stay listed, greyed.
@@ -137,8 +137,11 @@ function Download({ href, name, what, disabled, tip }) {
                  aria-label=${"Download " + what}><${Icon} name="download" size=${14} /></a>`;
 }
 
+const isStory = video => video.format === "story";
+/** "video 3" or "story 2": videos and stories are numbered on their own. */
+const videoLabel = video => `${isStory(video) ? "story" : "video"} ${video.number}`;
 /** "Sunday jam - Blue in Green - video 3.mp4"; the take's date when it has no name. */
-const videoFileName = (takeLabel, song, video) => `${takeLabel} - ${song.name} - video ${video.number}.mp4`;
+const videoFileName = (takeLabel, song, video) => `${takeLabel} - ${song.name} - ${videoLabel(video)}.mp4`;
 
 const editorLink = (take, song, version, mode) =>
   `/editor/?take=${encodeURIComponent(take)}&song=${encodeURIComponent(song)}&v=${version}${mode ? "&mode=" + mode : ""}`;
@@ -181,6 +184,9 @@ function SongGroup({ take, song, say, refresh, openDialog, activity, names, driv
   const synced = done.filter(v => v.synced).sort((a, b) => b.version - a.version);
   const render = song.render;
   const rendering = renderInFlight(render);
+  const storyRender = song.story_render;
+  const storyRendering = renderInFlight(storyRender);
+  const takeLabel = takeName(names, take) || take.slice(0, 4) + "-" + take.slice(4, 6) + "-" + take.slice(6, 8);
   return html`
     <div class="song">
       <div class="song-head">
@@ -199,12 +205,14 @@ function SongGroup({ take, song, say, refresh, openDialog, activity, names, driv
         ${uploading.length > 0 && html`<span class="bounce warn">v${uploading.map(v => v.version).join(", v")} uploading…</span>`}
       </div>
       ${rendering && html`<div class="camera-row"><span class="camera-name">video</span><div class="chips"><${RenderChips} render=${render} /></div></div>`}
+      ${storyRendering && html`<div class="camera-row"><span class="camera-name">story</span><div class="chips"><${RenderChips} render=${storyRender} /></div></div>`}
       ${(song.videos || []).slice().reverse().map(video => html`
-        <div class="video-version">
+        <div class=${"video-version" + (isStory(video) ? " story" : "")}>
           <button class="key small" onClick=${() => openDialog({ kind: "player", take, file: video.file })}>▶ watch</button>
-          video ${video.number} <small>· bounce v${video.bounce_version}${video.length_s ? " · " + fmtDur(video.length_s) : ""}${video.bytes ? " · " + fmtBytes(video.bytes) : ""}</small>
-          <${Download} href=${`/media/${take}/${video.file}`} name=${videoFileName(takeName(names, take) || take.slice(0, 4) + "-" + take.slice(4, 6) + "-" + take.slice(6, 8), song, video)}
-                       what=${`video ${video.number}`} disabled=${!driveOk} tip="The STUDIO drive isn't in the hub" />
+          ${videoLabel(video)}${isStory(video) && html` <span class="story-badge" title="An Instagram story: 1080×1920, ready to download on the phone and post"><${Icon} name="phone" size=${12} />9:16</span>`}
+          <small>· bounce v${video.bounce_version}${video.length_s ? " · " + fmtDur(video.length_s) : ""}${video.bytes ? " · " + fmtBytes(video.bytes) : ""}</small>
+          <${Download} href=${`/media/${take}/${video.file}`} name=${videoFileName(takeLabel, song, video)}
+                       what=${videoLabel(video)} disabled=${!driveOk} tip="The STUDIO drive isn't in the hub" />
           ${video.youtube && video.youtube.status === "done" && html`
             <a class="key small" href=${video.youtube.studio_url || video.youtube.url} target="_blank" rel="noopener"
                title="Private on the channel: open it in YouTube Studio to check it and publish">On YouTube</a>`}

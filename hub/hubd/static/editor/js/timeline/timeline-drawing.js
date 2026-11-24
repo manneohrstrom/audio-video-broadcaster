@@ -44,11 +44,17 @@ export function laneAt(lanes, y) {
   return lanes.find(lane => y >= lane.top - 3 && y < lane.top + lane.height + 3) || null;
 }
 
-/** On the ruler: the video's start ("in") or end ("out") marker under x, or null (only set ones show). */
+/** Is there a start or end to show: the video's (when trimmed), or in the Story step the story's (always). */
+function showsMarks(store) {
+  return !store.syncMode && (store.step === "story" || store.isTrimmed);
+}
+
+/** On the ruler: the start ("in") or end ("out") marker under x, or null (only set ones show).
+ *  The video's start and end, or in the Story step the story's (store.markIn, store.markOut). */
 export function trimMarkerAt(store, x) {
-  if (store.syncMode || !store.isTrimmed) return null;
-  if (store.inSeconds > 0.001 && Math.abs(store.xOf(store.inSeconds) - x) < HANDLE_GRAB_PIXELS) return "in";
-  if (store.outSeconds < store.songSeconds - 0.001 && Math.abs(store.xOf(store.outSeconds) - x) < HANDLE_GRAB_PIXELS) return "out";
+  if (!showsMarks(store)) return null;
+  if (store.markIn > 0.001 && Math.abs(store.xOf(store.markIn) - x) < HANDLE_GRAB_PIXELS) return "in";
+  if (store.markOut < store.songSeconds - 0.001 && Math.abs(store.xOf(store.markOut) - x) < HANDLE_GRAB_PIXELS) return "out";
   return null;
 }
 
@@ -397,18 +403,19 @@ export class TimelineDrawing {
     }
   }
 
-  /** Outside the video's start and end: darkened, with a bracket on the ruler at each end
-   *  that is set ("[" at the start, "]" at the end) and a thin line down through the lanes. */
+  /** Outside the video's start and end (in the Story step: the story's): darkened, with a
+   *  bracket on the ruler at each end that is set ("[" at the start, "]" at the end) and a
+   *  thin line down through the lanes. */
   drawTrim(context, lanes, width, height) {
     const store = this.store;
-    if (store.syncMode || !store.isTrimmed) return;
+    if (!showsMarks(store)) return;
     const ruler = lanes[0];
     const markers = [];
-    if (store.inSeconds > 0.001) markers.push({ x: this.snap(store.xOf(store.inSeconds)), inward: 1 });
-    if (store.outSeconds < store.songSeconds - 0.001) markers.push({ x: this.snap(store.xOf(store.outSeconds)), inward: -1 });
+    if (store.markIn > 0.001) markers.push({ x: this.snap(store.xOf(store.markIn)), inward: 1 });
+    if (store.markOut < store.songSeconds - 0.001) markers.push({ x: this.snap(store.xOf(store.markOut)), inward: -1 });
     context.fillStyle = this.colours.outsideVideo;
-    const inX = store.xOf(store.inSeconds);
-    const outX = store.xOf(store.outSeconds);
+    const inX = store.xOf(store.markIn);
+    const outX = store.xOf(store.markOut);
     if (inX > 0) context.fillRect(0, 0, Math.min(width, inX), height);
     if (outX < width) context.fillRect(Math.max(0, outX), 0, width - Math.max(0, outX), height);
     const hot = store.hover?.trimMarker || (store.gesture?.kind === "trim" && store.gesture.marker);

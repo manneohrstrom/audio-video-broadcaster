@@ -227,6 +227,40 @@ def rebase_trim(trim_ns, old_range_ns, new_range_ns):
     return None if start == 0 and end == length else [start, end]
 
 
+def validate_story(story, camera_ids, range_length_ns):
+    """The Instagram story (hub/ingest/story_render.py), or None: range_ns, its start and end
+    as trim_ns (or None: 30 s from the video's start), and framing, where the 9:16 slice sits
+    in each camera's picture (0 left edge .. 1 right edge; cameras not in it are centred)."""
+    if story is None:
+        return None
+    if not isinstance(story, dict):
+        raise ProjectError("story must be an object")
+    framing = story.get("framing")
+    framing = {} if framing is None else framing
+    if not isinstance(framing, dict):
+        raise ProjectError("story.framing must be {camera: 0-1}")
+    clean = {}
+    for camera, position in framing.items():
+        if camera not in camera_ids:
+            continue                                   # a camera that isn't in this take any more
+        if not isinstance(position, (int, float)) or isinstance(position, bool) or not 0 <= position <= 1:
+            raise ProjectError("story.framing values must be 0-1")
+        clean[camera] = round(float(position), 4)
+    try:
+        range_ns = validate_trim(story.get("range_ns"), range_length_ns)
+    except ProjectError as error:
+        raise ProjectError("story: %s" % str(error).replace("the video", "the story")) from None
+    return {"range_ns": range_ns, "framing": clean}
+
+
+def rebase_story(story, old_range_ns, new_range_ns):
+    """The story's start and end moved onto a new song range (as rebase_trim)."""
+    if not isinstance(story, dict):
+        return None
+    range_ns = story.get("range_ns")
+    return dict(story, range_ns=rebase_trim(range_ns, old_range_ns, new_range_ns) if range_ns else None)
+
+
 def automatic_cut(cameras, range_ns, shot_s=10.0):
     """The editor's starting cut (the quick mix's rule, hub/ingest/render.py quick_cut):
     a new Pi camera about every shot_s, round the cameras in order, starting and ending on
@@ -432,7 +466,9 @@ class EditorProjects:
             cuts = rebase_cuts(saved["cuts"], saved["range_ns"], range_ns)
             if cuts:
                 trim_ns = rebase_trim(saved.get("trim_ns"), saved["range_ns"], range_ns)
-                saved.update(cuts=validate_cuts(cuts, camera_ids, length_ns), range_ns=range_ns, trim_ns=trim_ns)
+                story = rebase_story(saved.get("story"), saved["range_ns"], range_ns)
+                saved.update(cuts=validate_cuts(cuts, camera_ids, length_ns), range_ns=range_ns, trim_ns=trim_ns,
+                             story=story)
                 return saved, "saved"
         except (OSError, ValueError, KeyError, TypeError):
             pass
@@ -567,10 +603,13 @@ class EditorProjects:
             raise ProjectError("branding_colour must be a colour like #ffffff")
         title = validate_title(edit.get("title"), (range_ns[1] - range_ns[0]) / 1e9)
         trim_ns = validate_trim(edit.get("trim_ns"), range_ns[1] - range_ns[0])
+        story = validate_story(edit.get("story"), camera_ids, range_ns[1] - range_ns[0])
         saved = self._new_edit(take_id, song_id, version, range_ns, cuts, "user")
         saved.update(look=edit.get("look"), dissolve_s=dissolve_s, branding=branding,
                      branding_colour=branding_colour.lower(), trim_ns=trim_ns, saved_at=self.clock())
         if title is not None:
             saved["title"] = title
+        if story is not None:
+            saved["story"] = story
         self._write_working_copy(take_id, song_id, version, saved)
         return saved

@@ -202,7 +202,7 @@ Four phases, each ending in something usable. Phase 1 is a go/no-go on the two r
 
 ### Editing
 
-The editor is our own (user decision 2026-11-15). It runs in the browser; the hub stores, cuts and renders. Its inputs all come from the rig: every camera on one clock and timecode, each camera's gaps and rough sections, the synced bounce, beats and movement. The automatic cut uses rules. See [editor-plan.md](editor-plan.md).
+The editor is our own (user decision 2026-11-15). It runs in the browser; the hub stores, cuts and renders. Its inputs all come from the rig: every camera on one clock and timecode, each camera's gaps and rough sections, the synced bounce, beats and movement. The automatic cut uses rules. Besides the YouTube video it makes Instagram stories: a 9:16 slice of the same video, placed per camera (user, 2026-11-24). See [editor-plan.md](editor-plan.md).
 
 One repository:
 

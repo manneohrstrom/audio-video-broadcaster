@@ -296,3 +296,35 @@ input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px va
 
 /* "Make video": upload to YouTube (only when the hub is signed in) */
 .make-video .youtube-choice { display: inline-flex; align-items: center; gap: 6px; color: var(--color-text-muted); font-size: var(--font-size-small); cursor: pointer; }
+
+/* -- step 4, the Instagram story (StoryPanel.js; the frame is drawn by VideoWindow.js) */
+/* The 9:16 slice on the video: clear inside, the rest dimmed. --left and --right (percent of
+   the width) are set every frame by VideoWindow.js; ::after is the slice's outline. */
+.video-window.story-step { cursor: ew-resize; touch-action: none; }
+.story-frame {
+  --dim: rgba(0, 0, 0, 0.55); --edge: var(--color-accent);
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(to right, var(--dim) var(--left), transparent var(--left), transparent var(--right), var(--dim) var(--right));
+}
+.story-frame::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: var(--left); right: calc(100% - var(--right));
+  box-shadow: inset 0 0 0 2px var(--edge);
+}
+.story-frame.outside { --dim: rgba(0, 0, 0, 0.72); --edge: var(--color-text-muted); }
+.story-top { grid-template-columns: auto 1fr; align-items: start; gap: var(--space-3); }
+.story-preview {
+  width: 135px; aspect-ratio: 9 / 16; display: block; background: #000; border-radius: var(--radius-small);
+  box-shadow: 0 0 0 3px var(--color-well), 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.story-intro { display: grid; gap: var(--space-2); align-content: start; }
+.story-framing { display: grid; gap: var(--space-2); }
+.story-camera {
+  display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; grid-template-areas: "key name places" "slider slider slider";
+  align-items: center; gap: 6px var(--space-2); padding: 6px var(--space-2); border-radius: var(--radius-small);
+}
+.story-camera.showing { background: color-mix(in srgb, var(--camera-colour) 16%, transparent); }
+.story-camera .camera-key { grid-area: key; }
+.story-camera-name { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text); font-weight: 500; }
+.story-camera input[type=range] { grid-area: slider; width: 100%; min-width: 0; }
+.story-places { grid-area: places; display: flex; gap: 4px; }
+.story-places .button.selected { background: var(--color-cream); color: var(--color-well); }

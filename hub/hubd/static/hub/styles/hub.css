@@ -188,8 +188,13 @@ code { font-size: 13px; color: var(--color-text-muted); }
 .bounces { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--color-text-muted); align-items: center; }
 .bounce { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .sync.good { color: var(--color-good); }
-.video-version { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.video-version { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
 .video-version small { color: var(--color-text-muted); }
+/* An Instagram story among the videos: marked so it's easy to find on the phone */
+.story-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  color: var(--color-well); background: var(--color-cream, #f3ead8);
+}
 .download { padding: 4px 7px; }
 .take-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; font-size: 13px; }
 .key.small.quiet { background: transparent; box-shadow: none; color: var(--color-text-muted); }

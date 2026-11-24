@@ -3,7 +3,7 @@
 //   left / right: one frame        shift + left / right: one second
 //   delete / backspace: remove the selected cut
 //   cmd/ctrl + Z: undo, + shift: redo       + / -: zoom in / out
-//   I / O: the video starts / ends at the playhead
+//   I / O: the video starts / ends at the playhead (in the Story step: the story)
 // Sync mode (sync by hand):
 //   , / . : the bounce 10 ms earlier / later    shift + , / . : one frame earlier / later
 //   1-9: show that camera
@@ -40,7 +40,7 @@ export function attachKeyboard(store, transport) {
       if (event.shiftKey) store.redo(); else store.undo();
     } else if ((event.code === "KeyI" || event.code === "KeyO") && !store.syncMode
                && !event.metaKey && !event.ctrlKey && !event.altKey) {
-      if (event.code === "KeyI") store.setInPoint(store.playheadSeconds); else store.setOutPoint(store.playheadSeconds);
+      if (event.code === "KeyI") store.setMarkIn(store.playheadSeconds); else store.setMarkOut(store.playheadSeconds);
     } else if (event.key === "+" || event.key === "=") {
       store.zoomTo(store.pixelsPerSecond * 1.5);
     } else if (event.key === "-") {

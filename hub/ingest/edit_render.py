@@ -248,16 +248,19 @@ def brand_overlay(graph, extra_inputs, brand_dir, colour="#ffffff", logo_start_s
 
 def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir=".", preset=FINAL_PRESET, crf=FINAL_CRF,
                     brand_dir=None, brand_colour="#ffffff", downbeats_s=(), title=None,
-                    fonts_dir="/opt/hubd/static/shared/vendor/fonts"):
+                    fonts_dir="/opt/hubd/static/shared/vendor/fonts", last_filters=None,
+                    audio_fades_s=(AUDIO_EDGE_FADE_S, AUDIO_EDGE_FADE_S)):
     """title: the edit's title (title_render): its sequence goes after the effects and under the brand frame.
-    brand_dir: the brand frame's folder (border and logo), or None for no brand frame."""
+    brand_dir: the brand frame's folder (border and logo), or None for no brand frame.
+    last_filters: filters on the finished picture, after everything else (the story's slice), or None.
+    audio_fades_s: (fade in, fade out) of the sound at the video's start and end."""
     show_title = title_render.is_shown(title)
     command = render.encoder_cmd(bounce, audio_start_s, frames, out, preset=preset, crf=crf)
     pipe = command.index("-")                   # the raw video input: Rec. 709 (CAMERA_COLOUR)
     command[pipe - 1:pipe - 1] = PIPE_COLOUR_OPTIONS
     command[command.index("-b:a") + 1] = AUDIO_BITRATE
     command[command.index("-threads") + 1] = ENCODER_THREADS
-    if effects or brand_dir or show_title:
+    if effects or brand_dir or show_title or last_filters:
         # Inputs: 0 = the frames, 1 = the bounce, 2... = effect masks, then the border and logo.
         extra_inputs, graph = [], None
         if effects:
@@ -269,6 +272,8 @@ def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir="
             extra_inputs, graph = brand_overlay(graph, extra_inputs, brand_dir, brand_colour,
                                                 title_render.logo_start_s(title),
                                                 title_render.border_start_s(title))
+        if last_filters:
+            graph = (graph[:-len("[video]")] + "[finished];[finished]" if graph else "[0:v]") + last_filters + "[video]"
         audio_input_end = command.index(bounce) + 1
         command[audio_input_end:audio_input_end] = extra_inputs
         at = command.index("-map")
@@ -279,7 +284,8 @@ def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir="
     # The sound starts and stops wherever the video does (the start may be set just after
     # a clap): a very short fade at both ends, so neither clicks.
     end_s = frames / FPS
-    fades = ["-af", "afade=t=in:d=%.3f,afade=t=out:st=%.6f:d=%.3f" % (AUDIO_EDGE_FADE_S, max(0.0, end_s - AUDIO_EDGE_FADE_S), AUDIO_EDGE_FADE_S)]
+    fade_in, fade_out = audio_fades_s
+    fades = ["-af", "afade=t=in:d=%.3f,afade=t=out:st=%.6f:d=%.3f" % (fade_in, max(0.0, end_s - fade_out), fade_out)]
     at = command.index("-c:a")
     command[at:at] = quality + fades
     return command
@@ -390,12 +396,15 @@ class EditRenderer:
             import time
             time.sleep(1.0)
 
+    def encoder_command(self, out_path):
+        """The x264 encoder's command (the story's renderer adds its slice: story_render.py)."""
+        return encoder_command(self.bounce, self.audio_start_s(), self.total_frames, out_path,
+                               self.effects, self.work_dir, brand_dir=self.brand_dir,
+                               brand_colour=self.brand_colour, downbeats_s=self.downbeats_s,
+                               title=self.title, fonts_dir=self.fonts_dir)
+
     def run(self, out_path):
-        encoder = self.spawn(encoder_command(self.bounce, self.audio_start_s(), self.total_frames, out_path,
-                                             self.effects, self.work_dir, brand_dir=self.brand_dir,
-                                             brand_colour=self.brand_colour, downbeats_s=self.downbeats_s,
-                                             title=self.title, fonts_dir=self.fonts_dir),
-                             stdin=subprocess.PIPE)
+        encoder = self.spawn(self.encoder_command(out_path), stdin=subprocess.PIPE)
         try:
             current = 0
             self.start_decoder(self.shots[0])

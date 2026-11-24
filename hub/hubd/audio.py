@@ -275,7 +275,8 @@ class Audio:
     def summary(self, take, on_drive=(), renders=None, syncs=None, videos=None):
         """Short form for the take list. on_drive: relative paths hub-ingest has copied;
         renders, syncs: hub-ingest's render and sync jobs of this take, keyed "<song>/v<N>"
-        (the editor's video renders: "<song>:edit"); videos: {song: [video versions]}."""
+        (the editor's video renders: "<song>:edit", its stories: "<song>:story");
+        videos: {song: [video versions and stories]}."""
         renders, syncs, videos = renders or {}, syncs or {}, videos or {}
         out = {}
         if os.path.exists(os.path.join(self.root, take, "songs.json")):
@@ -297,6 +298,9 @@ class Audio:
                 "render": {k: (renders.get("%s:edit" % s["id"]) or {}).get(k)
                            for k in ("status", "progress", "eta_s", "error", "file", "status_note", "version")}
                 if renders.get("%s:edit" % s["id"]) else None,
+                "story_render": {k: (renders.get("%s:story" % s["id"]) or {}).get(k)
+                                 for k in ("status", "progress", "eta_s", "error", "file", "status_note", "version")}
+                if renders.get("%s:story" % s["id"]) else None,
                 "videos": videos.get(s["id"]) or []} for s in doc["songs"]]
         try:
             with open(os.path.join(self.root, take, "scratch", "scratch.json")) as f:

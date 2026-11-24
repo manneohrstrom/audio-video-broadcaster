@@ -13,6 +13,7 @@
 import * as EditModel from "./edit-model.js";
 import { cutsFromFile, cutsToFile, NS_PER_SECOND } from "./time-format.js";
 import { saveEdit, saveSync } from "./api.js";
+import { DEFAULT_STORY_SECONDS } from "./story.js";
 
 const SAVE_DELAY_MS = 800;
 export const FRAME_SECONDS = 1 / 30;
@@ -52,9 +53,17 @@ export class EditorStore {
     this.inSeconds = trim ? trim[0] / NS_PER_SECOND : 0;
     this.outSeconds = trim ? Math.min(this.songSeconds, trim[1] / NS_PER_SECOND) : this.songSeconds;
 
+    // Step 4, the Instagram story (story.js, hub/ingest/story_render.py): its own start and
+    // end (null until set: 30 s from the video's start) and where the 9:16 slice sits in each
+    // camera's picture (camera id -> 0 left edge .. 1 right edge; missing: the middle).
+    const story = project.edit.story || {};
+    this.storyRange = story.range_ns
+      ? [story.range_ns[0] / NS_PER_SECOND, Math.min(this.songSeconds, story.range_ns[1] / NS_PER_SECOND)] : null;
+    this.storyFraming = { ...(story.framing || {}) };
+
     // Step 2, the look (docs/editor-plan.md section 5): one filter with a strength and any
     // number of effects with a strength each, for the whole song. Definitions: looks.json.
-    this.step = "cut";                       // "cut" | "look" | "title"
+    this.step = "cut";                       // "cut" | "look" | "title" | "story"
     this.looks = null;                       // looks.json, loaded by the page
     this.look = { filter: "normal", filter_strength: 1, effects: {}, adjust: {}, ...(project.edit.look || {}) };
     this.comparing = false;                  // held down on the video: show without the look
@@ -331,6 +340,63 @@ export class EditorStore {
     this.notify();
   }
 
+  // -- the story's start and end, and its framing
+  /** Where the story starts and ends: its own, else 30 s from the video's start. */
+  get storyInSeconds() {
+    return this.storyRange ? this.storyRange[0] : this.inSeconds;
+  }
+
+  get storyOutSeconds() {
+    return this.storyRange ? this.storyRange[1] : Math.min(this.outSeconds, this.inSeconds + DEFAULT_STORY_SECONDS);
+  }
+
+  get storySeconds() {
+    return this.storyOutSeconds - this.storyInSeconds;
+  }
+
+  /** The story starts here (on a frame; at least MIN_VIDEO_SECONDS before its end). */
+  setStoryIn(seconds) {
+    const onFrame = Math.round(seconds / FRAME_SECONDS) * FRAME_SECONDS;
+    const out = this.storyOutSeconds;
+    this.storyRange = [Math.max(0, Math.min(onFrame, out - MIN_VIDEO_SECONDS)), out];
+    this.scheduleSave();
+    this.notify();
+  }
+
+  /** The story ends here (on a frame; at least MIN_VIDEO_SECONDS after its start). */
+  setStoryOut(seconds) {
+    const onFrame = Math.round(seconds / FRAME_SECONDS) * FRAME_SECONDS;
+    const start = this.storyInSeconds;
+    this.storyRange = [start, Math.min(this.songSeconds, Math.max(onFrame, start + MIN_VIDEO_SECONDS))];
+    this.scheduleSave();
+    this.notify();
+  }
+
+  /** Where the slice sits in this camera's picture, 0 (left edge) .. 1 (right edge). */
+  setFraming(cameraId, position) {
+    this.storyFraming = { ...this.storyFraming, [cameraId]: Math.round(Math.min(1, Math.max(0, position)) * 10000) / 10000 };
+    this.scheduleSave();
+    this.notify();
+  }
+
+  // -- the start and end the timeline shows and the keys I and O set: the story's in the
+  //    Story step, the video's everywhere else
+  get markIn() {
+    return this.step === "story" ? this.storyInSeconds : this.inSeconds;
+  }
+
+  get markOut() {
+    return this.step === "story" ? this.storyOutSeconds : this.outSeconds;
+  }
+
+  setMarkIn(seconds) {
+    if (this.step === "story") this.setStoryIn(seconds); else this.setInPoint(seconds);
+  }
+
+  setMarkOut(seconds) {
+    if (this.step === "story") this.setStoryOut(seconds); else this.setOutPoint(seconds);
+  }
+
   setDissolve(seconds) {
     this.dissolveSeconds = seconds;
     this.scheduleSave();
@@ -394,7 +460,9 @@ export class EditorStore {
     try {
       await saveEdit(takeId, song.id, version, { cuts: cutsToFile(this.cuts), dissolve_s: this.dissolveSeconds, look: this.look,
                       branding: this.branding, branding_colour: this.brandingColour, title: this.title,
-                      trim_ns: this.isTrimmed ? [Math.round(this.inSeconds * NS_PER_SECOND), Math.round(this.outSeconds * NS_PER_SECOND)] : null });
+                      trim_ns: this.isTrimmed ? [Math.round(this.inSeconds * NS_PER_SECOND), Math.round(this.outSeconds * NS_PER_SECOND)] : null,
+                      story: { framing: this.storyFraming,
+                               range_ns: this.storyRange ? this.storyRange.map(seconds => Math.round(seconds * NS_PER_SECOND)) : null } });
       this.saveState = this.saveState === "saving" ? "saved" : this.saveState;
       this.saveProblem = null;
     } catch (error) {

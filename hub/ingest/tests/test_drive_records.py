@@ -85,13 +85,17 @@ class IndexTest(DriveRecordsBase):
             f.write(b"x" * 10)
         with open(os.path.join(song_dir, "song-a-video2.json"), "w") as f:
             json.dump({"song_version": 3}, f)
+        with open(os.path.join(song_dir, "song-a-story1.mp4"), "wb") as f:      # an Instagram story
+            f.write(b"y" * 4)
         self.look()
         index = self.ing.state["drive_index"]
         self.assertEqual(index["drive_id"], "6AF9-DC1A")
         self.assertTrue(index["present"])
         self.assertEqual(index["takes"][TAKE]["videos"],
                          {"song-a": [{"number": 2, "file": "edits/song-a/song-a-video2.mp4",
-                                      "bounce_version": 3, "bytes": 10}]})
+                                      "bounce_version": 3, "bytes": 10, "format": "video"},
+                                     {"number": 1, "file": "edits/song-a/song-a-story1.mp4",
+                                      "bounce_version": None, "bytes": 4, "format": "story"}]})
 
     def test_a_new_take_is_indexed_when_written(self):
         self.look()                                        # empty drive indexed

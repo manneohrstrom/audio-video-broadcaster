@@ -35,7 +35,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.58.0"
+VERSION = "0.59.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -1011,7 +1011,8 @@ class Hub:
         if song.get("render") is not None:
             song["render"].update(youtube=job.get("youtube"), upload_error=job.get("upload_error"),
                                   upload=self.youtube_upload(job.get("upload")))
-        song["videos"] = [dict(v, youtube=self.youtube_upload("%s_%s_video%s" % (take, song["id"], v.get("number"))))
+        song["videos"] = [dict(v, youtube=None if v.get("format") == "story"       # stories never go to YouTube
+                               else self.youtube_upload("%s_%s_video%s" % (take, song["id"], v.get("number"))))
                           for v in song.get("videos") or []]
 
     # -- playback from the STUDIO drive (read-only mount, managed by hub-ingest)
@@ -1208,9 +1209,12 @@ class Hub:
             return None
         return {k: record.get(k) for k in ("status", "progress", "url", "studio_url", "note", "error", "video_number")}
 
-    def request_edit_render(self, take, song, version, youtube=False):
+    def request_edit_render(self, take, song, version, youtube=False, kind="edit"):
         """The editor's edit as the finished video (hub-ingest's edit_render.py), when idle.
-        youtube: then upload it (private) to the channel, when the hub is signed in."""
+        youtube: then upload it (private) to the channel, when the hub is signed in.
+        kind "story": its Instagram story instead (story_render.py; never uploaded)."""
+        if kind not in ("edit", "story"):
+            raise ValueError("kind must be edit or story")
         path = self.editor.working_copy_path(take, song, version)
         if not os.path.exists(path):
             older = self.editor._older_per_version_copy(take, song)
@@ -1219,22 +1223,23 @@ class Hub:
             shutil.copyfile(older, path)                 # edits saved per bounce version before 2026-11-17
         if not self.audio.version_info(take, song, version).get("synced"):
             raise ValueError("this song isn't synced to the take yet")
-        youtube = youtube is True and self.youtube_status()["signed_in"]
+        youtube = kind == "edit" and youtube is True and self.youtube_status()["signed_in"]
         try:
             song_name = self.editor._song_and_version(take, song, version)[0].get("name") or song
         except (ValueError, OSError, KeyError):
             song_name = song
-        return self.ingest_command("render", take=take, song=song, version=version, kind="edit",
+        return self.ingest_command("render", take=take, song=song, version=version, kind=kind,
                                    youtube=youtube, song_name=song_name, take_name=self.names.take(take))
 
-    def edit_render_status(self, take, song, version):
-        """The newest render job of this song's edit, from hub-ingest's state (or {})."""
+    def edit_render_status(self, take, song, version, kind="edit"):
+        """The newest render job of this song's edit (kind "story": of its story), from
+        hub-ingest's state (or {})."""
         try:
             with open(os.path.join(self.cfg["ingest_dir"], "state.json")) as f:
                 jobs = json.load(f).get("renders") or {}
         except (OSError, ValueError):
             return {}
-        job = jobs.get("%s/%s:edit" % (take, song)) or {}
+        job = jobs.get("%s/%s:%s" % (take, song, "story" if kind == "story" else "edit")) or {}
         status = {k: job.get(k) for k in ("status", "progress", "eta_s", "error", "file", "status_note", "length_s",
                                           "render_s", "version", "video_number", "youtube", "upload_error")}
         status["upload"] = self.youtube_upload(job.get("upload"))
@@ -1484,7 +1489,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, f.read(), "application/json" if path.endswith(".json") else "image/jpeg")
         m = self.P_EDITOR_RENDER.match(self.path.split("?")[0])
         if m:
-            return self._send(200, h.edit_render_status(m.group(1), m.group(2), int(m.group(3))))
+            kind = "story" if "kind=story" in self.path else "edit"
+            return self._send(200, h.edit_render_status(m.group(1), m.group(2), int(m.group(3)), kind))
         m = self.P_EDITOR_WAVEFORM.match(self.path.split("?")[0])
         if m:
             try:
@@ -1676,9 +1682,10 @@ class Handler(BaseHTTPRequestHandler):
                     h.request_sync(m.group(1), m.group(2), int(m.group(3)))    # automatic sync (Track A)
                 return self._send(200, v)
             m = self.P_EDITOR_RENDER.match(self.path)
-            if m:                                  # "Make video" in the editor: the finished video
+            if m:                                  # "Make video" / "Make story" in the editor
                 return self._send(200, h.request_edit_render(m.group(1), m.group(2), int(m.group(3)),
-                                                             youtube=b.get("youtube") is True))
+                                                             youtube=b.get("youtube") is True,
+                                                             kind="story" if b.get("kind") == "story" else "edit"))
             if self.path == "/api/sync":           # {"take", "song", "version"}: sync again
                 return self._send(200, h.request_sync(b.get("take"), b.get("song"), int(b.get("version") or 0)))
             m = self.P_AUDIO_CHOOSE.match(self.path)

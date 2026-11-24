@@ -34,6 +34,7 @@ For a new camera spot, or after moving one. Everything except step 6 shows on th
 - **Sync** runs by itself once the upload is in. "needs sync" means it wasn't sure: sync by hand in the editor, on a clap or a drum hit.
 - The hub copies bounces (and the hub mic recording) to the drive with the next ingest: `takes/<take>/audio/<song>/v<N>/`.
 - **Make video** is in the editor. The hub renders as soon as the rig is quiet, with the take's drive plugged in; a take or LIVE pauses it. The video lands in `takes/<take>/edits/<song>/`; watch or download it from the archive. Making it again gives a new video next to the old one.
+- **Instagram story:** the editor's **Story** step. Drag on the video to place the 9:16 slice for the camera that's showing (or use the sliders), set the story's start and end with <kbd>I</kbd> and <kbd>O</kbd>, then **Make story**. It shows in the archive as "story N · 9:16 story": open the hub page on the phone, download it, post it from the phone's files. A 1080x1920 slice of a 1080p camera is scaled up about 1.8 times, so it's softer than the YouTube video.
 
 ## Phone as a camera (offline takes)
 

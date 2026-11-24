@@ -1,7 +1,9 @@
 // The video window: the camera that is on at the playhead (with the dissolve between
 // shots), or the camera under the mouse while skimming. Pictures come from the WebCodecs
 // player (media/video-player.js); until a camera's frame is decoded, its strip thumbnail
-// stands in, enlarged.
+// stands in, enlarged. In the Story step a 9:16 frame on top shows the story's slice
+// (story.js): drag it for the camera that's showing; the slice is copied every frame into
+// the Story panel's preview.
 import { useEffect, useRef } from "preact/hooks";
 import { html } from "./html.js";
 import { everyFrame } from "../frame-loop.js";
@@ -9,6 +11,7 @@ import { cutIndexAt } from "../edit-model.js";
 import { formatSeconds } from "../time-format.js";
 import { fullVideoAvailable } from "../media/video-player.js";
 import { LookRenderer } from "../look/look-renderer.js";
+import { CENTRE, SLICE_SHARE, sliceLeftAt, sliceLeftShare } from "../story.js";
 import { drawCard, drawStrip, opacitiesAt, logoOpacityAt, borderOpacityAt, titleText, linesBelow, BRAND_TEXT, BRAND_STYLE, CREAM, CARD_SIZE, DETAIL_SIZE, FONT_FAMILY } from "../title/title-layout.js";
 
 // Pictures are put together (camera, dissolve) on this hidden canvas, then shown through
@@ -31,6 +34,8 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
   const stripRef = useRef(null);
   const logoRef = useRef(null);
   const borderRef = useRef(null);
+  const storyFrameRef = useRef(null);
+  const storyDragRef = useRef(null);       // { camera, grabbedAt (share of the slice's width from its left edge) }
 
   // The title sequence's cards: drawn again when the title changes (and once Outfit has
   // loaded); their opacities follow the playhead in the frame loop below.
@@ -86,8 +91,10 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
       else renderer.setFilter({}, 0);
       renderer.render(picture, withLook ? store.look.effects : {}, seconds, overlay);
     }
-    // The title sequence, timed from the video's start (not while skimming a camera, nor before the start).
-    const showSequence = !skimCamera && seconds >= store.inSeconds - 1e-6;
+    if (store.step === "story") drawStory(store, skimCamera, seconds, renderer ? canvasRef.current : picture, storyFrameRef.current);
+    // The title sequence, timed from the video's start (not while skimming a camera, nor before
+    // the start, nor in the Story step: a story has none).
+    const showSequence = !skimCamera && store.step !== "story" && seconds >= store.inSeconds - 1e-6;
     const layers = opacitiesAt(showSequence ? store.title : null, seconds - store.inSeconds);
     for (const [ref, opacity] of [[blackRef, layers.black], [brandRef, layers.brand], [titleRef, layers.title], [stripRef, layers.strip]]) {
       const value = String(Math.round(opacity * 1000) / 1000);
@@ -108,18 +115,44 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
 
   const hold = on => () => { if (store.step === "look") { store.comparing = on; store.notify(); } };
 
+  // The Story step: press on the slice to grab it (or anywhere else to bring it there), drag
+  // it sideways. It moves the camera showing when the drag starts.
+  const shareAt = event => {
+    const box = wrapperRef.current.getBoundingClientRect();
+    return (event.clientX - box.left) / box.width;
+  };
+  const moveSliceTo = event => {
+    const drag = storyDragRef.current;
+    const left = shareAt(event) - drag.grabbedAt * SLICE_SHARE;
+    store.setFraming(drag.camera.id, left / (1 - SLICE_SHARE));
+  };
+  const onPointerDown = event => {
+    if (store.step !== "story") { hold(true)(); return; }
+    const { camera: skimCamera, seconds } = whatToShow(store);
+    const camera = skimCamera || store.cameraAt(seconds);
+    const left = sliceLeftShare(store.storyFraming[camera.id] ?? CENTRE);
+    const inside = (shareAt(event) - left) / SLICE_SHARE;
+    storyDragRef.current = { camera, grabbedAt: inside >= 0 && inside <= 1 ? inside : 0.5 };
+    wrapperRef.current.setPointerCapture(event.pointerId);
+    moveSliceTo(event);
+  };
+  const onPointerMove = event => { if (storyDragRef.current) moveSliceTo(event); };
+  const onPointerUp = () => { storyDragRef.current = null; hold(false)(); };
+
   return html`
     <div class="video-stage">
-      <div class="video-window" ref=${wrapperRef}
-           onPointerDown=${hold(true)} onPointerUp=${hold(false)} onPointerLeave=${hold(false)}>
+      <div class=${"video-window" + (store.step === "story" ? " story-step" : "")} ref=${wrapperRef}
+           onPointerDown=${onPointerDown} onPointerMove=${onPointerMove} onPointerUp=${onPointerUp}
+           onPointerCancel=${onPointerUp} onPointerLeave=${() => { if (!storyDragRef.current) hold(false)(); }}>
         <canvas ref=${canvasRef} width="1920" height="1080" aria-label="Video preview"></canvas>
         <div class="title-black" ref=${blackRef} aria-hidden="true"></div>
         <canvas class="title-layer" ref=${brandRef} width="1920" height="1080" aria-hidden="true"></canvas>
         <canvas class="title-layer" ref=${titleRef} width="1920" height="1080" aria-hidden="true"></canvas>
         <canvas class="title-layer" ref=${stripRef} width="1920" height="1080" aria-hidden="true"></canvas>
-        ${store.branding && html`
+        ${store.branding && store.step !== "story" && html`
           <div class="brand-border" ref=${borderRef} style=${{ background: store.brandingColour }}></div>
           <div class="brand-logo" ref=${logoRef} style=${{ background: store.brandingColour }}></div>`}
+        ${store.step === "story" && html`<div class="story-frame" ref=${storyFrameRef} aria-hidden="true"></div>`}
         ${store.step === "look" && html`<div class="video-hold">${store.comparing ? "Without the look" : "Press and hold to compare"}</div>`}
         <div class="video-badge" ref=${badgeRef}></div>
         <div class="video-note" ref=${noteRef} hidden></div>
@@ -153,6 +186,32 @@ export function playOnlyOverlay(id) {
     } else if (!video.paused) {
       video.pause();
     }
+  }
+}
+
+/**
+ * The Story step, every frame: place the 9:16 frame where the slice is at this time (the
+ * skimmed camera's place, or the program's with its glide at cuts), dim it outside the story's
+ * start and end, and copy the slice of the finished picture into the Story panel's preview.
+ * @param {HTMLCanvasElement} source  the picture with its look (or without, if WebGL is missing)
+ */
+function drawStory(store, skimCamera, seconds, source, frame) {
+  const left = skimCamera
+    ? sliceLeftShare(store.storyFraming[skimCamera.id] ?? CENTRE)
+    : sliceLeftAt(store.cuts, store.storyFraming, store.dissolveSeconds, seconds);
+  const outside = seconds < store.storyInSeconds - 1e-6 || seconds > store.storyOutSeconds + 1e-6;
+  if (frame) {
+    frame.style.setProperty("--left", `${(left * 100).toFixed(3)}%`);
+    frame.style.setProperty("--right", `${((left + SLICE_SHARE) * 100).toFixed(3)}%`);
+    frame.classList.toggle("outside", outside);
+  }
+  const preview = store.storyPreviewCanvas;
+  if (!preview) return;
+  const context = preview.getContext("2d");
+  context.drawImage(source, left * source.width, 0, SLICE_SHARE * source.width, source.height, 0, 0, preview.width, preview.height);
+  if (outside) {
+    context.fillStyle = "rgba(0, 0, 0, 0.6)";
+    context.fillRect(0, 0, preview.width, preview.height);
   }
 }
 

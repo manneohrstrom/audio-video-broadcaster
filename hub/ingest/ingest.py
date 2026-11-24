@@ -39,12 +39,13 @@ import render  # noqa: E402
 import thumbnails  # noqa: E402
 import proxies  # noqa: E402
 import edit_render  # noqa: E402
+import story_render  # noqa: E402
 import title_render  # noqa: E402
 import youtube_upload  # noqa: E402
 import drive_records  # noqa: E402
 import motion  # noqa: E402
 
-VERSION = "0.33.0"
+VERSION = "0.34.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -1575,14 +1576,15 @@ class Ingest:
 
     # -- quick mix renders (Phase 4 A4, render.py)
     def queue_render(self, doc):
-        """A quick mix ("render"), or the editor's edit (kind "edit": the finished video)."""
+        """A quick mix ("render"), the editor's edit (kind "edit": the finished video) or its
+        Instagram story (kind "story": story_render.py)."""
         take, song, v = doc.get("take"), doc.get("song"), doc.get("version")
         if not (TAKE_RE.match(take or "") and isinstance(v, int) and re.match(r"^[a-z0-9-]+$", song or "")):
             return
-        kind = "edit" if doc.get("kind") == "edit" else "quick"
-        # The editor's videos: one job per song (its edit belongs to the song); `version`
-        # is the bounce version that goes into the video.
-        key = "%s/%s:edit" % (take, song) if kind == "edit" else "%s/%s/v%d" % (take, song, v)
+        kind = doc.get("kind") if doc.get("kind") in ("edit", "story") else "quick"
+        # The editor's videos and stories: one job of each per song (its edit belongs to the
+        # song); `version` is the bounce version that goes into the video.
+        key = "%s/%s:%s" % (take, song, kind) if kind != "quick" else "%s/%s/v%d" % (take, song, v)
         jobs = self.state.setdefault("renders", {})
         if (jobs.get(key) or {}).get("status") in ("queued", "rendering", "checking", "writing"):
             return
@@ -1609,7 +1611,7 @@ class Ingest:
                 job["status_note"] = "waiting for the take's own ingest"
                 continue
             try:
-                if job.get("kind") == "edit":
+                if job.get("kind") in ("edit", "story"):
                     self.render_edit_job(job)
                 else:
                     self.render_job(job)
@@ -1711,8 +1713,10 @@ class Ingest:
         self.save(current_render=None)
 
     def render_edit_job(self, job):
-        """The editor's edit as the finished video: <take>/edits/<song>/<song>-v<N>.mp4 plus
-        the edit itself (.json) on the drive; never replaces a file (-2, -3, ...)."""
+        """The editor's edit as the finished video: <take>/edits/<song>/<song>-video<N>.mp4 plus
+        the edit itself (.json) on the drive; never replaces a file. Kind "story": the
+        Instagram story, <song>-story<N>.mp4 (story_render.py), never uploaded."""
+        is_story = job.get("kind") == "story"
         audio_dir, version, sync = self._audio_src(job)
         bounce = os.path.join(audio_dir, sync.get("file") or version["filename"])
         edit_path = os.path.join(self.cfg["hubd_state_dir"], "edits", job["take"], job["song"] + ".json")
@@ -1724,7 +1728,7 @@ class Ingest:
             looks = json.load(f)
         out_dir = os.path.join(self.work, "renders", job["take"])
         os.makedirs(out_dir, exist_ok=True)
-        base = "%s-video" % job["song"]
+        base = "%s-%s" % (job["song"], "story" if is_story else "video")
         tmp = os.path.join(out_dir, base + ".tmp.mp4")
         job.update(status="rendering", progress=0.0, error=None, status_note=None, started=self.clock())
         self.save(current_render=job["take"])
@@ -1747,11 +1751,11 @@ class Ingest:
                     job["status"] = "paused" if is_busy else "rendering"
                     self.save(status="paused: rig busy" if is_busy else "ingesting")
                 return is_busy
-            brand_dir = self.cfg["brand_dir"] if edit.get("branding") else None
+            brand_dir = self.cfg["brand_dir"] if edit.get("branding") and not is_story else None
             for name in (edit_render.BRAND_BORDER, edit_render.BRAND_LOGO, edit_render.BRAND_LOGO_BOX) if brand_dir else ():
                 if not os.path.exists(os.path.join(brand_dir, name)):
                     raise RuntimeError("the border and logo image is missing: %s" % name)
-            if title_render.is_shown(edit.get("title")):
+            if title_render.is_shown(edit.get("title")) and not is_story:
                 if not os.path.exists(os.path.join(self.cfg["fonts_dir"], title_render.FONT)):
                     raise RuntimeError("the title's font is missing: %s" % title_render.FONT)
             try:            # the bounce's bars, for the beat pulse (beats.json, next to the bounce)
@@ -1759,7 +1763,8 @@ class Ingest:
                     downbeats_s = json.load(f).get("downbeats_s") or []
             except (OSError, ValueError):
                 downbeats_s = []
-            renderer = edit_render.EditRenderer(edit, take_doc, folder, bounce, edit.get("look"), looks, out_dir,
+            renderer_class = story_render.StoryRenderer if is_story else edit_render.EditRenderer
+            renderer = renderer_class(edit, take_doc, folder, bounce, edit.get("look"), looks, out_dir,
                                                 busy=busy, should_abort=self.eject_requested, progress=progress,
                                                 brand_dir=brand_dir,
                                                 brand_colour=edit.get("branding_colour") or "#ffffff",
@@ -1775,6 +1780,9 @@ class Ingest:
             problems.append("%d frames, expected %d" % (info["frames"], renderer.total_frames))
         if info["rate"] != "30/1":
             problems.append("frame rate %s" % info["rate"])
+        size = (story_render.WIDTH, story_render.HEIGHT) if is_story else (render.W, render.H)
+        if tuple(info["size"]) != size:
+            problems.append("%dx%d, expected %dx%d" % (tuple(info["size"]) + size))
         job["checked"] = info
         if problems:
             raise RuntimeError("render check failed: " + "; ".join(problems))
@@ -1785,7 +1793,8 @@ class Ingest:
             json.dump(edit, f, indent=1)
         with self.writing():
             # Video versions per song: <song>-video1.mp4, -video2.mp4, ... (never replaced),
-            # each with its edit (.json, which names the bounce version inside).
+            # each with its edit (.json, which names the bounce version inside); stories the same
+            # way, -story1.mp4, -story2.mp4, ..., numbered on their own.
             destination_dir = os.path.join(self.take_folder(job["take"]), "edits", job["song"])
             os.makedirs(destination_dir, exist_ok=True)
             number = 1
@@ -1798,7 +1807,7 @@ class Ingest:
             size = os.path.getsize(mp4)
         os.remove(edit_copy)
         upload = None
-        if job.get("youtube"):
+        if job.get("youtube") and not is_story:
             # Our copy on the SD card goes to hub-upload; the one on the drive is the master.
             upload = "%s_%s_video%d" % (job["take"], job["song"], number)
             try:
@@ -1818,7 +1827,8 @@ class Ingest:
                    upload=upload)
         videos = self.state.setdefault("videos", {}).setdefault(job["take"], {}).setdefault(job["song"], [])
         videos.append({"number": number, "file": job["file"], "bounce_version": job["version"],
-                       "made_at": self.clock(), "length_s": job.get("length_s"), "bytes": size})
+                       "made_at": self.clock(), "length_s": job.get("length_s"), "bytes": size,
+                       "format": "story" if is_story else "video"})
         self.state["drive_free_gb"] = self.drive_free()
         self.save(current_render=None)
 

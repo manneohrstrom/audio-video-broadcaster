@@ -222,4 +222,4 @@ Every video on the channel has a white border and the Brockley Live logo in the 
 1. **Ingest switch to `-c copy` with real timing: answered (2026-11-16).** Yes, once spike E1 passes. Until then the conform stays as built. `CLAUDE.md` updated.
 2. **Order: answered (2026-11-16).** Spikes E1–E3 alongside Track B; the editor's main work (M-E2 on) after Track A, which it depends on. Phase 4's B, A, C order stays.
 3. **Colour in v1: answered (2026-11-16).** The basic controls in section 5 (plus an optional `.cube` look).
-4. **Vertical story version: dropped at 1.0.**
+4. **Vertical story version: dropped at 1.0; asked for again and built 2026-11-24 (user).** The Story step: a 9:16 slice of the finished video (look and effects included, no title sequence or border), placed per camera by dragging on the video, gliding across at each cut with the dissolve; its own start and end; "Make story" renders 1080x1920 on the hub (`hub/ingest/story_render.py`), listed in the archive as "9:16 story".

@@ -46,6 +46,7 @@ The hub is also the **clock** for the whole rig (chrony, `chrony/studio-hub.conf
 | `beats.py`, `motion.py` | Analysis for the automatic cut: beats and bars, movement per camera |
 | `thumbnails.py`, `proxies.py` | Timeline thumbnails and 540p editing copies, kept on the hub's SD card |
 | `edit_render.py` | Renders the editor's edit |
+| `story_render.py` | Its Instagram story: the same render, a 9:16 slice per camera, 1080x1920 |
 | `look_render.py`, `grade.py`, `title_render.py` | The look and the title in the render, matching the editor's preview |
 | `render.py` | The older quick mix: a new camera every 10 s |
 | `drive_records.py` | The drive as the record of every take |
@@ -150,6 +151,7 @@ hubd and hub-ingest talk through files in `/var/lib/hubd/ingest/`: ingest writes
 | `hubd/static/hub/index.html`, `hubd/static/hub/js/components/App.js` | The hub page's title and name |
 | `hubd/static/editor/index.html`, `hubd/static/editor/js/components/TitlePanel.js` | The editor's title and labels |
 | `BRAND_TEXT` in `hubd/static/editor/js/title/title-layout.js` **and** `ingest/title_render.py` | The title sequence. Change both, or the preview and the render differ. |
+| `SLICE_WIDTH` in `hubd/static/editor/js/story.js` **and** `ingest/story_render.py` | The story's slice. Change both, or the preview and the render differ. |
 | `brand/brockley-live-logo.png` | Replace the logo, then run `python3 hub/tools/make_brand_frame.py` from the repo root |
 
 Some tests check the original name and logo.

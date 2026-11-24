@@ -4,6 +4,8 @@
 // shows its progress until it can be watched. With "YouTube" on (when the hub is signed in),
 // the finished video then goes to the channel as a private video (hub-upload), and its
 // progress and a link to it in YouTube Studio show here too.
+// In the Story step it is "Make story" (kind "story"): the Instagram story, 9:16, from the
+// story's start to its end (hub/ingest/story_render.py), its own job, never uploaded.
 import { useEffect, useState } from "preact/hooks";
 import { html } from "./html.js";
 import { requestRender, renderStatus, youtubeStatus } from "../api.js";
@@ -38,7 +40,9 @@ function minutes(seconds) {
   return seconds >= 90 ? `${Math.round(seconds / 60)} min` : `${Math.max(1, Math.round(seconds))} s`;
 }
 
-export function MakeVideo({ store }) {
+export function MakeVideo({ store, kind = "edit" }) {
+  const isStory = kind === "story";
+  const what = isStory ? "story" : "video";
   const { take_id: takeId, song, version } = store.project;
   const [job, setJob] = useState({});
   const [problem, setProblem] = useState(null);
@@ -49,17 +53,17 @@ export function MakeVideo({ store }) {
 
   useEffect(() => {
     let stopped = false;
-    const poll = () => renderStatus(takeId, song.id, version).then(status => { if (!stopped) setJob(status || {}); }).catch(() => {});
+    const poll = () => renderStatus(takeId, song.id, version, kind).then(status => { if (!stopped) setJob(status || {}); }).catch(() => {});
     poll();
     const timer = setInterval(poll, POLL_MS);
     return () => { stopped = true; clearInterval(timer); };
-  }, [takeId, song.id, version]);
+  }, [takeId, song.id, version, kind]);
 
   async function make() {
     setProblem(null);
     try {
       await store.saveNow();                       // render exactly what's on screen
-      await requestRender(takeId, song.id, version, signedIn && toYouTube);
+      await requestRender(takeId, song.id, version, !isStory && signedIn && toYouTube, kind);
       setJob({ status: "queued" });
     } catch (error) {
       setProblem(error.message);
@@ -82,19 +86,21 @@ export function MakeVideo({ store }) {
       ${problem && html`<span class="render-state problem" title=${problem}>${problem}</span>`}
       ${job.status === "done" && job.file && html`
         <a class="button" href=${`/media/${takeId}/${job.file}`} target="_blank" rel="noopener"
-           title=${`Bounce v${job.version}`}><${Icon} name="watch" size=${16} />Watch video ${job.video_number || ""}</a>`}
+           title=${`Bounce v${job.version}`}><${Icon} name="watch" size=${16} />Watch ${what} ${job.video_number || ""}</a>`}
       ${job.status === "done" && job.upload && job.upload.status === "done" && html`
         <a class="button" href=${job.upload.studio_url || job.upload.url} target="_blank" rel="noopener"
            title="Private on the channel: open it in YouTube Studio to check it and publish">On YouTube</a>`}
-      ${signedIn && html`
+      ${signedIn && !isStory && html`
         <label class="youtube-choice" title="Upload the finished video to the channel as a private video">
           <input type="checkbox" checked=${toYouTube} disabled=${running}
                  onChange=${event => { setToYouTube(event.target.checked); rememberYouTubeChoice(event.target.checked); }} />
           YouTube
         </label>`}
       <button class="button signal" disabled=${running} onClick=${make}
-              title=${`Render a new video version with bounce v${version}, from the full-quality cameras, ready for YouTube`}>
-        <${Icon} name="reel" size=${16} />Make video
+              title=${isStory
+                ? `Render a new Instagram story (9:16) with bounce v${version}, from the full-quality cameras: it shows on the hub page to download`
+                : `Render a new video version with bounce v${version}, from the full-quality cameras, ready for YouTube`}>
+        <${Icon} name=${isStory ? "phone" : "reel"} size=${16} />Make ${what}
       </button>
     </div>`;
 }

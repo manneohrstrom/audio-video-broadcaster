@@ -17,7 +17,7 @@ These were ideas or backlog items during development. They were dropped at 1.0.
 
 | Area | Dropped |
 |---|---|
-| Editing | The AI agent that listens, watches and cuts (automatic cut version 2); choosing the wide camera per take; a vertical story version |
+| Editing | The AI agent that listens, watches and cuts (automatic cut version 2); choosing the wide camera per take; a vertical story version (built after all, 2026-11-24: see `editor-plan.md`, decision 4) |
 | Picture | Automatic and per-camera colour matching; manual brightness and warmth trims; fixes to the phones' optional `locked` calibration mode; autofocus and focus checks during takes |
 | Sync | Sync from claps alone; LTC timecode; the phones' own audio for sync |
 | Getting files around | Network share; Mac auto-pull; pulling only the cameras that fit on the hub; salvaging takes cut short by a power loss |

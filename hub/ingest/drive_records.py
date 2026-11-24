@@ -8,6 +8,7 @@ folder deletes the take and a drive plugged into a fresh hub brings all its take
                                        record (REC/STOP, sync warnings, errors, calibration)
         audio/songs.json, audio/<song>/v<N>/...    bounces and their syncs (copied by ingest)
         edits/<song>/<song>-video<N>.mp4 + .json   finished videos and the edit each was made from
+        edits/<song>/<song>-story<N>.mp4 + .json   Instagram stories (9:16), the same way
         edits/<song>/working-edit.json             the editor's working cut
 
 This module only reads and describes; ingest.py does the mounting and the writing.
@@ -18,7 +19,7 @@ import os
 import re
 
 TAKE_FOLDER_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_(\d{8}-\d{6})$")
-VIDEO_RE = re.compile(r"^(?P<song>.+)-video(?P<number>\d+)\.mp4$")
+VIDEO_RE = re.compile(r"^(?P<song>.+)-(?P<format>video|story)(?P<number>\d+)\.mp4$")
 WORKING_EDIT = "working-edit.json"
 
 
@@ -60,7 +61,8 @@ def recording_for(log, take_id):
 # -- what is on the drive
 
 def videos_in(take_folder):
-    """{song: [{"number", "file", "bounce_version", "bytes"}]}: the finished videos in edits/."""
+    """{song: [{"number", "file", "bounce_version", "bytes", "format"}]}: the finished videos
+    and stories in edits/ (format "video" or "story"; each numbered on its own)."""
     edits = os.path.join(take_folder, "edits")
     out = {}
     try:
@@ -83,9 +85,10 @@ def videos_in(take_folder):
                 "file": os.path.join("edits", song, name),
                 "bounce_version": edit.get("song_version"),
                 "bytes": os.path.getsize(path),
+                "format": match.group("format"),
             })
         if song in out:
-            out[song].sort(key=lambda video: video["number"])
+            out[song].sort(key=lambda video: (video["format"] == "story", video["number"]))
     return out
 
 

@@ -5,7 +5,7 @@
 //   on a camera strip, a shot's body: drag               -> { kind: "slide" }   the shot slides, same length
 //   on a shot's edge, or a cut handle on the program strip -> { kind: "moveCut" }
 //   (a slid shot or a moved edge runs over the shots in its way: edit-model.js moveEdge, slideShot)
-//   on the ruler, the video's start or end marker         -> { kind: "trim" }    moves it
+//   on the ruler, the video's start or end marker         -> { kind: "trim" }    moves it (Story step: the story's)
 //   anywhere else (ruler, program, waveform)             -> { kind: "scrub" }   moves the playhead
 //   a plain click on a camera strip just moves the playhead.
 //   wheel: scroll sideways; pinch or Ctrl/Cmd + wheel: zoom around the mouse.
@@ -48,8 +48,8 @@ export function attachTimelinePointer(canvas, store, getLanes, transport) {
       } else if (gesture.kind === "scrub") {
         store.playheadSeconds = seconds;
       } else if (gesture.kind === "trim") {
-        if (gesture.marker === "in") store.setInPoint(seconds); else store.setOutPoint(seconds);
-        if (!store.isPlaying) store.playheadSeconds = gesture.marker === "in" ? store.inSeconds : store.outSeconds;
+        if (gesture.marker === "in") store.setMarkIn(seconds); else store.setMarkOut(seconds);
+        if (!store.isPlaying) store.playheadSeconds = gesture.marker === "in" ? store.markIn : store.markOut;
       } else if (gesture.kind === "moveBounce") {
         store.setBounceStartNs(gesture.originalStartNs + (x - gesture.startX) / store.pixelsPerSecond * NS_PER_SECOND);
       }

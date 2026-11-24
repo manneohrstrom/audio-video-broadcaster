@@ -205,6 +205,20 @@ class ProjectTest(unittest.TestCase):
             with self.assertRaises(ep.ProjectError, msg=bad):
                 self.projects.save_edit(TAKE, "track-1", 1, dict(cut, trim_ns=bad))
 
+    def test_the_story_is_saved_and_checked(self):
+        cut = {"cuts": [{"at_ns": 0, "camera": "cam2"}]}
+        self.assertNotIn("story", self.projects.save_edit(TAKE, "track-1", 1, cut))
+        story = {"range_ns": [2 * SECOND, 20 * SECOND], "framing": {"cam2": 0.25, "gone-camera": 0.5}}
+        self.projects.save_edit(TAKE, "track-1", 1, dict(cut, story=story))
+        saved = self.projects.project(TAKE, "track-1", 1)["edit"]["story"]
+        self.assertEqual(saved, {"range_ns": [2 * SECOND, 20 * SECOND], "framing": {"cam2": 0.25}})
+        self.projects.save_edit(TAKE, "track-1", 1, dict(cut, story={"range_ns": None, "framing": {}}))
+        self.assertIsNone(self.projects.project(TAKE, "track-1", 1)["edit"]["story"]["range_ns"])
+        for bad in ({"framing": {"cam2": 1.5}}, {"framing": {"cam2": True}}, {"framing": []},
+                    {"range_ns": [5 * SECOND, 4 * SECOND]}, "left"):
+            with self.assertRaises(ep.ProjectError, msg=bad):
+                self.projects.save_edit(TAKE, "track-1", 1, dict(cut, story=bad))
+
     def test_branding_is_saved_and_off_by_default(self):
         cut = {"cuts": [{"at_ns": 0, "camera": "cam2"}]}
         self.assertFalse(self.projects.save_edit(TAKE, "track-1", 1, cut)["branding"])
