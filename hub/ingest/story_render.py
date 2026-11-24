@@ -7,11 +7,17 @@ Its last step crops a 9:16 slice out of each 1920x1080 frame and scales it to 10
 Where the slice sits is set per camera (story "framing": {camera: 0..1}, 0 at the left edge,
 1 at the right, 0.5 in the middle; the cameras don't move, so neither does what they show).
 At a cut the slice glides from one camera's place to the next one's over the dissolve, with
-the dissolve's own curve, so it never jumps while two pictures are mixed. The editor's
-preview (static/editor/js/story.js) does the same.
+the dissolve's own curve, so it never jumps while two pictures are mixed. Or, for a cut marked
+"story_dissolve" (user, 2026-11-24: "sometimes you want a dissolve instead of a move"), the
+slice stays where the outgoing camera's is and the incoming picture is shifted sideways so its
+own slice lands there: the two slices cross-fade, and after the dissolve the slice is at the
+incoming camera's place, unshifted (the same picture). The editor's preview
+(static/editor/js/story.js) does the same.
 
 The slice is 608 of 1920 pixels wide, so the story is that slice scaled up about 1.8 times.
 """
+import numpy as np
+
 import edit_render
 
 WIDTH, HEIGHT = 1080, 1920             # the story: Instagram's 9:16 at 1080p
@@ -58,7 +64,11 @@ def positions_per_frame(shots, framing, half_dissolve):
     for index, shot in enumerate(shots):
         for frame in range(shot.first_frame, shot.end_frame):
             x = left[index]
-            if index + 1 < len(shots) and frame >= shots[index + 1].first_frame - half_dissolve:
+            if index > 0 and shot.story_dissolve and frame < shot.first_frame + half_dissolve:
+                x = left[index - 1]               # a dissolve: held at the outgoing camera's place
+            elif index + 1 < len(shots) and shots[index + 1].story_dissolve:
+                pass                              # the next cut dissolves: no glide before it
+            elif index + 1 < len(shots) and frame >= shots[index + 1].first_frame - half_dissolve:
                 mix = edit_render.dissolve_mix(frame, shots[index + 1].first_frame, half_dissolve)
                 x = left[index] * (1 - mix) + left[index + 1] * mix
             elif index > 0 and frame < shot.first_frame + half_dissolve:
@@ -66,6 +76,40 @@ def positions_per_frame(shots, framing, half_dissolve):
                 x = left[index - 1] * (1 - mix) + left[index] * mix
             positions.append(int(round(x)))
     return positions
+
+
+def dissolve_shift(shots, framing, incoming_index):
+    """How far (pixels, even for 4:2:0) to shift the incoming picture at a dissolve cut so its
+    slice lands on the outgoing camera's; 0 for a gliding cut."""
+    incoming = shots[incoming_index]
+    if incoming_index == 0 or not incoming.story_dissolve:
+        return 0
+    outgoing = shots[incoming_index - 1]
+    shift = (slice_left(framing.get(outgoing.camera_id, CENTRE))
+             - slice_left(framing.get(incoming.camera_id, CENTRE)))
+    return 2 * int(round(shift / 2))
+
+
+def shift_picture(picture, shift, width=SOURCE_WIDTH, height=SOURCE_HEIGHT):
+    """A yuv420p frame (flat uint8 array) moved `shift` pixels to the right (left if negative),
+    the edge column repeated into the gap. `shift` is even, so the chroma moves half as far."""
+    if not shift:
+        return picture
+    out = np.empty_like(picture)
+    start = 0
+    for plane_width, plane_height, plane_shift in ((width, height, shift), (width // 2, height // 2, shift // 2),
+                                                   (width // 2, height // 2, shift // 2)):
+        size = plane_width * plane_height
+        source = picture[start:start + size].reshape(plane_height, plane_width)
+        target = out[start:start + size].reshape(plane_height, plane_width)
+        if plane_shift > 0:
+            target[:, plane_shift:] = source[:, :-plane_shift]
+            target[:, :plane_shift] = source[:, :1]
+        else:
+            target[:, :plane_shift] = source[:, -plane_shift:]
+            target[:, plane_shift:] = source[:, -1:]
+        start += size
+    return out
 
 
 def runs(positions):
@@ -98,8 +142,12 @@ class StoryRenderer(edit_render.EditRenderer):
     def __init__(self, edit, *args, **kwargs):
         kwargs.update(brand_dir=None)
         super().__init__(story_edit(edit), *args, **kwargs)
-        framing = (edit.get("story") or {}).get("framing") or {}
-        self.positions = positions_per_frame(self.shots, framing, self.half_dissolve)
+        self.framing = (edit.get("story") or {}).get("framing") or {}
+        self.positions = positions_per_frame(self.shots, self.framing, self.half_dissolve)
+
+    def dissolve(self, outgoing, incoming, mix, incoming_index):
+        shift = dissolve_shift(self.shots, self.framing, incoming_index)
+        return super().dissolve(outgoing, shift_picture(incoming, shift), mix, incoming_index)
 
     def encoder_command(self, out_path):
         return edit_render.encoder_command(self.bounce, self.audio_start_s(), self.total_frames, out_path,

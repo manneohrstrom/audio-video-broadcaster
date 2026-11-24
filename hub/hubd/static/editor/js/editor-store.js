@@ -13,7 +13,7 @@
 import * as EditModel from "./edit-model.js";
 import { cutsFromFile, cutsToFile, NS_PER_SECOND } from "./time-format.js";
 import { saveEdit, saveSync } from "./api.js";
-import { DEFAULT_STORY_SECONDS } from "./story.js";
+import { DEFAULT_STORY_SECONDS, cutsInStory } from "./story.js";
 
 const SAVE_DELAY_MS = 800;
 export const FRAME_SECONDS = 1 / 30;
@@ -377,6 +377,26 @@ export class EditorStore {
     this.storyFraming = { ...this.storyFraming, [cameraId]: Math.round(Math.min(1, Math.max(0, position)) * 10000) / 10000 };
     this.scheduleSave();
     this.notify();
+  }
+
+  /** In the story, dissolve at this cut (true) or glide the slice across (false). Undoable, like the cut. */
+  setStoryDissolve(cutIndex, on) {
+    this.setStoryDissolveAt([cutIndex], on);
+  }
+
+  /** The same for every cut inside the story. */
+  setStoryDissolveEverywhere(on) {
+    this.setStoryDissolveAt(cutsInStory(this.cuts, this.storyInSeconds, this.storyOutSeconds).map(({ index }) => index), on);
+  }
+
+  setStoryDissolveAt(indexes, on) {
+    this.beginChange();
+    const cuts = this.cuts.map((cut, index) => {
+      if (!indexes.includes(index)) return cut;
+      const { storyDissolve, ...rest } = cut;
+      return on ? { ...rest, storyDissolve: true } : rest;
+    });
+    this.setCuts(cuts);
   }
 
   // -- the start and end the timeline shows and the keys I and O set: the story's in the

@@ -1,7 +1,10 @@
 // The Instagram story (user, 2026-11-24): a 9:16 slice of the finished video, from its own
 // start to its own end. Where the slice sits is set per camera (0 at the left edge, 1 at the
 // right edge); at a cut it glides from one camera's place to the next one's over the dissolve,
-// with the dissolve's curve. The same maths as the render: hub/ingest/story_render.py.
+// with the dissolve's curve; or, at a cut marked storyDissolve (user, 2026-11-24: "sometimes
+// you want a dissolve instead of a move"), it stays at the outgoing camera's place while the
+// incoming picture is shifted so its slice lands there, and the two slices cross-fade.
+// The same maths as the render: hub/ingest/story_render.py.
 import { cutIndexAt } from "./edit-model.js";
 
 export const SOURCE_WIDTH = 1920;
@@ -48,6 +51,22 @@ export function sliceLeftAt(cuts, framing, dissolveSeconds, seconds) {
     from = cuts[index]; to = cuts[index + 1]; cutAt = cuts[index + 1].atSeconds;
   }
   if (!from) return place(cuts[index]);
+  if (to.storyDissolve) return place(from);
   const mix = smoothstep(0.5 + (seconds - cutAt) / dissolveSeconds);
   return place(from) * (1 - mix) + place(to) * mix;
+}
+
+/**
+ * At a dissolve cut: how far to move the incoming camera's picture (share of the width) so its
+ * slice lands on the outgoing camera's; 0 for a gliding cut.
+ */
+export function incomingShiftShare(fromCut, toCut, framing) {
+  if (!toCut.storyDissolve) return 0;
+  return sliceLeftShare(framing[fromCut.cameraId] ?? CENTRE) - sliceLeftShare(framing[toCut.cameraId] ?? CENTRE);
+}
+
+/** The cuts inside the story (not its first shot): { index, cut, from } for each. */
+export function cutsInStory(cuts, startSeconds, endSeconds) {
+  return cuts.map((cut, index) => ({ index, cut, from: cuts[index - 1] }))
+    .filter(({ index, cut }) => index > 0 && cut.atSeconds > startSeconds && cut.atSeconds < endSeconds);
 }

@@ -326,5 +326,11 @@ input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px va
 .story-camera .camera-key { grid-area: key; }
 .story-camera-name { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text); font-weight: 500; }
 .story-camera input[type=range] { grid-area: slider; width: 100%; min-width: 0; }
-.story-places { grid-area: places; display: flex; gap: 4px; }
+.story-places { display: flex; gap: 4px; }
+.story-camera .story-places { grid-area: places; }
 .story-places .button.selected { background: var(--color-cream); color: var(--color-well); }
+.story-cuts { display: grid; gap: 4px; }
+.story-cut { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); min-height: 30px; }
+.story-cut-time { font: 500 13px var(--font-numbers); color: var(--color-text); }
+.story-cut-cameras { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-muted); }
+.story-cut-cameras small { color: var(--color-text-muted); }

@@ -49,8 +49,9 @@ class Shot:
     would hand over its first frames too early (out of sync), and asking past its last
     frame would end the decoder short (2026-11-17, found with a synthetic take)."""
 
-    def __init__(self, camera_id, first_frame, end_frame):
+    def __init__(self, camera_id, first_frame, end_frame, story_dissolve=False):
         self.camera_id = camera_id
+        self.story_dissolve = story_dissolve       # the story dissolves into this shot instead of gliding (story_render)
         self.first_frame, self.end_frame = first_frame, end_frame       # what's on screen
         self.decode_from, self.decode_to = first_frame, end_frame       # plus dissolve overlap
         self.covered_from, self.covered_to = first_frame, end_frame
@@ -71,7 +72,8 @@ def plan_shots(edit, take_doc, dissolve_s):
     range_start, range_end = edit["range_ns"]
     total = int(round((range_end - range_start) * FPS / NS))
     bounds = [int(round(cut["at_ns"] * FPS / NS)) for cut in edit["cuts"]] + [total]
-    shots = [Shot(cut["camera"], first, end) for cut, first, end in zip(edit["cuts"], bounds, bounds[1:]) if end > first]
+    shots = [Shot(cut["camera"], first, end, cut.get("story_dissolve") is True)
+             for cut, first, end in zip(edit["cuts"], bounds, bounds[1:]) if end > first]
     half = int(round(dissolve_s * FPS / 2))
     for i, shot in enumerate(shots):
         camera = cameras.get(shot.camera_id)
@@ -413,7 +415,11 @@ class EditRenderer:
                     self.wait_while_busy()
                     self.progress(frame_number, self.total_frames)
                 while self.shots[current].end_frame <= frame_number:
-                    self.finish_decoder(self.shots[current])
+                    # The outgoing shot's decoder keeps running for the second half of the dissolve
+                    # (finished below, once its overlap is read). Until 2026-11-24 it was finished
+                    # here, at the cut, so every dissolve stopped half way and jumped to the new shot.
+                    if self.shots[current].decode_to <= frame_number:
+                        self.finish_decoder(self.shots[current])
                     current += 1
                 shot = self.shots[current]
                 upcoming = self.shots[current + 1] if current + 1 < len(self.shots) else None
@@ -426,13 +432,13 @@ class EditRenderer:
                 if upcoming and upcoming.process is not None and frame_number >= upcoming.decode_from:
                     incoming = self.as_array(self.read_frame(upcoming, frame_number))
                     mix = dissolve_mix(frame_number, upcoming.first_frame, self.half_dissolve)
-                    picture = (picture.astype(np.float32) * (1 - mix) + incoming.astype(np.float32) * mix + 0.5).astype(np.uint8)
+                    picture = self.dissolve(picture, incoming, mix, current + 1)
                 elif current > 0 and frame_number < shot.first_frame + self.half_dissolve:
                     previous = self.shots[current - 1]
                     if previous.process is not None and frame_number < previous.decode_to:
                         outgoing = self.as_array(self.read_frame(previous, frame_number))
                         mix = dissolve_mix(frame_number, shot.first_frame, self.half_dissolve)
-                        picture = (outgoing.astype(np.float32) * (1 - mix) + picture.astype(np.float32) * mix + 0.5).astype(np.uint8)
+                        picture = self.dissolve(outgoing, picture, mix, current)
                 encoder.stdin.write(picture.tobytes() if isinstance(picture, np.ndarray) else picture)
                 # The outgoing shot's decoder is done once its overlap has been read.
                 if current > 0 and self.shots[current - 1].process is not None and frame_number + 1 >= self.shots[current - 1].decode_to:
@@ -453,6 +459,11 @@ class EditRenderer:
                 except OSError:
                     pass
             raise
+
+    def dissolve(self, outgoing, incoming, mix, incoming_index):
+        """One frame of the dissolve into shots[incoming_index]: `mix` of the incoming picture
+        (the story's renderer lines the two slices up first: story_render.py)."""
+        return (outgoing.astype(np.float32) * (1 - mix) + incoming.astype(np.float32) * mix + 0.5).astype(np.uint8)
 
     def finish_decoder(self, shot):
         if shot.process is None:

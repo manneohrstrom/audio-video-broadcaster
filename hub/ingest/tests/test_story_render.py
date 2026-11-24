@@ -22,8 +22,8 @@ import story_render  # noqa: E402
 NS = 1_000_000_000
 
 
-def shot(camera, first, end):
-    return edit_render.Shot(camera, first, end)
+def shot(camera, first, end, dissolve=False):
+    return edit_render.Shot(camera, first, end, dissolve)
 
 
 class SlicePositionTest(unittest.TestCase):
@@ -47,6 +47,27 @@ class SlicePositionTest(unittest.TestCase):
         shots = [shot("cam1", 0, 10), shot("cam2", 10, 20)]
         positions = story_render.positions_per_frame(shots, {"cam2": 0}, half_dissolve=0)
         self.assertEqual(positions, [656] * 10 + [0] * 10)              # cam1 isn't framed: centred
+
+    def test_a_dissolve_cut_holds_the_slice_then_jumps_to_the_same_picture(self):
+        shots = [shot("cam1", 0, 30), shot("cam2", 30, 60, dissolve=True)]
+        positions = story_render.positions_per_frame(shots, {"cam1": 0, "cam2": 1}, half_dissolve=4)
+        self.assertEqual(positions, [0] * 34 + [1312] * 26)
+        self.assertEqual(story_render.dissolve_shift(shots, {"cam1": 0, "cam2": 1}, 1), -1312)
+        self.assertEqual(story_render.dissolve_shift(shots, {"cam1": 0, "cam2": 1}, 0), 0)
+        gliding = [shot("cam1", 0, 30), shot("cam2", 30, 60)]
+        self.assertEqual(story_render.dissolve_shift(gliding, {"cam1": 0, "cam2": 1}, 1), 0)
+
+    def test_shifting_a_picture(self):
+        width, height = 8, 2
+        luma = np.tile(np.arange(width, dtype=np.uint8), height)
+        chroma = np.tile(np.arange(width // 2, dtype=np.uint8) + 100, height // 2)
+        picture = np.concatenate([luma, chroma, chroma + 50])
+        right = story_render.shift_picture(picture, 2, width, height)
+        self.assertEqual(list(right[:width]), [0, 0, 0, 1, 2, 3, 4, 5])
+        self.assertEqual(list(right[width * height:width * height + 4]), [100, 100, 101, 102])
+        left = story_render.shift_picture(picture, -4, width, height)
+        self.assertEqual(list(left[:width]), [4, 5, 6, 7, 7, 7, 7, 7])
+        self.assertIs(story_render.shift_picture(picture, 0, width, height), picture)
 
     def test_the_expression_has_one_term_per_run(self):
         positions = [0] * 5 + [100, 200] + [300] * 5
@@ -102,9 +123,12 @@ T0 = 1794688178_123456789
 W, H = 640, 360
 
 
-def make_camera(work, camera_id):
-    """A 6 s camera file showing the ramp, laid out as ingest lays them out (rewrap)."""
+def make_camera(work, camera_id, reversed_ramp=False):
+    """A 6 s camera file showing the ramp (dark to bright, or bright to dark), laid out as
+    ingest lays them out (rewrap)."""
     ramp = np.round(16 + np.arange(W) * 219 / (W - 1)).astype(np.uint8)
+    if reversed_ramp:
+        ramp = ramp[::-1].copy()
     picture = np.repeat(ramp[None, :], H, axis=0)
     mkv = os.path.join(work, camera_id + ".mkv")
     encoder = subprocess.Popen(
@@ -125,6 +149,67 @@ def make_camera(work, camera_id):
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "needs ffmpeg")
 class StoryRenderTest(unittest.TestCase):
+    def test_a_dissolve_cut_mixes_the_two_slices(self):
+        """cam1: the ramp, framed left; cam2: the ramp reversed, framed right. At the cut, half
+        way through the dissolve, the story's left column is half cam1's left edge (16) and half
+        cam2's column 1312, which is bright-to-dark: 16 + 607 x 219 / 1919. A glide would show
+        both pictures' column 656 instead (125)."""
+        work = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(work, "take"))
+            take_doc = {"take_id": "20261124-120000", "cameras": {},
+                        "manifests": {"cam1": make_camera(work, "cam1"), "cam2": make_camera(work, "cam2", reversed_ramp=True)}}
+            bounce = os.path.join(work, "bounce.wav")
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=8", "-ar", "48000", bounce],
+                           check=True)
+            edit = {"range_ns": [T0 + NS // 10, T0 + 5 * NS], "bounce_start_ns": T0, "dissolve_s": 0.3, "look": None,
+                    "cuts": [{"at_ns": 0, "camera": "cam1"}, {"at_ns": 2 * NS, "camera": "cam2", "story_dissolve": True}],
+                    "story": {"range_ns": [NS // 2, 3 * NS + NS // 2], "framing": {"cam1": 0.0, "cam2": 1.0}}}
+            with open(os.path.join(REPO, "hub/hubd/static/editor/looks.json")) as f:
+                looks = json.load(f)
+            out = os.path.join(work, "story.mp4")
+            story_render.StoryRenderer(edit, take_doc, os.path.join(work, "take"), bounce, None, looks, work).run(out)
+            raw = subprocess.run(["ffmpeg", "-v", "error", "-i", out, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                                 capture_output=True, check=True).stdout
+            frames = np.frombuffer(raw, np.uint8).reshape(-1, 1920, 1080)
+            left_edge = [int(frame[960, 4]) for frame in frames]
+            self.assertLess(abs(left_edge[0] - 16), 4)
+            self.assertLess(abs(left_edge[45] - (16 + (16 + 607 * 219 / 1919)) / 2), 6)
+            self.assertLess(abs(left_edge[-1] - (16 + 607 * 219 / 1919)), 4)          # cam2's slice, its own place
+            self.assertLess(abs(left_edge[50] - left_edge[-1]), 4)                     # after the dissolve: the same picture
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def test_the_videos_dissolve_runs_past_the_cut(self):
+        """The YouTube video (EditRenderer), same two cameras: the dissolve is centred on the cut,
+        so a frame after it is still a mix (until 2026-11-24 it jumped to the new shot at the cut)."""
+        work = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(work, "take"))
+            take_doc = {"take_id": "20261124-120000", "cameras": {},
+                        "manifests": {"cam1": make_camera(work, "cam1"), "cam2": make_camera(work, "cam2", reversed_ramp=True)}}
+            bounce = os.path.join(work, "bounce.wav")
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=8", "-ar", "48000", bounce],
+                           check=True)
+            edit = {"range_ns": [T0 + NS // 10, T0 + 3 * NS], "bounce_start_ns": T0, "dissolve_s": 0.3, "look": None,
+                    "cuts": [{"at_ns": 0, "camera": "cam1"}, {"at_ns": NS, "camera": "cam2"}]}
+            with open(os.path.join(REPO, "hub/hubd/static/editor/looks.json")) as f:
+                looks = json.load(f)
+            out = os.path.join(work, "video.mp4")
+            renderer = edit_render.EditRenderer(edit, take_doc, os.path.join(work, "take"), bounce, None, looks, work)
+            renderer.run(out)
+            raw = subprocess.run(["ffmpeg", "-v", "error", "-i", out, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                                 capture_output=True, check=True).stdout
+            frames = np.frombuffer(raw, np.uint8).reshape(-1, 1080, 1920)
+            left_edge = [int(frame[540, 4]) for frame in frames]          # cam1: 16 there, cam2: 235
+            cut = 30
+            mixes = [(value - 16) / (235 - 16) for value in left_edge[cut - 5:cut + 6]]
+            expected = [edit_render.dissolve_mix(n, cut, renderer.half_dissolve) for n in range(cut - 5, cut + 6)]
+            for got, want in zip(mixes, expected):
+                self.assertLess(abs(got - want), 0.04, (mixes, expected))
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
     def test_a_story_is_9_16_and_framed_per_camera(self):
         work = tempfile.mkdtemp()
         try:

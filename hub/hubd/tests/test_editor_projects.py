@@ -214,6 +214,10 @@ class ProjectTest(unittest.TestCase):
         self.assertEqual(saved, {"range_ns": [2 * SECOND, 20 * SECOND], "framing": {"cam2": 0.25}})
         self.projects.save_edit(TAKE, "track-1", 1, dict(cut, story={"range_ns": None, "framing": {}}))
         self.assertIsNone(self.projects.project(TAKE, "track-1", 1)["edit"]["story"]["range_ns"])
+        cuts = {"cuts": [{"at_ns": 0, "camera": "cam2"}, {"at_ns": 5 * SECOND, "camera": "pixel-9a", "story_dissolve": True}]}
+        self.projects.save_edit(TAKE, "track-1", 1, cuts)
+        saved_cuts = self.projects.project(TAKE, "track-1", 1)["edit"]["cuts"]
+        self.assertEqual([cut.get("story_dissolve") for cut in saved_cuts], [None, True])
         for bad in ({"framing": {"cam2": 1.5}}, {"framing": {"cam2": True}}, {"framing": []},
                     {"range_ns": [5 * SECOND, 4 * SECOND]}, "left"):
             with self.assertRaises(ep.ProjectError, msg=bad):

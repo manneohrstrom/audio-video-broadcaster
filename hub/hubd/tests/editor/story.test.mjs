@@ -34,3 +34,24 @@ test("a press puts the slice's middle under it", () => {
   assert.equal(positionCentredAt(0), 0);
   assert.equal(positionCentredAt(1 - SLICE_SHARE / 2), 1);
 });
+
+test("a dissolve cut holds the slice at the outgoing camera's place and moves the incoming picture", async () => {
+  const { incomingShiftShare, cutsInStory } = await import("../../static/editor/js/story.js");
+  const marked = [{ atSeconds: 0, cameraId: "cam1" }, { atSeconds: 10, cameraId: "cam2", storyDissolve: true }];
+  const framing = { cam1: 0, cam2: 1 };
+  for (const seconds of [9.85, 10, 10.15]) assert.equal(pixels(sliceLeftAt(marked, framing, 0.4, seconds)), 0);
+  assert.equal(pixels(sliceLeftAt(marked, framing, 0.4, 10.25)), 1312);
+  assert.equal(pixels(incomingShiftShare(marked[0], marked[1], framing)), -1312);   // as story_render.dissolve_shift
+  assert.equal(incomingShiftShare(cuts[0], cuts[1], framing), 0);
+  assert.deepEqual(cutsInStory(marked, 5, 20).map(c => c.index), [1]);
+  assert.deepEqual(cutsInStory(marked, 11, 20), []);
+});
+
+test("the flag goes to the edit file and back", async () => {
+  const { cutsToFile, cutsFromFile } = await import("../../static/editor/js/time-format.js");
+  const file = cutsToFile([{ atSeconds: 0, cameraId: "cam1", by: "auto" }, { atSeconds: 2, cameraId: "cam2", by: "user", storyDissolve: true }]);
+  assert.equal(file[0].story_dissolve, undefined);
+  assert.equal(file[1].story_dissolve, true);
+  assert.equal(cutsFromFile(file)[1].storyDissolve, true);
+  assert.equal(cutsFromFile(file)[0].storyDissolve, undefined);
+});

@@ -11,7 +11,7 @@ import { cutIndexAt } from "../edit-model.js";
 import { formatSeconds } from "../time-format.js";
 import { fullVideoAvailable } from "../media/video-player.js";
 import { LookRenderer } from "../look/look-renderer.js";
-import { CENTRE, SLICE_SHARE, sliceLeftAt, sliceLeftShare } from "../story.js";
+import { CENTRE, SLICE_SHARE, sliceLeftAt, sliceLeftShare, incomingShiftShare } from "../story.js";
 import { drawCard, drawStrip, opacitiesAt, logoOpacityAt, borderOpacityAt, titleText, linesBelow, BRAND_TEXT, BRAND_STYLE, CREAM, CARD_SIZE, DETAIL_SIZE, FONT_FAMILY } from "../title/title-layout.js";
 
 // Pictures are put together (camera, dissolve) on this hidden canvas, then shown through
@@ -224,16 +224,18 @@ function whatToShow(store) {
   return { camera: null, seconds: store.playheadSeconds };
 }
 
-/** One camera's picture: the decoded frame, else the thumbnail (and note that we're waiting). */
-function drawCamera(context, store, pictures, camera, seconds, canvas) {
+/** One camera's picture: the decoded frame, else the thumbnail (and note that we're waiting).
+ *  shift: moved sideways by this share of the width (the story's dissolve, story.js). */
+function drawCamera(context, store, pictures, camera, seconds, canvas, shift = 0) {
   if (!store.isRecording(camera, seconds)) return;
+  const x = shift * canvas.width;
   const frame = pictures.player.pictureFor(camera, seconds, pictures.now);
   if (frame) {
-    context.drawImage(frame, 0, 0, canvas.width, canvas.height);
+    context.drawImage(frame, x, 0, canvas.width, canvas.height);
     return;
   }
   pictures.waiting = true;
-  pictures.thumbnailsByCamera.get(camera.id)?.draw(context, store.cameraFileSeconds(camera, seconds), 0, 0, canvas.width, canvas.height);
+  pictures.thumbnailsByCamera.get(camera.id)?.draw(context, store.cameraFileSeconds(camera, seconds), x, 0, canvas.width, canvas.height);
 }
 
 /** The program picture, with the dissolve centred on each cut. */
@@ -256,6 +258,9 @@ function drawProgram(context, store, pictures, seconds, canvas) {
   }
   drawCamera(context, store, pictures, camera(from.cameraId), seconds, canvas);
   context.globalAlpha = mix * mix * (3 - 2 * mix);
-  drawCamera(context, store, pictures, camera(to.cameraId), seconds, canvas);
+  // The Story step: at a cut where the story dissolves, the incoming picture is moved so its
+  // slice lies on the outgoing one's, as in the render.
+  const shift = store.step === "story" ? incomingShiftShare(from, to, store.storyFraming) : 0;
+  drawCamera(context, store, pictures, camera(to.cameraId), seconds, canvas, shift);
   context.globalAlpha = 1;
 }
