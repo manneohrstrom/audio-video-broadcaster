@@ -91,6 +91,17 @@
       phones_dir: /var/lib/hubd/phones
   notify: Restart hub-ingest
 
+# The unit's MemoryMax/MemorySwapMax only work with the kernel's memory controller, and
+# Raspberry Pi OS boots with cgroup_disable=memory (found 2026-11-28: a render ran the
+# whole hub out of memory through a cap that was never enforced). Takes effect at the
+# next reboot; this playbook doesn't reboot.
+- name: Kernel memory controller on, so the hub-ingest memory cap is enforced (after a reboot)
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/cmdline.txt
+    regexp: '^((?!.*\bcgroup_enable=memory\b).*)$'
+    line: '\1 cgroup_enable=memory'
+    backrefs: true
+
 - name: hub-ingest systemd unit
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../hub/systemd/hub-ingest.service"

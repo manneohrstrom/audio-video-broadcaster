@@ -1,5 +1,7 @@
 """The cinematic effects (2026-11-17) in the render: each one through the real encoder
 command (needs ffmpeg) on a few synthetic 1080p frames, checked for what it should do."""
+import functools
+import json
 import math
 import os
 import shutil
@@ -7,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -209,6 +212,27 @@ class CinematicEffectsTest(unittest.TestCase):
             raw = subprocess.run(command, capture_output=True, check=True).stdout
             return np.frombuffer(raw, np.uint8).reshape(-1, H, W)[4].astype(float)
         self.assertLess(decoded(1.0).std(), decoded(0).std() * 0.7)
+
+    def test_film_overlay_loops_frame_by_frame(self):
+        # A 10-frame clip whose frame k is grey level 40 + 16k, in a folder with ':' and ','
+        # in its name (the path goes inside the filter graph). Over a mid grey, "overlay" at
+        # full strength gives back about the clip's level, so frame n shows clip frame n % 10.
+        overlays = os.path.join(self.folder, "over:lays, test")
+        clip_folder = os.path.join(overlays, "steps")
+        os.makedirs(clip_folder)
+        with open(os.path.join(clip_folder, "overlay.json"), "w") as f:
+            json.dump({"id": "steps", "mode": "overlay"}, f)
+        steps = [grey(40 + 16 * k) for k in range(10)]
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", "%dx%d" % (W, H),
+                        "-r", "30", "-i", "-", "-c:v", "libx264", "-qp", "0", os.path.join(clip_folder, "clip.mp4")],
+                       input=to_yuv(steps), check=True)
+        graph = functools.partial(look_render.effect_filter_graph, overlays_dir=overlays)
+        with mock.patch.object(look_render, "effect_filter_graph", graph):
+            out = render([grey(128)] * 25, {"overlay:steps": 1.0}, self.folder)
+        self.assertEqual(out.shape[0], 25)
+        levels = out[:, H // 2, W // 2, 1]
+        for n in range(25):
+            self.assertAlmostEqual(levels[n], 40 + 16 * (n % 10), delta=6, msg="frame %d" % n)
 
     def test_everything_at_once(self):
         effects = {name: 0.7 for name in look_render.EFFECTS}

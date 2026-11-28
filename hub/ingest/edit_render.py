@@ -294,6 +294,16 @@ def encoder_command(bounce, audio_start_s, frames, out, effects=None, work_dir="
     return command
 
 
+def why_stopped(process):
+    """Why an ffmpeg of the render stopped, for the editor's error line: killed by the kernel
+    (SIGKILL: the render's processes are the first to go when hub-ingest's memory limit is
+    reached), or ffmpeg's own last words."""
+    if process.returncode == -signal.SIGKILL:
+        return "out of memory (the look needs more than the hub has for a render)"
+    message = process.stderr.read().decode(errors="replace")[-300:].strip()
+    return "exit %s: %s" % (process.returncode, message or "no message")
+
+
 class EditRenderer:
     """Runs the pipe for one edit. busy(): suspend everything while true (a take or live
     session gets the hub). should_abort(): stop (raises render.Aborted)."""
@@ -377,8 +387,8 @@ class EditRenderer:
             return data
         if shot.last_picture is not None and frame_number >= first + count - 2:
             return shot.last_picture
-        error = shot.process.stderr.read().decode(errors="replace")[-300:]
-        raise RuntimeError("decoding %s ended early: %s" % (shot.camera_id, error))
+        shot.process.wait()
+        raise RuntimeError("decoding %s ended early: %s" % (shot.camera_id, why_stopped(shot.process)))
 
     def as_array(self, data):
         return np.frombuffer(data, np.uint8)
@@ -445,9 +455,7 @@ class EditRenderer:
                 except BrokenPipeError:
                     # The encoder stopped taking pictures: say why (its own message), not "Broken pipe".
                     encoder.wait()
-                    raise RuntimeError("encoder stopped at frame %d (exit %s): %s" % (
-                        frame_number, encoder.returncode,
-                        encoder.stderr.read().decode(errors="replace")[-300:] or "no message")) from None
+                    raise RuntimeError("encoder stopped at frame %d: %s" % (frame_number, why_stopped(encoder))) from None
                 # The outgoing shot's decoder is done once its overlap has been read.
                 if current > 0 and self.shots[current - 1].process is not None and frame_number + 1 >= self.shots[current - 1].decode_to:
                     self.finish_decoder(self.shots[current - 1])

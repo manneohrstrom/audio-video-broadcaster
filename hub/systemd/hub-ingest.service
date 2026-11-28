@@ -18,8 +18,14 @@ TimeoutStopSec=30
 # 2026-11-16 a render ran the 1 GB hub so short of memory that it froze until power-cycled.
 # With the limit the kernel stops the render (render processes have oom_score_adj 1000)
 # inside this group, and hubd, the cameras' control and the page keep running.
+# Needs cgroup_enable=memory on the kernel command line (deploy/roles/hub_ingest; without
+# it, until 2026-11-28, these two lines did nothing).
 MemoryMax=700M
 MemorySwapMax=64M
+# When the kernel kills a process here for memory (the render's encoder or a decoder:
+# oom_score_adj 1000), keep the service running so the render fails with its error. The
+# default, stop, killed all of ingest, and on restart it queued the same render again: a loop.
+OOMPolicy=continue
 
 [Install]
 WantedBy=multi-user.target

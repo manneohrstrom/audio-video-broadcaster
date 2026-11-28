@@ -41,6 +41,7 @@ import numpy as np
 import grade
 
 WIDTH, HEIGHT = 1920, 1080
+FPS = 30
 EFFECTS = ("grain", "vignette", "leak", "glow", "vhs", "halation", "letterbox", "projector", "clarity", "trails",
            "colorpop", "pulse", "denoise")
 
@@ -71,6 +72,14 @@ def active_effects(look):
 
 
 OVERLAY_BLEND = {"overlay": "overlay", "screen": "screen", "soft-light": "softlight", "multiply": "multiply"}
+
+
+def filter_quoted(value):
+    """A value (a file path) as one option value inside a filter graph: quoted for the
+    option level and escaped again for the graph level, so ':' ',' ';' '[' and '\\' in it
+    stay part of the value."""
+    option = "'" + value.replace("'", "'\\''") + "'"
+    return "".join("\\" + c if c in "\\'[],;" else c for c in option)
 
 
 def film_overlay(effects, overlays_dir):
@@ -198,10 +207,15 @@ def effect_filter_graph(effects, work_dir, first_extra_input, overlays_dir="/var
         step[0] += 1
         return "[e%d]" % step[0]
 
-    def clip_input(path):
-        """A film overlay clip, looped for as long as the video runs."""
-        inputs.extend(["-stream_loop", "-1", "-i", path])
-        return "[%d:v]" % (first_extra_input + count_inputs() - 1)
+    def looped_clip(path):
+        """A film overlay clip, looped for as long as the video runs, read inside the graph.
+        Not an input with -stream_loop: ffmpeg decodes an input as fast as it can, and the
+        picture comes down the pipe at 2-4 frames a second on the hub, so the clip's frames
+        piled up in the encoder (2026-11-28: over 600 MB within seconds, and the render was
+        killed). The movie source gives a frame only when blend asks for one: flat 467 MB.
+        setpts: one frame every 1/30 s from 0, across the loops (the clips are 30 fps,
+        add_overlay.py), as the looped input's frames were."""
+        return "movie=filename=%s:loop=0,setpts=N/%d/TB," % (filter_quoted(path), FPS)
 
     def count_inputs():
         return sum(1 for part in inputs if part == "-i")
@@ -283,9 +297,8 @@ def effect_filter_graph(effects, work_dir, first_extra_input, overlays_dir="/var
         current = out
     film = film_overlay(effects, overlays_dir)
     if film:                                     # after the vignette, as in the editor's shader
-        clip_in = clip_input(film[0])
         layer, out = label(), label()
-        chains.append("%sscale=%d:%d,format=gbrp%s" % (clip_in, WIDTH, HEIGHT, layer))
+        chains.append("%sscale=%d:%d,format=gbrp%s" % (looped_clip(film[0]), WIDTH, HEIGHT, layer))
         chains.append("%s%sblend=all_mode=%s:all_opacity=%.4f:shortest=1%s" % (current, layer, film[1], film[2], out))
         current = out
     if effects.get("vhs"):
