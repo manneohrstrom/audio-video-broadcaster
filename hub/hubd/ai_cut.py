@@ -108,8 +108,9 @@ class AiCut:
 
     # ---------------------------------------------------------------- one song's inputs
 
-    def inputs(self, take_id, song_id, version):
-        """Everything a run of this song needs, from the editor's project of it."""
+    def inputs(self, take_id, song_id, version, extra=""):
+        """Everything a run of this song needs, from the editor's project of it. extra: the
+        run's own direction (ai_cut_prompts.prompts)."""
         project = self.editor.project(take_id, song_id, version)
         bounce_path, beats = self.editor.bounce_files(take_id, song_id, version)
         settings = self.settings()
@@ -125,11 +126,11 @@ class AiCut:
             "cameras": ai_cut_prompts.camera_table(project["cameras"]),
         }
         return {"project": project, "bounce_path": bounce_path, "beats": beats, "settings": settings,
-                "prompts": ai_cut_prompts.prompts(settings, values), "duration_s": duration_s}
+                "prompts": ai_cut_prompts.prompts(settings, values, extra), "duration_s": duration_s}
 
-    def preview(self, take_id, song_id, version):
+    def preview(self, take_id, song_id, version, extra=""):
         """The prompts as they would be sent now, and what the run would cost, about."""
-        found = self.inputs(take_id, song_id, version)
+        found = self.inputs(take_id, song_id, version, ai_cut_prompts.validated_extra(extra))
         earlier = self.reusable_listening(take_id, song_id, found)
         return {"prompts": found["prompts"], "estimate": self.estimate(found), "model": found["settings"]["model"],
                 "configs": self.configs(found), "reuses_listening": earlier is not None,
@@ -201,11 +202,12 @@ class AiCut:
             raise ValueError("no such run")
         return run
 
-    def start(self, take_id, song_id, version, listen_again=False):
+    def start(self, take_id, song_id, version, listen_again=False, extra=""):
         """Start a run of this song in the background; returns its summary at once.
         listen_again: listen even when an earlier run's listening could be reused (the same
         model and settings can hear a song differently from run to run)."""
-        found = self.inputs(take_id, song_id, version)        # fails early: not synced, no drive, ...
+        extra = ai_cut_prompts.validated_extra(extra)
+        found = self.inputs(take_id, song_id, version, extra)  # fails early: not synced, no drive, ...
         if not self.client.has_key():
             raise gemini.GeminiError("no_key")
         with self.lock:
@@ -217,7 +219,7 @@ class AiCut:
             run = {"id": run_id, "take": take_id, "song": song_id, "version": version, "status": "running",
                    "step": "audio", "step_text": STEPS["audio"], "started_at": self.clock(),
                    "settings": found["settings"], "prompts": found["prompts"], "estimate": self.estimate(found),
-                   "cost_usd": 0.0, "listen_again": bool(listen_again)}
+                   "cost_usd": 0.0, "listen_again": bool(listen_again), "extra": extra}
             self.running = run
         self.save_run(run)                  # on disk from the start, so a restart can't lose it
         self.spawn(lambda: self._run(run, found))
@@ -371,7 +373,8 @@ def cost_of(price, text_tokens, audio_tokens, output_tokens):
 def summary(run):
     """A run for the list: no prompts or raw answers."""
     out = {key: run.get(key) for key in ("id", "take", "song", "version", "status", "step", "step_text",
-                                         "started_at", "finished_at", "cost_usd", "estimate", "error", "summary")}
+                                         "started_at", "finished_at", "cost_usd", "estimate", "error", "summary",
+                                         "extra")}
     out["model"] = (run.get("settings") or {}).get("model")
     out["thinking"] = (run.get("settings") or {}).get("thinking")
     out["cuts"] = len(run.get("cuts") or [])

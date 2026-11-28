@@ -11,6 +11,15 @@ import { loadAiRun, loadAiRuns, previewAiCut, startAiCut } from "../api.js";
 import { money } from "../money.js";
 
 const POLL_MS = 2000;
+const EXTRA_KEY = "editor.smartCutDirection";            // the last direction typed for one run, in this browser
+
+function rememberedDirection() {
+  try { return localStorage.getItem(EXTRA_KEY) || ""; } catch { return ""; }
+}
+
+function rememberDirection(text) {
+  try { localStorage.setItem(EXTRA_KEY, text); } catch { /* private window: fine */ }
+}
 
 function when(epochSeconds) {
   return new Date(epochSeconds * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
@@ -73,11 +82,12 @@ export function AiCutBar({ store }) {
     }
   }
 
-  async function run(listenAgain) {
+  async function run(listenAgain, extra) {
     setAsking(null);
+    rememberDirection(extra);
     if (store.saveState !== "saved") await store.saveNow();
     try {
-      setRunning(await startAiCut(takeId, song.id, version, listenAgain));
+      setRunning(await startAiCut(takeId, song.id, version, listenAgain, extra));
     } catch (error) {
       setProblem(error.message);
     }
@@ -115,12 +125,18 @@ export function AiCutBar({ store }) {
 function RunConfirm({ preview, onRun, onCancel, onSettings }) {
   const estimate = preview.estimate;
   const [reuse, setReuse] = useState(true);            // the earlier run's listening, when it fits
+  const [extra, setExtra] = useState(rememberedDirection);
+  const go = () => onRun(preview.reuses_listening && !reuse, extra.trim());
   return html`
     <div class="ai-popover" role="dialog" aria-label="Run the smart cut">
       <p><strong>Cut this song with ${preview.model || "Gemini"}?</strong></p>
       <p>About ${money(estimate.cost_usd)}: ${Math.round(estimate.input_tokens / 1000)}k tokens in, up to
          ~${Math.round(estimate.output_tokens / 1000)}k out${preview.reuses_listening && reuse ? ", less with the listening reused" : ""}.
          It takes a minute or two. The new cut replaces this one; Undo brings it back.</p>
+      <label class="ai-extra"><span>Direction for this cut <small>(optional; added to the edit prompt after the one in the settings)</small></span>
+        <textarea rows="4" maxlength="4000" value=${extra} placeholder="e.g. cut it like a film editor would · an even spread over all the cameras · more of the drummer in the second half"
+                  onInput=${event => setExtra(event.target.value)}
+                  onKeyDown=${event => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) go(); }}></textarea></label>
       ${preview.reuses_listening && html`
         <label class="ai-inline"><input type="checkbox" checked=${reuse} onChange=${event => setReuse(event.target.checked)} />
           use the listening from run ${preview.reusable_from} (same bounce, model, settings and listen prompt);
@@ -128,7 +144,7 @@ function RunConfirm({ preview, onRun, onCancel, onSettings }) {
       <div class="ai-keys">
         <button class="button quiet" onClick=${onSettings}>settings</button>
         <button class="button quiet" onClick=${onCancel}>cancel</button>
-        <button class="button signal" onClick=${() => onRun(preview.reuses_listening && !reuse)}>Run</button>
+        <button class="button signal" onClick=${go} title="Run (⌘↩)">Run</button>
       </div>
     </div>`;
 }
@@ -150,6 +166,7 @@ function RunList({ runs, current, onUse, onDetails, onClose }) {
                 ${run.status === "done" && html`<button class="button quiet" onClick=${() => onUse(run)}>${run.id === current ? "use again" : "use"}</button>`}
               </span>
             </div>
+            ${run.extra && html`<small class="ai-run-extra">Direction: ${run.extra}</small>`}
             <small>${run.status === "done" ? (run.summary || "") : (run.error && run.error.message) || ""}${run.reused_listening ? " (listening reused)" : ""}</small>
           </li>`)}
       </ol>

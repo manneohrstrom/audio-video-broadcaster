@@ -213,6 +213,17 @@ class RunTest(unittest.TestCase):
         run = again.run_document("20261127-192905", "track-1", started["id"])
         self.assertEqual((run["status"], run["error"]["message"]), ("error", "cut off: the hub restarted during the run"))
 
+    def test_a_runs_own_direction_goes_into_the_edit_prompt_only(self):
+        self.ai.start("20261127-192905", "track-1", 1)
+        self.ai.clock = lambda: 1_795_870_100.0
+        second = self.ai.start("20261127-192905", "track-1", 1, extra="An even spread over the cameras, for {{song_name}}.")
+        run = self.ai.run_document("20261127-192905", "track-1", second["id"])
+        self.assertIn("For this cut in particular:\nAn even spread over the cameras, for First Light.", run["prompts"]["edit"])
+        self.assertLess(run["prompts"]["edit"].index("in particular"), run["prompts"]["edit"].index("---"))
+        self.assertNotIn("even spread", run["prompts"]["listen"])
+        self.assertTrue(run["listening"]["reused_from"])               # the listening still fits
+        self.assertEqual(self.ai.runs("20261127-192905", "track-1")[0]["extra"], "An even spread over the cameras, for {{song_name}}.")
+
     def test_a_failure_is_kept_with_its_explanation(self):
         self.client.answers = [gemini.GeminiError("credit", "429: Your prepayment credits are depleted")]
         started = self.ai.start("20261127-192905", "track-1", 1)

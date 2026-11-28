@@ -48,6 +48,7 @@ export function AiRunDetails({ store, runId, onClose }) {
               <a class="button quiet" href=${aiRunAudioUrl(takeId, song.id, runId)} download>bounce as sent (mp3)</a>
               <a class="button quiet" href=${aiRunFileUrl(takeId, song.id, runId)} download>whole run (json)</a>
             </div>
+            ${run.extra && html`<p class="ai-note">Direction for this cut: <strong>${run.extra}</strong></p>`}
             ${run.error && html`<p class="ai-note problem">${run.error.message}</p>`}
             ${run.failed_call && html`<${CopyText} title="The answer that failed" text=${run.failed_call.text} open />`}
 

@@ -51,6 +51,11 @@ text, after a `---` line: the song's data and the answer's fields in words. The 
 format is not in the text: it goes alongside as a JSON schema (structured output), with the
 camera ids as the only allowed cameras.
 
+A run can also have its own direction, typed when pressing Smart cut ("cut it like a film
+editor would", "an even spread over the cameras"): it goes into the edit prompt after the
+settings' edit direction, under "For this cut in particular:", before the fixed part. The
+settings' directions are the standing prompt; this one is for the run.
+
 The settings show the full prompts as they will be sent (a preview), the fixed parts and the
 schemas, each with a copy button, and reset to the default. The defaults are the prompts from
 the manual test. For trying it by hand (user, 2026-11-28): the bounce exactly as sent (mono

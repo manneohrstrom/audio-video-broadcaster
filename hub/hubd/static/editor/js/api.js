@@ -68,8 +68,8 @@ export function previewAiCut(takeId, songId, version) {
 
 /** Start a smart cut of this song (in the background on the hub). Returns the run's summary.
  *  listenAgain: listen even when an earlier run's listening could be reused. */
-export function startAiCut(takeId, songId, version, listenAgain = false) {
-  return request("POST", `/api/ai-cut/${takeId}/${songId}/v${version}/run`, { listen_again: listenAgain });
+export function startAiCut(takeId, songId, version, listenAgain = false, extra = "") {
+  return request("POST", `/api/ai-cut/${takeId}/${songId}/v${version}/run`, { listen_again: listenAgain, extra });
 }
 
 /** The song's runs, newest first: { runs }. */

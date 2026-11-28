@@ -170,10 +170,29 @@ def fill(text, values):
     return PLACEHOLDER.sub(lambda match: values.get(match.group(1), match.group(0)), text)
 
 
-def prompts(settings, values):
-    """{"listen": ..., "edit": ...}: the full prompts as sent."""
-    return {"listen": fill(settings["listen_direction"] + LISTEN_FIXED, values),
-            "edit": fill(settings["edit_direction"] + EDIT_FIXED, values)}
+EXTRA_LONGEST = 4000
+EXTRA_HEADING = "\n\nFor this cut in particular:\n"
+
+
+def validated_extra(text):
+    """The run's own direction (typed when pressing Smart cut), cleaned; "" for none."""
+    if text is None:
+        return ""
+    if not isinstance(text, str) or len(text) > EXTRA_LONGEST:
+        raise ValueError("the direction for this cut must be text of at most %d characters" % EXTRA_LONGEST)
+    unknown = sorted(set(PLACEHOLDER.findall(text)) - set(PLACEHOLDERS))
+    if unknown:
+        raise ValueError("unknown placeholder {{%s}}" % unknown[0])
+    return text.strip()
+
+
+def prompts(settings, values, extra=""):
+    """{"listen": ..., "edit": ...}: the full prompts as sent. extra: this run's own direction
+    (user, 2026-11-28: "like a film editor would", "an even spread over the cameras"), after
+    the settings' edit direction and before the hub's fixed part. Only the edit step gets it,
+    so an earlier listening can still be reused."""
+    edit = settings["edit_direction"] + (EXTRA_HEADING + extra if extra else "") + EDIT_FIXED
+    return {"listen": fill(settings["listen_direction"] + LISTEN_FIXED, values), "edit": fill(edit, values)}
 
 
 # ---------------------------------------------------------------- the answers' shapes

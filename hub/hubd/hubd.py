@@ -1793,7 +1793,8 @@ def _ai_cut_route(handler, method, body):
         if action == "preview" and method == "GET":
             return 200, ai.preview(take, song, version)
         if action == "run" and method == "POST":
-            return 200, ai.start(take, song, version, listen_again=bool((body or {}).get("listen_again")))
+            return 200, ai.start(take, song, version, listen_again=bool((body or {}).get("listen_again")),
+                                 extra=(body or {}).get("extra"))
         if action == "audio" and method == "GET":
             return _attachment(ai.audio_for(take, song, version), "%s-%s-for-gemini.mp3" % (take, song))
     m = handler.P_AI_RUNS.match(path)
