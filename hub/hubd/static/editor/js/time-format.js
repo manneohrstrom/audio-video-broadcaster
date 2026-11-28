@@ -11,14 +11,18 @@ export function formatSeconds(seconds) {
   return `${minutes}:${rest.toFixed(1).padStart(4, "0")}`;
 }
 
-/** Cuts from the edit file (nanoseconds) to the editor's model (seconds). */
-export function cutsFromFile(fileCuts) {
-  return fileCuts.map(cut => ({ atSeconds: cut.at_ns / NS_PER_SECOND, cameraId: cut.camera, by: cut.by || "auto",
-                                ...(cut.story_glide ? { storyGlide: true } : {}) }));
+/** Cuts from the edit file (nanoseconds) to the editor's model (seconds). An AI cut's
+ *  cuts also carry the model's reason and the hub's note (what it changed; ai_cut_place.py).
+ *  offsetNs: added to every time (a run's cuts made against an older song range). */
+export function cutsFromFile(fileCuts, offsetNs = 0) {
+  return fileCuts.map(cut => ({ atSeconds: (cut.at_ns + offsetNs) / NS_PER_SECOND, cameraId: cut.camera, by: cut.by || "auto",
+                                ...(cut.story_glide ? { storyGlide: true } : {}),
+                                ...(cut.reason ? { reason: cut.reason } : {}), ...(cut.note ? { note: cut.note } : {}) }));
 }
 
 /** Cuts from the editor's model back to the edit file's format. */
 export function cutsToFile(cuts) {
   return cuts.map(cut => ({ at_ns: Math.round(cut.atSeconds * NS_PER_SECOND), camera: cut.cameraId, by: cut.by,
-                            ...(cut.storyGlide ? { story_glide: true } : {}) }));
+                            ...(cut.storyGlide ? { story_glide: true } : {}),
+                            ...(cut.reason ? { reason: cut.reason } : {}), ...(cut.note ? { note: cut.note } : {}) }));
 }

@@ -115,3 +115,15 @@ test("history: undo, redo, and a new change clears redo", () => {
   history.record(cuts);
   assert.equal(history.canRedo, false);
 });
+
+// The AI cut's reasons and the hub's notes travel with the cuts (time-format.js).
+import { cutsFromFile as aiCutsFromFile, cutsToFile as aiCutsToFile } from "../../static/editor/js/time-format.js";
+
+test("an AI cut's reason and note survive loading and saving, and a run's cuts move onto a newer range", () => {
+  const file = [{ at_ns: 0, camera: "cam1", by: "ai", reason: "head, whole band" },
+                { at_ns: 4_000_000_000, camera: "cam2", by: "ai", reason: "sax solo", note: "moved -0.3 s onto the bar" }];
+  const cuts = aiCutsFromFile(file);
+  assert.deepEqual(cuts[1], { atSeconds: 4, cameraId: "cam2", by: "ai", reason: "sax solo", note: "moved -0.3 s onto the bar" });
+  assert.deepEqual(aiCutsToFile(cuts), file);
+  assert.equal(aiCutsFromFile(file, -1_000_000_000)[1].atSeconds, 3);
+});

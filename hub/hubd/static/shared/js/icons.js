@@ -56,6 +56,8 @@ const PATHS = {
   check: () => html`<path d="m5 12.5 4.5 4.5L19 7.5" />`,
   close: () => html`<path d="M6 6l12 12M18 6 6 18" />`,
   reset: () => html`<path d="M4 12a8 8 0 1 0 2.4-5.7" /><path d="M4 4v4.5h4.5" />`,
+  // The smart cut's settings: slider knobs
+  sliders: () => html`<path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" />`,
   magnifier: () => html`<circle cx="10.5" cy="10.5" r="6" /><path d="m15 15 5 5" /><path d="M8 10.5h5" />`,
   watch: () => html`<rect x="3" y="5" width="18" height="12" rx="2.5" /><path d="M10 9v4.5l4-2.25z" fill="currentColor" /><path d="M8 20h8" />`,
 };

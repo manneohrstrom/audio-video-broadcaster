@@ -15,6 +15,7 @@ import { Icon } from "shared/icons.js";
 import { focusDistance, focusParts, shownMode } from "../format.js";
 import { identifyPhone } from "../api.js";
 import { EditableName, Name, givenCameraName } from "../names.js";
+import { RoleButton } from "./CameraRole.js";
 
 // Focus is stored as libcamera's lens position (dioptres, 1 / metres) and shown in metres.
 // The nudges step in dioptres too: the same step moves far focus a lot in metres and near
@@ -65,7 +66,7 @@ function ledColour(node, mode) {
 
 /** One Pi camera: a tile in the grid; "adjust" opens its focus panel (same state, so the
  * still and the focus being set carry over). */
-function CameraTile({ id, node, savedLens, rigIdle, shotRequest, say, onSaved, names, refreshStatus }) {
+function CameraTile({ id, node, savedLens, rigIdle, shotRequest, say, onSaved, names, roles, refreshStatus }) {
   const given = givenCameraName(names, id);
   const who = given || id;                                // in messages
   const [open, setOpen] = useState(false);
@@ -163,6 +164,7 @@ function CameraTile({ id, node, savedLens, rigIdle, shotRequest, say, onSaved, n
         <span class=${"shooting" + (shooting ? " on" : "")} title=${shooting ? "taking a still" : ""}><${Icon} name="camera" size=${14} /></span>
         <span class="tile-note">${problem ? html`<span class="bad" title=${problem}>no picture</span>`
           : mode !== "idle" ? mode : shown == null ? "focus not set" : `focus ≈ ${focusDistance(shown)}${unsaved ? " (not saved)" : ""}`}</span>
+        <${RoleButton} id=${id} who=${who} roles=${roles} say=${say} refreshStatus=${refreshStatus} />
         <button class="key small" disabled=${!node.online} onClick=${() => setOpen(true)}><${Icon} name="magnifier" size=${14} />adjust</button>
       </footer>
     </article>`;
@@ -204,7 +206,7 @@ function CameraTile({ id, node, savedLens, rigIdle, shotRequest, say, onSaved, n
     </div>`;
 }
 
-function PhoneStill({ id, phone, shotRequest, names, say, refreshStatus }) {
+function PhoneStill({ id, phone, shotRequest, names, roles, say, refreshStatus }) {
   const [still, setStill] = useState(null);
   useEffect(() => {
     if (!shotRequest) return undefined;
@@ -222,6 +224,8 @@ function PhoneStill({ id, phone, shotRequest, names, say, refreshStatus }) {
         <b><${EditableName} kind="cameras" id=${id} given=${givenCameraName(names, id)} fallback=${phone.label || id}
                             say=${say} onSaved=${refreshStatus} /></b>
         <span class="tile-note">${phone.mode === "tripod" ? "tripod phone" : "phone"}${still ? ` · ${phone.picture !== "locked" ? "automatic picture" : (phone.status || {}).locked ? "settings locked" : "not locked"} · ${still.info.age_s} s old` : ""}</span>
+        <${RoleButton} id=${id} who=${givenCameraName(names, id) || phone.label || id} roles=${roles} say=${say}
+                       refreshStatus=${refreshStatus} />
         <button class="key small" onClick=${() => identifyPhone(id).catch(error => say(error.message, true))}
                 title="Flash this phone's screen, to find it">identify</button>
       </footer>
@@ -280,9 +284,10 @@ export function Cameras({ status, say, refreshStatus }) {
         ${nodes.map(([id, node]) => html`
           <${CameraTile} key=${id} id=${id} node=${node} savedLens=${(settings[id] || {}).lens_position}
                          rigIdle=${rigIdle} shotRequest=${shotRequest} say=${say} onSaved=${() => setSavedTick(n => n + 1)}
-                         names=${status.names} refreshStatus=${refreshStatus} />`)}
+                         names=${status.names} roles=${status.camera_tags} refreshStatus=${refreshStatus} />`)}
         ${phones.map(([id, phone]) => html`<${PhoneStill} key=${id} id=${id} phone=${phone} shotRequest=${shotRequest}
-                                                          names=${status.names} say=${say} refreshStatus=${refreshStatus} />`)}
+                                                          names=${status.names} roles=${status.camera_tags} say=${say}
+                                                          refreshStatus=${refreshStatus} />`)}
       </div>
     </section>`;
 }

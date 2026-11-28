@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import camera_tags  # noqa: E402
 import editor_projects as ep  # noqa: E402
 import names  # noqa: E402
 
@@ -110,25 +111,35 @@ class RebaseTest(unittest.TestCase):
 class ProjectTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.quick = None
         self.projects = ep.EditorProjects(FakeAudio(os.path.join(self.tmp, "audio")),
                                           read_take_document=lambda take: take_document(),
-                                          find_quick_edit=lambda take, song, v: self.quick,
                                           edits_dir=os.path.join(self.tmp, "edits"), clock=lambda: 123.0)
 
-    def test_new_project_starts_from_the_rotation_until_beats_are_analysed(self):
+    def test_a_new_song_starts_with_the_first_camera_for_the_whole_song(self):
+        # Nothing is cut automatically until the user asks (user, 2026-11-28: the AI cut button).
         p = self.projects.project(TAKE, "track-1", 1)
-        self.assertEqual(p["edit_source"], "automatic cut (no beats yet)")
-        self.assertEqual(p["edit"]["made_by"], "auto-v1")
-        cuts = p["edit"]["cuts"]
-        self.assertEqual(cuts[0], {"at_ns": 0, "camera": "cam1", "by": "auto"})     # starts on the sync server
-        self.assertEqual(cuts[1]["camera"], "cam2")
-        self.assertTrue(all(c["camera"] in ("cam1", "cam2") for c in cuts))          # Pi cameras only
+        self.assertEqual(p["edit_source"], "new")
+        self.assertEqual(p["edit"]["made_by"], "first-camera")
+        self.assertEqual(p["edit"]["cuts"], [{"at_ns": 0, "camera": "cam1", "by": "user"}])
         self.assertEqual(p["bounce_versions"], [{"version": 1, "file_name": "mix.wav"}])
         self.assertEqual(p["bounce"]["url"], "/media-audio/%s/track-1/v1" % TAKE)
         self.assertEqual(p["cameras"][0]["file_url"], "/media/%s/cam1.mov" % TAKE)
         self.assertEqual(p["bounce"]["sync"]["confidence"], "high")
         self.assertIsNone(p["take_name"])
+
+    def test_cameras_come_with_their_tags_for_the_take(self):
+        tags = camera_tags.CameraTags(os.path.join(self.tmp, "camera_tags.json"))
+        tags.set_camera("cam1", {"shows": ["whole band"], "shot": "wide"})
+        tags.set_camera("cam2", {"shows": ["drums"], "shot": "medium"})
+        tags.set_camera("pixel-9a", {"shows": ["tenor sax"], "shot": "close"})
+        tags.set_for_take(TAKE, "cam2", {"shows": ["drums", "bass"], "shot": "medium", "note": "bass in the corner"})
+        self.projects.tags = tags
+        p = self.projects.project(TAKE, "track-1", 1)
+        by_id = {c["id"]: c for c in p["cameras"]}
+        self.assertEqual((by_id["cam1"]["tags"]["shows"], by_id["cam1"]["tags_from"]), (["whole band"], "current"))
+        self.assertEqual((by_id["cam2"]["tags"]["note"], by_id["cam2"]["tags_from"]), ("bass in the corner", "take"))
+        self.assertEqual(by_id["pixel-9a"]["tags"]["shot"], "close")
+        self.assertEqual(p["tag_vocabulary"]["shots"], ["wide", "medium", "close"])
 
     def test_the_users_names_for_cameras_and_the_take(self):
         self.projects.names = names.Names(os.path.join(self.tmp, "names.json"))
@@ -137,45 +148,6 @@ class ProjectTest(unittest.TestCase):
         p = self.projects.project(TAKE, "track-1", 1)
         self.assertEqual([c["label"] for c in p["cameras"]], ["cam1", "Drum kit", "Pixel 9a"])
         self.assertEqual(p["take_name"], "Sunday jam")
-
-    def test_starts_from_the_rules_once_beats_are_analysed(self):
-        version_dir = os.path.join(self.tmp, "audio", TAKE, "track-1", "v1")
-        step = 0.6                                                    # 100 BPM from the bounce's start
-        times = [round(i * step, 3) for i in range(200)]
-        with open(os.path.join(version_dir, "beats.json"), "w") as f:
-            json.dump({"beats_s": times, "downbeats_s": times[::4], "confidence": [1.0] * 200,
-                       "hit": [1.0] * 200}, f)
-        os.makedirs(os.path.join(self.tmp, "proxies", TAKE))
-        with open(os.path.join(self.tmp, "proxies", TAKE, "cam2.motion.json"), "w") as f:
-            json.dump({"times_s": [i * 0.5 for i in range(1, 160)], "motion": [3.0] * 159}, f)
-        self.quick = {"range_ns": [0, 10 ** 12], "cuts": [{"at_ns": 0, "camera": "cam2"}]}   # the rules win
-        projects = ep.EditorProjects(FakeAudio(os.path.join(self.tmp, "audio"), existing=True),
-                                     read_take_document=lambda take: take_document(),
-                                     find_quick_edit=lambda take, song, v: self.quick,
-                                     edits_dir=os.path.join(self.tmp, "edits"),
-                                     proxies_dir=os.path.join(self.tmp, "proxies"), clock=lambda: 123.0)
-        p = projects.project(TAKE, "track-1", 1)
-        self.assertEqual((p["edit_source"], p["edit"]["made_by"]), ("automatic cut", "rules-v1"))
-        cuts = p["edit"]["cuts"]
-        self.assertEqual(cuts[0]["camera"], "cam1")                   # the wide camera (sync server) first
-        self.assertTrue({c["camera"] for c in cuts} <= {"cam1", "cam2", "pixel-9a"})   # phones take turns too
-        song_start = p["range_ns"][0]
-        bounce_start = p["bounce"]["start_ns"]
-        beat_ns = {bounce_start + int(round(t * SECOND * (1 + 20e-6))) - song_start for t in times}
-        self.assertTrue(all(c["at_ns"] in beat_ns for c in cuts[1:]))  # on beats, drift included
-        rough = (FIRST_FRAME + 10 * SECOND - song_start, FIRST_FRAME + 11 * SECOND - song_start)
-        ends = [c["at_ns"] for c in cuts[1:]] + [p["range_ns"][1] - song_start]
-        for cut, end in zip(cuts, ends):
-            if cut["camera"] == "cam2":
-                self.assertTrue(end <= rough[0] or cut["at_ns"] >= rough[1])
-
-    def test_starts_from_the_quick_mix_even_after_a_resync(self):
-        rng = self.projects.project(TAKE, "track-1", 1)["range_ns"]
-        self.quick = {"range_ns": [rng[0], rng[1] + 6_500_000],                   # rendered with an older sync
-                      "cuts": [{"at_ns": 0, "camera": "cam1"}, {"at_ns": 10 * SECOND, "camera": "cam2"}]}
-        p = self.projects.project(TAKE, "track-1", 1)
-        self.assertEqual(p["edit_source"], "quick mix")
-        self.assertEqual([c["camera"] for c in p["edit"]["cuts"]], ["cam1", "cam2"])
 
     def test_the_edit_belongs_to_the_song_and_older_per_version_copies_are_read(self):
         older = os.path.join(self.tmp, "edits", TAKE, "track-1", "v1.json")
@@ -262,7 +234,7 @@ class ProjectTest(unittest.TestCase):
     def test_unsynced_song_is_refused(self):
         projects = ep.EditorProjects(FakeAudio(os.path.join(self.tmp, "audio2"), synced=False),
                                      read_take_document=lambda take: take_document(),
-                                     find_quick_edit=lambda *a: None, edits_dir=self.tmp)
+                                     edits_dir=self.tmp)
         with self.assertRaises(ep.ProjectError):
             projects.project(TAKE, "track-1", 1)
 
@@ -279,7 +251,7 @@ class SyncByHandTest(unittest.TestCase):
         root = os.path.join(self.tmp, "audio-%s" % synced)
         self.projects = ep.EditorProjects(FakeAudio(root, synced=synced),
                                           read_take_document=lambda take: take_document(),
-                                          find_quick_edit=lambda *a: None, edits_dir=os.path.join(self.tmp, "edits"),
+                                          edits_dir=os.path.join(self.tmp, "edits"),
                                           clock=lambda: 200.0, sync_job=lambda *a: self.job)
         self.version_dir = os.path.join(root, TAKE, "track-1", "v1")
 
@@ -351,7 +323,6 @@ class DriveEditTest(unittest.TestCase):
         self.on_drive = None
         self.projects = ep.EditorProjects(FakeAudio(os.path.join(self.tmp, "audio")),
                                           read_take_document=lambda take: take_document(),
-                                          find_quick_edit=lambda *a: None,
                                           edits_dir=os.path.join(self.tmp, "edits"), clock=lambda: 100.0,
                                           read_drive_edit=lambda take, song: self.on_drive)
         self.range_ns = self.projects.project(TAKE, "track-1", 1)["range_ns"]
@@ -393,7 +364,7 @@ class WaveformTest(unittest.TestCase):
             tone = [int(20000 * math.sin(2 * math.pi * 200 * i / 8000)) for i in range(8000)]   # 200 Hz
             w.writeframes(struct.pack("<8000h", *([0] * 8000)) + struct.pack("<8000h", *tone))
         projects = ep.EditorProjects(audio, read_take_document=lambda t: take_document(),
-                                     find_quick_edit=lambda *a: None, edits_dir=os.path.join(tmp, "edits"),
+                                     edits_dir=os.path.join(tmp, "edits"),
                                      waveforms_dir=os.path.join(tmp, "waves"))
         wf = projects.waveform(TAKE, "track-1", 1)
         self.assertEqual(wf["rate"], 100)

@@ -24,6 +24,7 @@ const NO_FULL_VIDEO_NOTE = "thumbnails only: full video needs a secure page (see
 export function VideoWindow({ store, thumbnailsByCamera, player }) {
   const canvasRef = useRef(null);
   const badgeRef = useRef(null);
+  const whyRef = useRef(null);            // the smart cut's reason for the shot on screen
   const wrapperRef = useRef(null);
 
   const noteRef = useRef(null);
@@ -110,6 +111,7 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
     wrapperRef.current.style.setProperty("--frame-colour", skimCamera ? `var(--color-camera-${(shown.index % 6) + 1})` : "transparent");
     const text = `${shown.number} ${shown.label}` + (skimCamera ? ` · ${formatSeconds(seconds)}` : "");
     if (badgeRef.current.textContent !== text) badgeRef.current.textContent = text;
+    showWhy(whyRef.current, store, skimCamera ? null : seconds);
     });
   }, []);
 
@@ -155,6 +157,7 @@ export function VideoWindow({ store, thumbnailsByCamera, player }) {
         ${store.step === "story" && html`<div class="story-frame" ref=${storyFrameRef} aria-hidden="true"></div>`}
         ${store.step === "look" && html`<div class="video-hold">${store.comparing ? "Without the look" : "Press and hold to compare"}</div>`}
         <div class="video-badge" ref=${badgeRef}></div>
+        <div class="video-why" ref=${whyRef} hidden></div>
         <div class="video-note" ref=${noteRef} hidden></div>
       </div>
     </div>`;
@@ -263,4 +266,20 @@ function drawProgram(context, store, pictures, seconds, canvas) {
   const shift = store.step === "story" ? incomingShiftShare(from, to, store.storyFraming) : 0;
   drawCamera(context, store, pictures, camera(to.cameraId), seconds, canvas, shift);
   context.globalAlpha = 1;
+}
+
+/** The edit decisions while playing (user, 2026-11-28): in the Cut step, the smart cut's
+ *  reason for the shot on screen, what the hub changed, and the section the music is in.
+ *  Hidden while skimming a camera, for cuts made by hand, and in the other steps. Only the
+ *  preview shows it; the render never does. */
+function showWhy(element, store, seconds) {
+  const cut = seconds == null || store.step !== "cut" || store.syncMode ? null : store.cuts[cutIndexAt(store.cuts, seconds)];
+  const section = cut && store.music ? store.music.sections.find(s => s.start <= seconds && seconds < s.end) : null;
+  const parts = cut && cut.reason ? [["why-section", section ? section.label : ""], ["why-reason", cut.reason],
+                                     ["why-note", cut.note ? `hub: ${cut.note}` : ""]].filter(([, text]) => text) : [];
+  const key = parts.map(([, text]) => text).join("|");
+  if (element.dataset.text === key) return;
+  element.dataset.text = key;
+  element.replaceChildren(...parts.map(([kind, text]) => Object.assign(document.createElement("span"), { className: kind, textContent: text })));
+  element.hidden = !parts.length;
 }

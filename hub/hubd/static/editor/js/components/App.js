@@ -16,6 +16,7 @@ import { VideoWindow } from "./VideoWindow.js";
 import { TransportBar, ZoomSlider } from "./TransportBar.js";
 import { Splitter, savedVideoHeight, savedVideoWidth } from "./Splitter.js";
 import { Timeline } from "./Timeline.js";
+import { AiCutBar } from "./AiCutBar.js";
 import { LookPanel } from "./LookPanel.js";
 import { TitlePanel } from "./TitlePanel.js";
 import { StoryPanel } from "./StoryPanel.js";
@@ -88,7 +89,7 @@ function Editor({ project }) {
   }, [store]);
 
   const timeline = store.step === "cut" || store.syncMode
-    ? html`<${Timeline} key="cut" store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`
+    ? html`<${Timeline} key=${store.music && !store.syncMode ? "cut-music" : "cut"} store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`
     : html`<${Timeline} key="look" compact store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`;
   // The cut: the video column, a splitter and the timeline side by side in .main-area. The other
   // steps and sync mode: .main-area lays nothing out (display: contents) and the timeline goes below.
@@ -141,7 +142,7 @@ function Editor({ project }) {
         </div>
         ${cutLayout && html`<${Splitter} orientation="vertical" onResize=${setVideoWidth} />`}
         ${cutLayout && html`<div class="beside-splitter">
-          <div class="timeline-tools"><${ZoomSlider} store=${store} /></div>
+          <div class="timeline-tools"><${AiCutBar} store=${store} /><${ZoomSlider} store=${store} /></div>
           ${timeline}
         </div>`}
       </div>

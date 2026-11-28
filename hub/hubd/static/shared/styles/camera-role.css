@@ -1,0 +1,21 @@
+/* What a camera shows (shared/js/camera-role.js): on the hub page and in the editor. */
+.role-editor { display: grid; gap: var(--space-3); }
+.role-row { display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: start; gap: var(--space-2); }
+.role-label { color: var(--color-text-muted); font-size: var(--font-size-small); padding-top: 6px; }
+.role-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.role-chip {
+  padding: 4px 11px; border-radius: 999px; border: 1px solid var(--color-line); background: var(--color-panel);
+  color: var(--color-text-muted); font: 500 var(--font-size-small) var(--font-ui); cursor: pointer;
+}
+.role-chip:hover { color: var(--color-text); }
+.role-chip.on { background: color-mix(in srgb, var(--color-accent) 22%, var(--color-panel)); border-color: var(--color-accent); color: var(--color-text); }
+.role-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.role-note {
+  width: 100%; box-sizing: border-box; padding: 6px 10px; border-radius: var(--radius-small); border: 1px solid var(--color-line);
+  background: var(--color-well); color: var(--color-text); font: var(--font-size-small) var(--font-ui);
+}
+.role-chip.add { border-style: dashed; }
+.role-new {
+  width: 12em; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--color-accent); background: var(--color-well);
+  color: var(--color-text); font: 500 var(--font-size-small) var(--font-ui);
+}

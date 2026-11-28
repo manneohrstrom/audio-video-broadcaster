@@ -82,7 +82,7 @@ a.button { text-decoration: none; color: var(--color-text); }
 .editor.cut-step .video-stage { flex: none; container-type: inline-size; }
 .editor.cut-step .video-window { width: min(100cqw, calc((100vh - 230px) * 16 / 9)); }
 .beside-splitter { min-height: 0; min-width: 0; overflow: auto; padding: var(--space-2) 0 0 var(--space-4); }
-.timeline-tools { display: flex; justify-content: flex-end; padding-block: 2px 6px; }
+.timeline-tools { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-block: 2px 6px; }
 @media (max-width: 900px) {                      /* narrow screens: the timeline under the video */
   .editor.cut-step .main-area { grid-template-columns: 1fr; grid-template-rows: 48vh minmax(0, 1fr); }
   .editor.cut-step .splitter.vertical { display: none; }
@@ -133,6 +133,16 @@ a.button { text-decoration: none; color: var(--color-text); }
 .video-badge { left: 10px; top: 10px; font-weight: 600; }
 .video-note { right: 10px; bottom: 10px; color: var(--color-text-muted); }
 .video-hold { right: 10px; top: 10px; color: var(--color-text-muted); }
+/* The smart cut's reason for the shot on screen (VideoWindow.js showWhy): the music's
+   section above it and the hub's change below, smaller. */
+.video-why {
+  position: absolute; left: 10px; bottom: 10px; max-width: min(70%, 640px); padding: 6px 12px; border-radius: var(--radius-small);
+  background: rgba(17, 16, 15, 0.82); font-size: var(--font-size-small); line-height: 1.4; pointer-events: none;
+  display: grid; gap: 1px;
+}
+.video-why[hidden] { display: none; }
+.video-why .why-section { color: var(--color-text-muted); font-size: 11px; }
+.video-why .why-note { color: var(--color-text-muted); font-size: 11px; }
 
 /* -- transport: the red eye, the frame keys and the LCD */
 .transport-bar { display: flex; align-items: center; gap: 10px; padding-block: 8px; flex-wrap: wrap; }
@@ -368,3 +378,68 @@ input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px va
 .story-cut-time { font: 500 13px var(--font-numbers); color: var(--color-text); }
 .story-cut-cameras { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-muted); }
 .story-cut-cameras small { color: var(--color-text-muted); }
+
+/* -- the AI cut (AiCutBar.js, AiCutSettings.js; docs/ai-cut-plan.md) */
+.button.quiet { padding: 4px 11px; font-size: var(--font-size-small); color: var(--color-text-muted); }
+.button.quiet:hover:not(:disabled) { color: var(--color-text); }
+.button.signal-soft { background: color-mix(in srgb, var(--color-accent) 28%, var(--color-raised)); }
+.ai-cut { position: relative; display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.ai-cut-state { color: var(--color-text-muted); font-size: var(--font-size-small); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40ch; }
+.ai-cut-state.problem, .ai-note.problem { color: var(--color-problem); }
+.ai-popover {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 15; width: min(460px, 80vw); display: grid; gap: var(--space-2);
+  padding: var(--space-3); border-radius: var(--radius-panel); background: var(--color-panel); box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  font-size: var(--font-size-small); color: var(--color-text-muted);
+}
+.ai-popover p { margin: 0; }
+.ai-popover strong { color: var(--color-text); }
+.ai-keys { display: flex; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+.ai-runs { width: min(620px, 85vw); max-height: 60vh; overflow: auto; }
+.ai-runs header { display: flex; align-items: center; gap: var(--space-3); }
+.ai-runs header span { flex: 1; }
+.ai-runs ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ai-runs li { padding: 6px 8px; border-radius: var(--radius-small); background: var(--color-well); display: grid; gap: 3px; }
+.ai-runs li.current { box-shadow: inset 0 0 0 1px var(--color-accent); }
+.ai-run-line { display: grid; grid-template-columns: 10ch minmax(0, 1fr) 7ch 13ch auto; align-items: center; gap: var(--space-2); color: var(--color-text); }
+.ai-runs small { color: var(--color-text-muted); }
+
+.editor-backdrop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: var(--space-4); background: rgba(8, 7, 6, 0.6); }
+.editor-dialog {
+  width: min(900px, 100%); max-height: calc(100vh - 2 * var(--space-4)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+  border-radius: var(--radius-panel); background: var(--color-background); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.editor-dialog > header, .editor-dialog > footer { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
+.editor-dialog > header { border-bottom: 1px solid var(--color-line); }
+.editor-dialog > header h2 { margin: 0; flex: 1; display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-title); }
+.editor-dialog > footer { border-top: 1px solid var(--color-line); justify-content: flex-end; }
+.editor-dialog > footer .ai-note { flex: 1; }
+.ai-settings-body { overflow: auto; padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-3); align-content: start; }
+.ai-note { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-small); }
+.ai-field { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 4px var(--space-3); align-items: center; }
+.ai-field > span { color: var(--color-text); }
+.ai-field > small { grid-column: 2; color: var(--color-text-muted); }
+.ai-field select, .ai-field input[type=number], .ai-prompt textarea {
+  background: var(--color-well); color: var(--color-text); border: 1px solid var(--color-line); border-radius: var(--radius-small); padding: 6px 8px; font: inherit;
+}
+.ai-inline { display: flex; align-items: center; gap: var(--space-2); }
+.ai-inline output { font: 500 12px var(--font-numbers); }
+.ai-prompt { display: grid; gap: 6px; }
+.ai-prompt-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.ai-prompt-head span { flex: 1; display: flex; gap: 4px; flex-wrap: wrap; }
+.ai-chip { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--color-line); background: var(--color-panel); color: var(--color-text-muted); font: 11px var(--font-numbers); cursor: pointer; }
+.ai-chip:hover { color: var(--color-text); }
+.ai-prompt textarea { width: 100%; resize: vertical; line-height: 1.45; font-size: var(--font-size-small); }
+.ai-prompt summary { cursor: pointer; color: var(--color-text-muted); font-size: var(--font-size-small); }
+.ai-preview { margin: 0; max-height: 280px; overflow: auto; white-space: pre-wrap; padding: var(--space-2); border-radius: var(--radius-small); background: var(--color-well); color: var(--color-text-muted); font: 11px/1.45 var(--font-numbers); }
+.ai-camera { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: var(--space-3); padding-block: var(--space-2); border-top: 1px solid var(--color-line); }
+.ai-camera-name { display: flex; gap: 9px; align-items: flex-start; }
+.ai-camera-name strong { display: block; }
+.ai-camera-name small { display: block; color: var(--color-text-muted); font-size: 11px; }
+.ai-run-keys { display: flex; gap: 4px; justify-content: flex-end; }
+.ai-details h3 { margin: var(--space-2) 0 0; font-size: var(--font-size-body); color: var(--color-text); }
+.ai-downloads { justify-content: flex-start; }
+a.button.quiet { text-decoration: none; }
+.copy-text summary { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; color: var(--color-text-muted); font-size: var(--font-size-small); }
+.copy-text summary span { color: var(--color-text); }
+.copy-text summary small { flex: 1; }
+.copy-text[open] summary { margin-bottom: 4px; }

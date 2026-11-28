@@ -20,3 +20,6 @@ overlays/
 
 # The user's studio mixes for testing the automatic cut (private; never committed or copied off the Mac)
 testdata/
+
+# Gemini (AI Studio) API key: lives here on the Mac, copied to the hub by Ansible, never in git
+ai_studio_key

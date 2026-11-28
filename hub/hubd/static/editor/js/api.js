@@ -43,3 +43,57 @@ export function renderStatus(takeId, songId, version, kind = "edit") {
 export function saveEdit(takeId, songId, version, edit) {
   return request("PUT", `/api/editor/${takeId}/${songId}/v${version}`, edit);
 }
+
+// -- the AI cut (hub/hubd/ai_cut.py, docs/ai-cut-plan.md)
+
+/** Its settings, defaults, the prompts' fixed parts, the placeholders and whether there is a key. */
+export function loadAiSettings() {
+  return request("GET", "/api/ai-cut/settings");
+}
+
+/** Save its settings (shared by every song). Returns them cleaned. */
+export function saveAiSettings(settings) {
+  return request("POST", "/api/ai-cut/settings", settings);
+}
+
+/** The Gemini models the key can use, each with its price if known: { models }. */
+export function loadAiModels() {
+  return request("GET", "/api/ai-cut/models");
+}
+
+/** The prompts as they would be sent for this song, and the estimated cost. */
+export function previewAiCut(takeId, songId, version) {
+  return request("GET", `/api/ai-cut/${takeId}/${songId}/v${version}/preview`);
+}
+
+/** Start a smart cut of this song (in the background on the hub). Returns the run's summary.
+ *  listenAgain: listen even when an earlier run's listening could be reused. */
+export function startAiCut(takeId, songId, version, listenAgain = false) {
+  return request("POST", `/api/ai-cut/${takeId}/${songId}/v${version}/run`, { listen_again: listenAgain });
+}
+
+/** The song's runs, newest first: { runs }. */
+export function loadAiRuns(takeId, songId) {
+  return request("GET", `/api/ai-cut/${takeId}/${songId}/runs`);
+}
+
+/** One run in full: settings, prompts, answers, tokens, cost, cuts. */
+export function loadAiRun(takeId, songId, runId) {
+  return request("GET", `/api/ai-cut/${takeId}/${songId}/runs/${runId}`);
+}
+
+/** A new instrument to pick from in every camera's role (camera_tags.py). Returns the vocabulary. */
+export function addInstrument(name) {
+  return request("POST", "/api/camera-tags/instrument", { name });
+}
+
+/** One take's tags for a camera (what it shows in this take; camera_tags.py). */
+export function saveTakeCameraTags(takeId, cameraId, tags) {
+  return request("POST", "/api/camera-tags/take", { take: takeId, id: cameraId, tags });
+}
+
+/** Links for looking into a smart cut by hand: the bounce exactly as sent to Gemini (this
+ *  song's now, or a run's), and a run's whole record as a JSON file. */
+export const aiSongAudioUrl = (takeId, songId, version) => `/api/ai-cut/${takeId}/${songId}/v${version}/audio`;
+export const aiRunAudioUrl = (takeId, songId, runId) => `/api/ai-cut/${takeId}/${songId}/runs/${runId}/audio`;
+export const aiRunFileUrl = (takeId, songId, runId) => `/api/ai-cut/${takeId}/${songId}/runs/${runId}?download=1`;

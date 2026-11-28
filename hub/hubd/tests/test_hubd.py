@@ -96,6 +96,17 @@ class HubTest(unittest.TestCase):
         self.assertEqual(self.hub.snapshot()["state"], "idle")
         self.assertEqual(self.hub.read_log()[-1]["take_id"], t["take_id"])
 
+    def test_the_take_keeps_each_cameras_tags_as_they_were_at_rec(self):
+        self.hub.tags.set_camera("cam1", {"shows": ["whole band"], "shot": "wide"})
+        self.hub.rec()
+        self.hub.tags.set_camera("cam1", {"shows": ["keys"], "shot": "close"})       # changed mid-take
+        self.hub.tags.set_camera("cam2", {"shows": ["drums"], "shot": "medium"})     # tagged mid-take
+        self.hub.stop()
+        tags = self.hub.read_log()[-1]["camera_tags"]
+        self.assertEqual(tags["cam1"], {"shows": ["whole band"], "shot": "wide", "note": ""})
+        self.assertEqual(tags["cam2"]["shows"], ["drums"])  # untagged at REC: as at STOP
+        self.assertEqual(self.hub.snapshot()["camera_tags"]["cameras"]["cam1"]["shows"], ["keys"])
+
     def test_rec_skips_offline_cameras(self):
         self.rig.offline.update(["cam2", "cam3", "cam4"])
         t = self.hub.rec()

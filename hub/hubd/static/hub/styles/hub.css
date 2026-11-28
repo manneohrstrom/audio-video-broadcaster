@@ -413,3 +413,7 @@ code { font-size: 13px; color: var(--color-text-muted); }
 .studio .big-key { min-height: 150px; padding: 16px 14px 14px; }
 .studio .big-key .key-name { font-size: 24px; }
 .studio .archive { max-width: none; }
+
+/* A camera's role on its tile (CameraRole.js): the role in a few words, cut short to fit. */
+.role-button { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-flex; }
+.role-button .icon { flex: none; }

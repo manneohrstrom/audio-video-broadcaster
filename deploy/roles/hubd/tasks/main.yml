@@ -30,7 +30,14 @@
     src: "{{ playbook_dir }}/../hub/hubd/{{ item }}"
     dest: "/opt/hubd/{{ item }}"
     mode: "0644"
-  loop: [audio.py, scratch.py, editor_projects.py, hand_sync.py, health_history.py, auto_cut.py, names.py, request_guard.py]
+  loop: [audio.py, scratch.py, editor_projects.py, hand_sync.py, health_history.py, names.py, camera_tags.py, request_guard.py,
+         ai_cut.py, ai_cut_place.py, ai_cut_prompts.py, gemini.py, ai_prices.json]
+  notify: Restart hubd
+
+- name: hubd's old rule-based cut is gone (2026-11-28, the AI cut replaced it)
+  ansible.builtin.file:
+    path: /opt/hubd/auto_cut.py
+    state: absent
   notify: Restart hubd
 
 - name: hubd recording light module
@@ -57,6 +64,33 @@
     - {src: hub/hubd/calibrate.py, dest: calibrate.py}
     - {src: hub/calib/card.json, dest: card.json}
   notify: Restart hubd
+
+# The AI cut's Gemini key (docs/ai-cut-plan.md): ai_studio_key in the repo folder on the Mac
+# (in .gitignore, never in git), readable on the hub by hubd only. No key: the AI cut says so.
+- name: AI cut folder (the key; only studio can read it)
+  ansible.builtin.file:
+    path: /var/lib/hubd/ai
+    state: directory
+    owner: studio
+    group: studio
+    mode: "0700"
+
+- name: Is there a Gemini key on this Mac?
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/../ai_studio_key"
+  delegate_to: localhost
+  become: false
+  register: ai_studio_key
+
+- name: Gemini key
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../ai_studio_key"
+    dest: /var/lib/hubd/ai/ai_studio_key
+    owner: studio
+    group: studio
+    mode: "0600"
+  when: ai_studio_key.stat.exists
+  no_log: true
 
 - name: hubd web UI (static, no restart needed)
   ansible.builtin.copy:

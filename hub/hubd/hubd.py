@@ -27,6 +27,9 @@ import audio  # noqa: E402
 import budget  # noqa: E402
 import calib  # noqa: E402
 import calibrate  # noqa: E402
+import ai_cut  # noqa: E402
+import camera_tags  # noqa: E402
+import gemini  # noqa: E402
 import lamp  # noqa: E402
 import names  # noqa: E402
 import phones  # noqa: E402
@@ -35,7 +38,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.64.1"
+VERSION = "0.65.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -57,6 +60,10 @@ DEFAULT_CONFIG = {
     # also during a take (the studio's ~2200 K bulbs are warmer than Chrome's manual white
     # balance reaches); "locked" = card calibration, or a lock at REC. Config only.
     "phone_picture": "auto",
+    # The AI cut (ai_cut.py): the AI Studio key (deployed from ai_studio_key on the Mac, never
+    # in git) and the price table its costs come from.
+    "ai_key_path": "/var/lib/hubd/ai/ai_studio_key",
+    "ai_prices_path": os.path.join(HERE, "ai_prices.json"),
     # Phone cameras (docs/phone-plan.md): footage staged here during a take.
     "phones_dir": None,                 # default: <state_dir>/phones
     # Fixed capture->page delay per phone model (ms), subtracted from first-frame times.
@@ -350,6 +357,8 @@ class Hub:
         self.log_path = os.path.join(cfg["state_dir"], "takes.json")
         self.phones = phones.Phones(cfg, clock=clock)
         self.names = names.Names(os.path.join(cfg["state_dir"], "names.json"))   # user's names: cameras, takes
+        # What each camera shows (docs/ai-cut-plan.md): current ones, and per take.
+        self.tags = camera_tags.CameraTags(os.path.join(cfg["state_dir"], "camera_tags.json"))
         self.budget = budget.limits(None, 0, {}, {})
         self.card, self.calib_lock = None, threading.Lock()
         self.snaps_in_flight = 0            # camera snapshots running (REC waits for them)
@@ -377,14 +386,17 @@ class Hub:
         self.history = health_history.HealthHistory()           # the page's sparklines
         # The editor (docs/editor-plan.md, M-E3): one song version at a time.
         self.editor = editor_projects.EditorProjects(
-            self.audio, read_take_document=self.read_take_document, find_quick_edit=self.find_quick_edit,
+            self.audio, read_take_document=self.read_take_document,
             edits_dir=os.path.join(cfg["state_dir"], "edits"),
             thumbs_dir=os.path.join(cfg["state_dir"], "thumbs"),
             waveforms_dir=os.path.join(cfg["state_dir"], "waveforms"),
             proxies_dir=os.path.join(cfg["state_dir"], "proxies"),
             request_thumbnails=lambda take_id: self.ingest_command("thumbs", take=take_id),
-            read_drive_edit=self.read_drive_edit, sync_job=self.sync_job, names=self.names)
+            read_drive_edit=self.read_drive_edit, sync_job=self.sync_job, names=self.names, tags=self.tags)
         self.scratch = scratch.Scratch(cfg.get("scratch"), adir, log)
+        # The AI cut (docs/ai-cut-plan.md): only when the user presses the editor's AI cut.
+        self.ai_cut = ai_cut.AiCut(cfg["state_dir"], gemini.Gemini(cfg["ai_key_path"]), self.editor,
+                                   cfg["ai_prices_path"], clock=clock)
 
     @property
     def state(self):
@@ -509,6 +521,7 @@ class Hub:
                     "budget": self.budget, "camera_settings": self.cam_settings,
                     "calibration": self.calibrator.status(), "lamp": self.lamp.status(),
                     "scratch": self.scratch.status(), "names": self.names.all(),
+                    "camera_tags": dict(self.tags.vocabulary(), cameras=self.tags.current()),
                     "last_take": self.last_take()}
 
     # -- phones
@@ -861,7 +874,9 @@ class Hub:
             self.take = {"take_id": take_id, "nodes": names, "server": server,
                          "started_at": self.clock(), "missing": missing,
                          "limit_s": bud["total_s"],
-                         "calibration": {n: self.calibrator.records.get(n) for n in names}}
+                         "calibration": {n: self.calibrator.records.get(n) for n in names},
+                         # Each camera's role as it was at REC (camera_tags.py); the take keeps it.
+                         "camera_tags": self.tags.current()}
             self.message = None
         self.scratch.start(take_id)             # before arming, so it covers the first frames
         try:
@@ -958,6 +973,7 @@ class Hub:
         summary["scratch"] = ({k: sc.get(k) for k in ("device", "rate", "channels", "samples", "problems")}
                               if sc else None)
         summary["restarts"] = take.get("restarts") or []
+        summary["camera_tags"] = self.take_camera_tags(take, summary)
         self.append_log(summary)
         with self.lock:
             if keep_state:              # a restart: REC goes on, the rig isn't idle
@@ -1088,23 +1104,6 @@ class Hub:
             return None
         return edit if isinstance(edit, dict) else None
 
-    def find_quick_edit(self, take_id, song_id, version):
-        """The newest quick-mix edit (render.py) of this song version on the drive, or None."""
-        folder = os.path.join(self.take_folder(take_id), "edits", song_id)
-        prefix = "%s-v%d-quick" % (song_id, version)
-        try:
-            names = [n for n in os.listdir(folder) if n.startswith(prefix) and n.endswith(".json")]
-        except OSError:
-            return None
-        if not names:
-            return None
-        newest = max(names, key=lambda n: os.path.getmtime(os.path.join(folder, n)))
-        try:
-            with open(os.path.join(folder, newest)) as f:
-                return json.load(f)
-        except (OSError, ValueError):
-            return None
-
     def media_file(self, take_id, rel, wait_s=8.0):
         """(path, None) or (None, http_code). rel: "cam1.mov" or "edits/<song>/<name>.mp4"
         (already checked by the route's pattern). Waits for hub-ingest to mount the drive."""
@@ -1162,6 +1161,15 @@ class Hub:
                     break
         return reasons
 
+    def take_camera_tags(self, take, summary):
+        """The take record's camera_tags: each of its cameras' role, as copied at REC. A camera
+        without tags then (a phone that joined later, one tagged during the take) gets its tags
+        as they are at STOP."""
+        at_rec = take.get("camera_tags") or {}
+        now = self.tags.current()
+        cameras = list(take.get("nodes") or []) + [names.base_camera(p) for p in summary.get("phones") or []]
+        return {c: at_rec.get(c) or now[c] for c in cameras if at_rec.get(c) or now.get(c)}
+
     def request_delete_take(self, take_id):
         """The hub page's "delete take": the take's folder on the drive (cameras, bounces, videos,
         edits) and everything the hub keeps for it. Done by hub-ingest, which mounts the drive
@@ -1172,6 +1180,7 @@ class Hub:
         if reasons:
             raise Refused(reasons)
         self.names.set("takes", take_id, "")
+        self.tags.forget_take(take_id)
         return self.ingest_command("delete_take", take=take_id)
 
     def deletes_asked(self):
@@ -1366,6 +1375,9 @@ class Handler(BaseHTTPRequestHandler):
     P_AUDIO = re.compile(r"^/api/audio/(\d{8}-\d{6})$")
     P_TAKE_DELETE = re.compile(r"^/api/takes/(\d{8}-\d{6})/delete$")
     P_EDITOR = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})$")
+    # The AI cut: a song version's preview and run; a song's runs.
+    P_AI_SONG = re.compile(r"^/api/ai-cut/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/(preview|run|audio)$")
+    P_AI_RUNS = re.compile(r"^/api/ai-cut/(\d{8}-\d{6})/([a-z0-9-]{1,41})/runs(?:/([0-9-]{15,24})(/audio)?)?$")
     P_EDITOR_RENDER = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/render$")
     P_EDITOR_SYNC = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/sync$")
     P_EDITOR_WAVEFORM = re.compile(r"^/api/editor/(\d{8}-\d{6})/([a-z0-9-]{1,41})/v(\d{1,4})/waveform$")
@@ -1492,6 +1504,15 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass          # viewer seeked/closed, or the drive was ejected mid-read
 
+    def _ai_cut(self, method, body):
+        """The AI cut's routes; Gemini's failures are explained in words (gemini.EXPLAINED)."""
+        try:
+            return self._send(*_ai_cut_route(self, method, body))
+        except gemini.GeminiError as e:
+            return self._send(502, {"error": str(e), "kind": e.kind})
+        except ValueError as e:
+            return self._send(400, {"error": str(e)})
+
     def do_GET(self):
         h = self.hub
         if self.MEDIA.match(self.path.split("?")[0]):
@@ -1523,6 +1544,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, h.editor.waveform(m.group(1), m.group(2), int(m.group(3))))
             except (ValueError, subprocess.CalledProcessError) as e:
                 return self._send(400, {"error": str(e)})
+        if self.path.startswith("/api/ai-cut/"):
+            return self._ai_cut("GET", None)
         m = self.P_EDITOR.match(self.path.split("?")[0])
         if m:
             try:
@@ -1667,6 +1690,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, h.measure_card(self.rfile.read(int(self.headers.get("Content-Length") or 0))
                                                       if int(self.headers.get("Content-Length") or 0) <= 8 << 20 else b""))
             b = self._body()
+            if self.path.startswith("/api/ai-cut/"):
+                return self._ai_cut("POST", b)
             if self.path == "/api/phone/poll":
                 return self._send(200, h.phone_poll(b))
             if self.path == "/api/phone/bye":      # sendBeacon from a page going away
@@ -1721,6 +1746,12 @@ class Handler(BaseHTTPRequestHandler):
             m = self.P_TAKE_DELETE.match(self.path)
             if m:                                  # the archive's "delete take"
                 return self._send(200, h.request_delete_take(m.group(1)))
+            if self.path == "/api/camera-tags":    # {"id", "tags": {"shows", "shot", "note"}}: the camera's current role
+                return self._send(200, h.tags.set_camera(b.get("id"), b.get("tags")))
+            if self.path == "/api/camera-tags/instrument":   # {"name"}: a new instrument to pick from
+                return self._send(200, h.tags.add_instrument(b.get("name")))
+            if self.path == "/api/camera-tags/take":   # {"take", "id", "tags"}: one take's (the editor)
+                return self._send(200, h.tags.set_for_take(b.get("take"), b.get("id"), b.get("tags")))
             if self.path == "/api/names":          # {"kind": "cameras" | "takes", "id", "name"}
                 return self._send(200, h.names.set(b.get("kind"), b.get("id"), b.get("name")))
             if self.path == "/api/rec":
@@ -1744,6 +1775,46 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             return self._send(500, {"error": "%s: %s" % (type(e).__name__, e)})
         self._send(404, {"error": "not found"})
+
+
+def _ai_cut_route(handler, method, body):
+    """The AI cut's routes (ai_cut.py): (status, document[, content type, headers]). For
+    looking into it by hand (user, 2026-11-28): a run as a JSON file (?download=1), and the
+    bounce exactly as sent to Gemini (a song's now, or a run's)."""
+    ai = handler.hub.ai_cut
+    path = handler.path.split("?")[0]
+    if path == "/api/ai-cut/settings":
+        return 200, (ai.settings_page() if method == "GET" else ai.save_settings(body))
+    if path == "/api/ai-cut/models" and method == "GET":
+        return 200, {"models": ai.models()}
+    m = handler.P_AI_SONG.match(path)
+    if m:
+        take, song, version, action = m.group(1), m.group(2), int(m.group(3)), m.group(4)
+        if action == "preview" and method == "GET":
+            return 200, ai.preview(take, song, version)
+        if action == "run" and method == "POST":
+            return 200, ai.start(take, song, version, listen_again=bool((body or {}).get("listen_again")))
+        if action == "audio" and method == "GET":
+            return _attachment(ai.audio_for(take, song, version), "%s-%s-for-gemini.mp3" % (take, song))
+    m = handler.P_AI_RUNS.match(path)
+    if m and method == "GET":
+        if m.group(4):
+            return _attachment(ai.run_audio(m.group(1), m.group(2), m.group(3)),
+                               "%s-%s-run-%s.mp3" % (m.group(1), m.group(2), m.group(3)))
+        if m.group(3):
+            run = ai.run_document(m.group(1), m.group(2), m.group(3))
+            if "download=1" in handler.path:
+                name = "%s-%s-run-%s.json" % (m.group(1), m.group(2), m.group(3))
+                return 200, json.dumps(run, indent=1).encode(), "application/json", {
+                    "Content-Disposition": 'attachment; filename="%s"' % name}
+            return 200, run
+        return 200, {"runs": ai.runs(m.group(1), m.group(2))}
+    return 404, {"error": "not found"}
+
+
+def _attachment(path, name):
+    with open(path, "rb") as f:
+        return 200, f.read(), "audio/mpeg", {"Content-Disposition": 'attachment; filename="%s"' % name}
 
 
 class DualStackServer(ThreadingHTTPServer):

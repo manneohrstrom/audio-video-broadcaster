@@ -9,7 +9,9 @@ import { everyFrame } from "../frame-loop.js";
 export function Timeline({ store, transport, thumbnailsByCamera, waveform, compact = false }) {
   const canvasRef = useRef(null);
   const wrapperRef = useRef(null);
-  const { lanes, height } = layoutLanes(store.cameras, { compact, sync: store.syncMode });
+  // The Music lane shows after an AI cut (its run loaded). App.js keys the timeline on it:
+  // the canvas height below is set once.
+  const { lanes, height } = layoutLanes(store.cameras, { compact, sync: store.syncMode, music: !compact && !store.syncMode && !!store.music });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -43,6 +45,7 @@ export function Timeline({ store, transport, thumbnailsByCamera, waveform, compa
         ${lanes.map(lane => {
           const style = { top: `${lane.top}px`, height: `${lane.height}px` };
           if (lane.type === "program") return html`<div class="lane-label" style=${style}><div><strong>Video</strong><small>what's showing</small></div></div>`;
+          if (lane.type === "music") return html`<div class="lane-label" style=${style} title="What the smart cut heard: hover a section or a mark"><div><strong>Music</strong><small>as Gemini heard it</small></div></div>`;
           if (lane.type === "waveform") return html`<div class="lane-label" style=${style}><div><strong>Bounce</strong><small>${store.syncMode ? "drag to move it" : store.project.bounce.file_name}</small></div></div>`;
           if (lane.type !== "camera") return null;
           const camera = lane.camera;

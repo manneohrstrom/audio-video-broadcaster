@@ -4,12 +4,15 @@
 // Sync mode (sync by hand): no program strip, the cameras as they are, and a taller
 // waveform that moves with the bounce, over a faint copy of where it was when Sync opened.
 
+import { cutIndexAt } from "../edit-model.js";
+
 export const RULER_HEIGHT = 18;
 export const PROGRAM_HEIGHT = 58;
 export const CAMERA_HEIGHT = 44;
 export const CAMERA_GAP = 6;
 export const WAVEFORM_HEIGHT = 50;
 export const SYNC_WAVEFORM_HEIGHT = 84;
+export const MUSIC_HEIGHT = 30;       // the AI cut's Music lane: the sections and moments it heard
 const GROUP_GAP = 12;
 const HANDLE_GRAB_PIXELS = 7;
 const BAR_HEIGHT = 3;                 // the camera-colour bar under a shot
@@ -18,8 +21,9 @@ const BAR_HEIGHT = 3;                 // the camera-colour bar under a shot
  * Lanes top to bottom: [{ type, top, height, camera? }], plus the total height.
  * compact (step 2, the look): only the ruler, the program strip and the waveform.
  * sync (Sync mode): the ruler, the cameras and a tall waveform.
+ * music (the cut, after an AI cut): the Music lane under the program strip.
  */
-export function layoutLanes(cameras, { compact = false, sync = false } = {}) {
+export function layoutLanes(cameras, { compact = false, sync = false, music = false } = {}) {
   const lanes = [];
   let top = 0;
   const add = (lane, height, gapAfter) => { lanes.push({ ...lane, top, height }); top += height + gapAfter; };
@@ -34,7 +38,8 @@ export function layoutLanes(cameras, { compact = false, sync = false } = {}) {
     add({ type: "waveform" }, 40, 0);
     return { lanes, height: top };
   }
-  add({ type: "program" }, PROGRAM_HEIGHT, GROUP_GAP);
+  add({ type: "program" }, PROGRAM_HEIGHT, music ? CAMERA_GAP : GROUP_GAP);
+  if (music) add({ type: "music" }, MUSIC_HEIGHT, GROUP_GAP);
   cameras.forEach((camera, i) => add({ type: "camera", camera }, CAMERA_HEIGHT, i < cameras.length - 1 ? CAMERA_GAP : GROUP_GAP));
   add({ type: "waveform" }, WAVEFORM_HEIGHT, 0);
   return { lanes, height: top };
@@ -98,12 +103,71 @@ export class TimelineDrawing {
       if (lane.type === "ruler") this.drawRuler(context, lane, width);
       else if (lane.type === "program") this.drawProgram(context, lane, width);
       else if (lane.type === "camera") this.drawCamera(context, lane, width);
+      else if (lane.type === "music") this.drawMusic(context, lane, width);
       else this.drawWaveform(context, lane, width);
     }
     this.drawLaneSeparators(context, lanes, width);
     this.drawTrim(context, lanes, width, height);
     this.drawHoverLine(context, lanes, width, height);
     this.drawPlayhead(context, height);
+    this.drawHoverTip(context, width, height);
+  }
+
+  // -- the AI cut: what it heard, and why it cut (docs/ai-cut-plan.md)
+  /** The Music lane: each section the model heard as a block with its name and leader,
+   *  each moment as a small mark on top. */
+  drawMusic(context, lane, width) {
+    const store = this.store;
+    this.laneBackground(context, lane, width);
+    const music = store.music;
+    if (!music) return;
+    context.font = `500 11px ${this.colours.uiFont}`;
+    music.sections.forEach((section, index) => {
+      const x0 = store.xOf(section.start);
+      const x1 = store.xOf(section.end);
+      if (x1 < 0 || x0 > width) return;
+      context.fillStyle = index % 2 ? this.colours.musicEven : this.colours.musicOdd;
+      context.fillRect(this.snap(x0), lane.top + 2, Math.max(1, this.snap(x1) - this.snap(x0) - 1), lane.height - 4);
+      const text = section.label;
+      if (x1 - x0 > context.measureText(text).width + 12) {
+        context.fillStyle = this.colours.text;
+        context.fillText(text, Math.max(x0, 0) + 6, lane.top + lane.height / 2 + 4);
+      }
+    });
+    context.fillStyle = this.colours.accent;
+    for (const moment of music.moments) {
+      const x = store.xOf(moment.at);
+      if (x < -4 || x > width + 4) continue;
+      context.beginPath();
+      context.moveTo(x - 4, lane.top);
+      context.lineTo(x + 4, lane.top);
+      context.lineTo(x, lane.top + 6);
+      context.closePath();
+      context.fill();
+    }
+  }
+
+  /** What is under the mouse, in words: on the program strip an AI cut's reason (and what
+   *  the hub changed); on the Music lane the section's notes or a moment. */
+  drawHoverTip(context, width, height) {
+    const store = this.store;
+    const hover = store.hover;
+    if (!hover || store.gesture || !hover.lane) return;
+    const lines = hoverLines(store, hover);
+    if (!lines.length) return;
+    context.font = `500 11px ${this.colours.uiFont}`;
+    const wrapped = lines.flatMap(line => wrapText(context, line, Math.min(360, width - 24)));
+    const boxWidth = Math.max(...wrapped.map(line => context.measureText(line).width)) + 16;
+    const boxHeight = wrapped.length * 15 + 10;
+    const x = Math.max(4, Math.min(width - boxWidth - 4, store.xOf(hover.seconds) + 12));
+    const below = hover.lane.top + hover.lane.height + 4;
+    const y = below + boxHeight < height ? below : Math.max(2, hover.lane.top - boxHeight - 4);
+    context.fillStyle = this.colours.tipBackground;
+    context.beginPath();
+    context.roundRect(x, y, boxWidth, boxHeight, 6);
+    context.fill();
+    context.fillStyle = this.colours.text;
+    wrapped.forEach((line, i) => context.fillText(line, x + 8, y + 17 + i * 15));
   }
 
   // -- pieces
@@ -488,10 +552,46 @@ export function readColours(element) {
     rough: "rgba(236,229,214,0.4)",
     autoCut: "rgba(228,220,203,0.5)",
     hoverLine: "rgba(228,220,203,0.5)",
+    musicOdd: "rgba(236,229,214,0.13)",
+    musicEven: "rgba(236,229,214,0.07)",
+    tipBackground: "rgba(17,16,15,0.92)",
     waveform: "#6b6458",
     waveformPlayed: "#d9cfbb",
     waveformGhost: "rgba(217,207,187,0.3)",
     uiFont: token("--font-ui"),
     numberFont: token("--font-numbers"),
   };
+}
+
+/** The hover box's lines for the lane under the mouse (drawHoverTip), or []. */
+function hoverLines(store, hover) {
+  if (hover.lane.type === "program") {
+    const cut = store.cuts[cutIndexAt(store.cuts, hover.seconds)];
+    if (!cut || !cut.reason) return [];
+    return [`Why: ${cut.reason}`, ...(cut.note ? [`Hub: ${cut.note}`] : []), ...(cut.by === "ai" ? [] : ["(changed by hand since)"])];
+  }
+  if (hover.lane.type === "music" && store.music) {
+    const near = store.music.moments.find(moment => Math.abs(store.xOf(moment.at) - store.xOf(hover.seconds)) < 6);
+    if (near) return [`Moment: ${near.label}`];
+    const section = store.music.sections.find(s => s.start <= hover.seconds && hover.seconds < s.end);
+    return section ? [section.label, ...(section.notes ? [section.notes] : [])] : [];
+  }
+  return [];
+}
+
+/** Text broken into lines no wider than maxWidth (canvas has no wrapping of its own). */
+function wrapText(context, text, maxWidth) {
+  const lines = [];
+  let line = "";
+  for (const word of text.split(/\s+/)) {
+    const tried = line ? `${line} ${word}` : word;
+    if (line && context.measureText(tried).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = tried;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
 }

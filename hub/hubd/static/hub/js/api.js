@@ -27,6 +27,10 @@ export const rigAction = (path, body = {}) => request("POST", path, body);
 
 /** Name a camera or take ("" goes back to the default). Resolves with every name. */
 export const saveName = (kind, id, name) => request("POST", "/api/names", { kind, id, name });
+/** A camera's current role: what it shows, its shot size, a note (camera_tags.py). */
+export const saveCameraTags = (id, tags) => request("POST", "/api/camera-tags", { id, tags });
+/** A new instrument to pick from in every camera's role. Returns the vocabulary. */
+export const addInstrument = name => request("POST", "/api/camera-tags/instrument", { name });
 export const setPhoneMount = (phoneId, mount) => request("POST", `/api/phone/${encodeURIComponent(phoneId)}/mount`, { mount });
 /** Flash a phone's screen in its colour for a few seconds: which one is it? */
 export const identifyPhone = phoneId => request("POST", `/api/phone/${encodeURIComponent(phoneId)}/identify`, {});

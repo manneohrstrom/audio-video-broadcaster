@@ -69,6 +69,13 @@ export class EditorStore {
     this.comparing = false;                  // held down on the video: show without the look
     this.history = new EditModel.History();
 
+    // The AI cut (docs/ai-cut-plan.md): the run whose cut was last put in (its id is saved
+    // with the edit), loaded by the page for the Music lane and the reasons.
+    this.aiRunId = project.edit.ai_run || null;
+    this.aiRun = null;
+    this.musicFor = undefined;               // the run the Music lane was last worked out for
+    this.musicCache = null;
+
     this.playheadSeconds = 0;
     this.isPlaying = false;
     this.hover = null;            // { seconds, x, lane } while the mouse is over the timeline
@@ -195,6 +202,56 @@ export class EditorStore {
     this.beginChange();
     this.selectedCutIndex = -1;
     this.setCuts(EditModel.removeCut(this.cuts, index));
+  }
+
+  /** Put an AI cut run's cuts in as the song's cut (undo brings back the cut before).
+   *  The run's times are against the song range it was made with: moved onto today's. */
+  applyAiRun(run) {
+    const offsetNs = run.range_ns[0] - this.rangeStartNs;
+    const cuts = EditModel.normalize(cutsFromFile(run.cuts, offsetNs).filter(cut => cut.atSeconds < this.songSeconds));
+    if (!cuts.length) {
+      this.showToast("That run has no cuts inside this song");
+      return;
+    }
+    this.beginChange();
+    this.selectedCutIndex = -1;
+    this.aiRunId = run.id;
+    this.aiRun = run;
+    this.setCuts(cuts);
+  }
+
+  /** The Music lane from the AI run's listening: sections and moments in song seconds, or null. */
+  get music() {
+    if (this.musicFor !== this.aiRun) {             // worked out once per run (drawn every frame)
+      this.musicFor = this.aiRun;
+      this.musicCache = this.musicOf(this.aiRun);
+    }
+    return this.musicCache;
+  }
+
+  musicOf(run) {
+    const answer = run && run.listening && run.listening.answer;
+    if (!answer) return null;
+    const scale = 1 + (run.drift_ppm || 0) * 1e-6;
+    const songSecondsOf = bounceSeconds => (run.bounce_start_ns + bounceSeconds * NS_PER_SECOND * scale - this.rangeStartNs) / NS_PER_SECOND;
+    return {
+      sections: (answer.sections || []).map(section => ({
+        start: songSecondsOf(section.start), end: songSecondsOf(section.end),
+        label: [section.kind, section.leader].filter(part => part && part !== "none").join(" · ").replace(/_/g, " "),
+        notes: section.notes || "" })),
+      moments: (answer.moments || []).map(moment => ({
+        at: songSecondsOf(moment.time), label: [moment.instrument, moment.what].filter(Boolean).join(": ") })),
+    };
+  }
+
+  /** A camera's tags for this take changed (the AI cut's Cameras settings). */
+  setCameraTags(cameraId, tags) {
+    const camera = this.camerasById.get(cameraId);
+    if (camera) {
+      camera.tags = tags;
+      camera.tags_from = "take";
+    }
+    this.notify();
   }
 
   undo() {
@@ -482,7 +539,8 @@ export class EditorStore {
                       branding: this.branding, branding_colour: this.brandingColour, title: this.title,
                       trim_ns: this.isTrimmed ? [Math.round(this.inSeconds * NS_PER_SECOND), Math.round(this.outSeconds * NS_PER_SECOND)] : null,
                       story: { framing: this.storyFraming,
-                               range_ns: this.storyRange ? this.storyRange.map(seconds => Math.round(seconds * NS_PER_SECOND)) : null } });
+                               range_ns: this.storyRange ? this.storyRange.map(seconds => Math.round(seconds * NS_PER_SECOND)) : null },
+                      ai_run: this.aiRunId });
       this.saveState = this.saveState === "saving" ? "saved" : this.saveState;
       this.saveProblem = null;
     } catch (error) {
