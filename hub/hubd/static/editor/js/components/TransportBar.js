@@ -1,4 +1,5 @@
-// Under the video: play, frame steps, the time, which camera is on, and the zoom slider.
+// Under the video: play, frame steps, the time, which camera is on, and the zoom slider
+// (in the cut the zoom sits above the timeline instead: ZoomSlider).
 // The play key is the instrument's red eye: it glows while the song plays. The time sits on
 // an LCD, with the unlit segments ("8:88.8") faintly behind the lit ones.
 import { useEffect, useRef } from "preact/hooks";
@@ -10,7 +11,7 @@ import { Icon } from "shared/icons.js";
 /** The LCD's unlit segments behind a reading: every digit as an 8. */
 const unlitSegments = text => text.replace(/\d/g, "8");
 
-export function TransportBar({ store, transport }) {
+export function TransportBar({ store, transport, showZoom = true }) {
   const timeRef = useRef(null);
   const unlitRef = useRef(null);
   const onAirRef = useRef(null);
@@ -48,10 +49,15 @@ export function TransportBar({ store, transport }) {
         <span class="duration">${formatSeconds(store.songSeconds)}</span>
       </span>
       <span class="on-air" ref=${onAirRef}></span>
-      <span class="spacer"></span>
-      <label class="zoom" for="zoom"><${Icon} name="magnifier" size=${16} /><span>Zoom</span>
-        <input id="zoom" type="range" min="0" max="1000" value=${Math.round(store.zoomPosition * 1000)}
-               aria-label="Zoom" onInput=${event => store.setZoomPosition(event.target.value / 1000)} />
-      </label>
+      ${showZoom && html`<span class="spacer"></span><${ZoomSlider} store=${store} />`}
     </div>`;
+}
+
+/** The timeline's zoom: in the transport bar, or above the timeline in the cut. */
+export function ZoomSlider({ store }) {
+  return html`
+    <label class="zoom" for="zoom"><${Icon} name="magnifier" size=${16} /><span>Zoom</span>
+      <input id="zoom" type="range" min="0" max="1000" value=${Math.round(store.zoomPosition * 1000)}
+             aria-label="Zoom" onInput=${event => store.setZoomPosition(event.target.value / 1000)} />
+    </label>`;
 }

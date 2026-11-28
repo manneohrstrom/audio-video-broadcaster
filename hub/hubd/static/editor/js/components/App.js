@@ -1,4 +1,6 @@
-// The editor page, step 1 (the cut): header, video, transport, splitter, timeline, footer.
+// The editor page, step 1 (the cut): header, then the video and transport on the left and the
+// timeline on the right with a splitter between (user, 2026-11-28: with nine cameras the
+// lanes left too little room for the video above them), footer.
 // Steps 2-4 (look, title, story) show their panel beside the video and a slim timeline.
 // Loads the project from the hub, then hands one EditorStore to everything below.
 // In Sync mode (sync by hand) the header is the SyncBar and there are no steps.
@@ -11,8 +13,8 @@ import { VideoPlayer } from "../media/video-player.js";
 import { CameraThumbnails } from "../media/thumbnails.js";
 import { attachKeyboard } from "../keyboard.js";
 import { VideoWindow } from "./VideoWindow.js";
-import { TransportBar } from "./TransportBar.js";
-import { Splitter, savedVideoHeight } from "./Splitter.js";
+import { TransportBar, ZoomSlider } from "./TransportBar.js";
+import { Splitter, savedVideoHeight, savedVideoWidth } from "./Splitter.js";
 import { Timeline } from "./Timeline.js";
 import { LookPanel } from "./LookPanel.js";
 import { TitlePanel } from "./TitlePanel.js";
@@ -59,7 +61,8 @@ function Editor({ project }) {
   useEffect(() => () => player.close(), [player]);
   window.editorDebug = { store, player, transport };       // for the browser console and automated checks
   const [, rerender] = useState(0);
-  const [videoHeight, setVideoHeight] = useState(savedVideoHeight());
+  const [videoHeight, setVideoHeight] = useState(savedVideoHeight());     // sync mode: video above the timeline
+  const [videoWidth, setVideoWidth] = useState(savedVideoWidth());        // the cut: video beside the timeline
   const [waveform, setWaveform] = useState(null);
   const thumbnailsByCamera = useMemo(() => new Map(store.cameras.map(camera =>
     [camera.id, new CameraThumbnails(camera.thumbnails_url, () => {})])), [store]);
@@ -87,10 +90,15 @@ function Editor({ project }) {
   const timeline = store.step === "cut" || store.syncMode
     ? html`<${Timeline} key="cut" store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`
     : html`<${Timeline} key="look" compact store=${store} transport=${transport} thumbnailsByCamera=${thumbnailsByCamera} waveform=${waveform} />`;
+  // The cut: the video column, a splitter and the timeline side by side in .main-area. The other
+  // steps and sync mode: .main-area lays nothing out (display: contents) and the timeline goes below.
+  // The video stays in the same place in the tree for every step, so changing step doesn't rebuild it.
+  const cutLayout = store.step === "cut" && !store.syncMode;
   const saveLabel = { saved: "Saved", unsaved: "Not saved yet", saving: "Saving…", error: "Not saved" }[store.saveState];
   return html`
-    <div class=${"editor" + (store.step !== "cut" && !store.syncMode ? " look-step" : "")}
-         style=${videoHeight ? { "--video-area-height": `${videoHeight}px` } : null}>
+    <div class=${"editor" + (cutLayout ? " cut-step" : store.syncMode ? "" : " look-step")}
+         style=${{ ...(videoHeight ? { "--video-area-height": `${videoHeight}px` } : {}),
+                   ...(videoWidth ? { "--video-column-width": `${videoWidth}px` } : {}) }}>
       ${store.syncMode ? html`<${SyncBar} store=${store} />` : html`
       <header class="editor-header">
         <div class="song-title">
@@ -121,17 +129,24 @@ function Editor({ project }) {
         </div>
         <${PreviewNotice} store=${store} project=${project} />
       </header>`}
-      <div class="video-area">
-        <div class="video-column">
-          <${VideoWindow} store=${store} thumbnailsByCamera=${thumbnailsByCamera} player=${player} />
-          <${TransportBar} store=${store} transport=${transport} />
+      <div class="main-area">
+        <div class="video-area">
+          <div class="video-column">
+            <${VideoWindow} store=${store} thumbnailsByCamera=${thumbnailsByCamera} player=${player} />
+            <${TransportBar} store=${store} transport=${transport} showZoom=${!cutLayout} />
+          </div>
+          ${store.step === "look" && !store.syncMode && html`<${LookPanel} store=${store} />`}
+          ${store.step === "title" && !store.syncMode && html`<${TitlePanel} store=${store} transport=${transport} />`}
+          ${store.step === "story" && !store.syncMode && html`<${StoryPanel} store=${store} transport=${transport} />`}
         </div>
-        ${store.step === "look" && !store.syncMode && html`<${LookPanel} store=${store} />`}
-        ${store.step === "title" && !store.syncMode && html`<${TitlePanel} store=${store} transport=${transport} />`}
-        ${store.step === "story" && !store.syncMode && html`<${StoryPanel} store=${store} transport=${transport} />`}
+        ${cutLayout && html`<${Splitter} orientation="vertical" onResize=${setVideoWidth} />`}
+        ${cutLayout && html`<div class="beside-splitter">
+          <div class="timeline-tools"><${ZoomSlider} store=${store} /></div>
+          ${timeline}
+        </div>`}
       </div>
-      ${(store.step === "cut" || store.syncMode) && html`<${Splitter} onResize=${setVideoHeight} />`}
-      <div class="below-splitter">${timeline}</div>
+      ${store.syncMode && html`<${Splitter} onResize=${setVideoHeight} />`}
+      ${!cutLayout && html`<div class="below-splitter">${timeline}</div>`}
       ${store.syncMode ? html`
       <footer class="editor-footer">
         <span class="shortcuts">

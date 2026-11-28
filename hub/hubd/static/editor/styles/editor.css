@@ -65,6 +65,29 @@ a.button { text-decoration: none; color: var(--color-text); }
 .video-area { min-height: 0; display: flex; flex-direction: column; }
 .video-column { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
 
+/* Step 1, the cut: the video on the left, the timeline on the right, a splitter between (user,
+   2026-11-28: with nine cameras the lanes under the video left it too small to use). The
+   video column's width is dragged on the splitter; the timeline keeps at least 360 px. */
+.main-area { display: contents; }               /* other steps and sync mode: video-area is the editor's row */
+.editor.cut-step { grid-template-rows: auto minmax(0, 1fr) auto; }
+.editor.cut-step .main-area {
+  display: grid; min-height: 0;
+  grid-template-columns: min(var(--video-column-width, 50%), calc(100% - 372px)) 12px minmax(0, 1fr);
+}
+/* Room between the picture's bezel (its shadow reaches 8 px out) and the splitter. */
+.editor.cut-step .video-area { min-width: 0; padding: var(--space-2) var(--space-4) var(--space-2) 8px; }
+/* The picture with the transport right under it, the pair centred in the column (user,
+   2026-11-28): as wide as the column, as long as it fits the window's height. */
+.editor.cut-step .video-column { justify-content: center; }
+.editor.cut-step .video-stage { flex: none; container-type: inline-size; }
+.editor.cut-step .video-window { width: min(100cqw, calc((100vh - 230px) * 16 / 9)); }
+.beside-splitter { min-height: 0; min-width: 0; overflow: auto; padding: var(--space-2) 0 0 var(--space-4); }
+.timeline-tools { display: flex; justify-content: flex-end; padding-block: 2px 6px; }
+@media (max-width: 900px) {                      /* narrow screens: the timeline under the video */
+  .editor.cut-step .main-area { grid-template-columns: 1fr; grid-template-rows: 48vh minmax(0, 1fr); }
+  .editor.cut-step .splitter.vertical { display: none; }
+}
+
 /* Step 2: the look controls beside the video (user, 2026-11-16), the slim timeline below. */
 /* No splitter here (user): the video takes all the room, the slim timeline sits at the bottom. */
 .editor.look-step { grid-template-rows: auto minmax(0, 1fr) auto auto; }
@@ -162,6 +185,9 @@ input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px va
   background: repeating-linear-gradient(90deg, var(--color-line) 0 3px, transparent 3px 6px);
 }
 .splitter:hover::before, .splitter.dragging::before { background: repeating-linear-gradient(90deg, var(--color-accent) 0 3px, transparent 3px 6px); }
+.splitter.vertical { cursor: col-resize; border-top: 0; border-left: 1px solid var(--color-line); }
+.splitter.vertical::before { width: 5px; height: 44px; background: repeating-linear-gradient(0deg, var(--color-line) 0 3px, transparent 3px 6px); }
+.splitter.vertical:hover::before, .splitter.vertical.dragging::before { background: repeating-linear-gradient(0deg, var(--color-accent) 0 3px, transparent 3px 6px); }
 
 /* -- timeline: a display cut into the body */
 .below-splitter { min-height: 0; overflow: auto; }
