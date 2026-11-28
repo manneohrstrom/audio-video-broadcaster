@@ -21,10 +21,13 @@ TimeoutStopSec=30
 # Needs cgroup_enable=memory on the kernel command line (deploy/roles/hub_ingest; without
 # it, until 2026-11-28, these two lines did nothing).
 MemoryMax=700M
-# 256 MB, not 64 (2026-11-28): during a dissolve a render holds the encoder (~390 MB with a
-# light look), two camera decoders (~137 MB each) and ingest (~95 MB), 760 MB in all, so the
-# 64 MB cap killed it at the first dissolve. Swap is zram: 256 MB costs ~85 MB of real RAM.
-MemorySwapMax=256M
+# Swap: zram first (compressed RAM), then the 2 GB overflow file on the SD card
+# (deploy/roles/hub_ingest), so a render that needs more slows down instead of being killed
+# (user, 2026-11-28). During a dissolve a render holds the encoder (~390 MB with a light look),
+# two camera decoders (~137 MB each) and ingest (~95 MB), ~760 MB in all: 64 MB of swap
+# killed it at the first dissolve; 256 MB passed a 30 s test. 1 GB leaves a margin for
+# heavier looks, at the cost of speed once it reaches the card.
+MemorySwapMax=1G
 # When the kernel kills a process here for memory (the render's encoder or a decoder:
 # oom_score_adj 1000), keep the service running so the render fails with its error. The
 # default, stop, killed all of ingest, and on restart it queued the same render again: a loop.

@@ -102,6 +102,44 @@
     line: '\1 cgroup_enable=memory'
     backrefs: true
 
+# A safety net for renders (user, 2026-11-28: "slows down rather than crashes"): a swap file
+# on the SD card behind zram. rpi-swap keeps zram0 (priority 100; its /var/swap is zram's
+# idle-page writeback, not swap); this file has priority 10, so the kernel uses it only once
+# zram is full. hub-ingest's MemorySwapMax bounds how much of it a render can take.
+- name: Overflow swap file on the SD card (2 GB)
+  ansible.builtin.command: fallocate -l 2G /var/swap-overflow
+  args:
+    creates: /var/swap-overflow
+  register: overflow_swap_file
+
+- name: Overflow swap file readable by root only
+  ansible.builtin.file:
+    path: /var/swap-overflow
+    mode: "0600"
+    owner: root
+    group: root
+
+- name: Overflow swap file formatted as swap
+  ansible.builtin.command: mkswap /var/swap-overflow
+  when: overflow_swap_file is changed
+
+- name: Overflow swap file used at every boot, after zram
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^/var/swap-overflow\s'
+    line: /var/swap-overflow none swap sw,pri=10 0 0
+
+- name: Is the overflow swap file on?
+  ansible.builtin.command: grep -q '^/var/swap-overflow ' /proc/swaps
+  register: overflow_swap_on
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Overflow swap file on now
+  ansible.builtin.command: swapon -p 10 /var/swap-overflow
+  when: overflow_swap_on.rc != 0
+
 - name: hub-ingest systemd unit
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../hub/systemd/hub-ingest.service"
