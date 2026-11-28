@@ -87,6 +87,23 @@ class HelpersTest(unittest.TestCase):
                 ep.validate_cuts(bad, {"cam1", "cam2"}, 60 * SECOND)
 
 
+    def test_validate_cuts_keeps_camera_moves(self):
+        cuts = ep.validate_cuts([{"at_ns": 0, "camera": "cam1", "move": {"kind": "in", "amount": 0.3}},
+                                 {"at_ns": 5 * SECOND, "camera": "cam2", "move": {"kind": "sideways"}},
+                                 {"at_ns": 9 * SECOND, "camera": "cam1", "move": {"kind": "left", "amount": 3}}],
+                                {"cam1", "cam2"}, 60 * SECOND)
+        self.assertEqual([c.get("move") for c in cuts],
+                         [{"kind": "in", "amount": 0.3}, None, {"kind": "left", "amount": 1.0}])
+
+    def test_the_hub_and_the_render_agree_on_moves(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "ingest"))
+        import camera_move
+        self.assertEqual(ep.MOVE_KINDS, camera_move.KINDS)
+        self.assertEqual(ep.DEFAULT_MOVE_AMOUNT, camera_move.DEFAULT_AMOUNT)
+        for move in ({"kind": "out", "amount": 0.01}, {"kind": "right"}, {"kind": "in", "amount": "x"}, {"kind": "no"}):
+            self.assertEqual(ep.clean_move(move), camera_move.clean_move(move))
+
+
 class RebaseTest(unittest.TestCase):
     def test_cuts_keep_their_hub_time(self):
         cuts = [{"at_ns": 0, "camera": "cam1"}, {"at_ns": 10 * SECOND, "camera": "cam2"}]

@@ -17,6 +17,7 @@ import { TransportBar, ZoomSlider } from "./TransportBar.js";
 import { Splitter, savedVideoHeight, savedVideoWidth } from "./Splitter.js";
 import { Timeline } from "./Timeline.js";
 import { AiCutBar } from "./AiCutBar.js";
+import { MoveBar } from "./MoveBar.js";
 import { LookPanel } from "./LookPanel.js";
 import { TitlePanel } from "./TitlePanel.js";
 import { StoryPanel } from "./StoryPanel.js";
@@ -142,7 +143,7 @@ function Editor({ project }) {
         </div>
         ${cutLayout && html`<${Splitter} orientation="vertical" onResize=${setVideoWidth} />`}
         ${cutLayout && html`<div class="beside-splitter">
-          <div class="timeline-tools"><${AiCutBar} store=${store} /><${ZoomSlider} store=${store} /></div>
+          <div class="timeline-tools"><${AiCutBar} store=${store} /><${MoveBar} store=${store} /><${ZoomSlider} store=${store} /></div>
           ${timeline}
         </div>`}
       </div>

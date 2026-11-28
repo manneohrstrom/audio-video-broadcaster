@@ -12,6 +12,10 @@
 //   - moveEdge / removeCut: drag or delete the boundary between two shots.
 // A dragged shot or edge runs over the shots in its way, as far as it's dragged, and two
 // shots of the same camera that meet become one (user, 2026-11-21).
+//
+// A cut may carry its shot's camera move (camera-move.js). The move belongs to the shot, so it
+// stays with it through the gestures: a slid shot, or one whose edge is dragged, keeps it, and so
+// does the rest of a shot that another camera is chosen over (each part then moves on its own).
 
 /** Shortest a shot may become: shorter leftovers of a dragged-over shot are swallowed (seconds). */
 export const MIN_SHOT_SECONDS = 0.2;
@@ -52,19 +56,42 @@ export function normalize(cuts) {
   return merged;
 }
 
+/** The cut with this move added (none: the cut as it is). */
+function withMove(cut, move) {
+  return move ? { ...cut, move } : cut;
+}
+
+/** The move of the first shot of `cameraId` that overlaps [start, end] (its own move, when a
+ *  shot is dragged over the stretch it already shows), or undefined. */
+function moveOfCameraIn(cuts, cameraId, start, end, songSeconds) {
+  const shot = shots(cuts, songSeconds).find(s => s.cameraId === cameraId && s.start < end - TIME_EPSILON && s.end > start + TIME_EPSILON);
+  return shot ? cuts[shot.index].move : undefined;
+}
+
 /**
  * Show `cameraId` for exactly [start, end]; before and after, the cut stays as it was
- * (whatever was showing at `end` comes back there). Returns a new list.
+ * (whatever was showing at `end` comes back there, with its move). The new shot gets `move`,
+ * or when that's undefined the move of the shot of this camera it overlaps. Returns a new list.
  */
-export function chooseCameraForStretch(cuts, cameraId, start, end, songSeconds) {
+export function chooseCameraForStretch(cuts, cameraId, start, end, songSeconds, move = undefined) {
   start = Math.max(0, Math.min(start, songSeconds));
   end = Math.max(0, Math.min(end, songSeconds));
   if (end - start < MIN_SHOT_SECONDS / 2) return cuts;
-  const cameraAfter = cameraAt(cuts, end);
+  const showingAtEnd = cuts[cutIndexAt(cuts, end)];
+  const ownMove = move === undefined ? moveOfCameraIn(cuts, cameraId, start, end, songSeconds) : move;
   const kept = cuts.filter(cut => cut.atSeconds < start - TIME_EPSILON || cut.atSeconds > end + TIME_EPSILON);
-  kept.push({ atSeconds: start, cameraId, by: "user" });
-  if (end < songSeconds - 0.05) kept.push({ atSeconds: end, cameraId: cameraAfter, by: "user" });
+  kept.push(withMove({ atSeconds: start, cameraId, by: "user" }, ownMove));
+  if (end < songSeconds - 0.05) kept.push(withMove({ atSeconds: end, cameraId: showingAtEnd.cameraId, by: "user" }, showingAtEnd.move));
   return normalize(kept);
+}
+
+/** The cut list with shot `index`'s camera move set (null: no move). Returns a new list. */
+export function setShotMove(cuts, index, move) {
+  return cuts.map((cut, i) => {
+    if (i !== index) return cut;
+    const { move: _old, ...rest } = cut;
+    return move ? { ...rest, move: { kind: move.kind, amount: move.amount } } : rest;
+  });
 }
 
 /** Show `cameraId` from `seconds` until the next cut (keys 1-9 while playing). */
@@ -84,7 +111,7 @@ export function cutToCameraAt(cuts, cameraId, seconds) {
  * whatever is in its way, and meeting a shot of its own camera it becomes one shot with it
  * (normalize). Returns { cuts, start, end, cameraId }: the new list and the stretch as placed.
  */
-export function placeShot(cuts, cameraId, start, end, songSeconds) {
+export function placeShot(cuts, cameraId, start, end, songSeconds, move = undefined) {
   start = Math.max(0, Math.min(start, songSeconds));
   end = Math.max(start, Math.min(end, songSeconds));
   const shotAtStart = cuts[cutIndexAt(cuts, start)];
@@ -92,7 +119,7 @@ export function placeShot(cuts, cameraId, start, end, songSeconds) {
   const nextCut = cuts.find(cut => cut.atSeconds > end + TIME_EPSILON);
   const nextAt = nextCut ? nextCut.atSeconds : songSeconds;
   if (nextAt - end < MIN_SHOT_SECONDS - TIME_EPSILON) end = nextAt;
-  return { cuts: chooseCameraForStretch(cuts, cameraId, start, end, songSeconds), start, end, cameraId };
+  return { cuts: chooseCameraForStretch(cuts, cameraId, start, end, songSeconds, move), start, end, cameraId };
 }
 
 /**
@@ -141,7 +168,8 @@ export function slideShot(original, index, shiftSeconds, songSeconds) {
   if (Math.abs(shift) < TIME_EPSILON) return unchanged;
   const vacated = original.filter((_, i) => i !== index);      // sliding later: the shot before carries on
   if (shift < 0) vacated[index] = { ...vacated[index], atSeconds: start };   // earlier: the shot after starts sooner
-  return placeShot(normalize(vacated), cameraId, start + shift, end + shift, songSeconds);
+  // The slid shot's cut is gone from `vacated`, so its move comes along explicitly (or null: none).
+  return placeShot(normalize(vacated), cameraId, start + shift, end + shift, songSeconds, original[index].move || null);
 }
 
 /** Remove the boundary `index` (> 0): the shot before it carries on. */

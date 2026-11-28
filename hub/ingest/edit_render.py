@@ -12,6 +12,9 @@ How (an extension of the quick mix's pipe, render.py / spike E3):
   - at each cut the next shot's decoder starts a little early, so for the dissolve both
     are running: this script mixes their frames (smoothstep, centred on the cut, the
     same curve as the editor's preview);
+  - a shot with a camera move (camera_move.py) gets ffmpeg's perspective filter in its
+    decoder, right after the scale: the move is part of the shot's picture, so a dissolve
+    mixes two pictures that each keep their own move, and the story slices the result;
   - frames go, as YUV, to one x264 encoder, whose ffmpeg filter graph adds the look's
     effects (look_render.effect_filter_graph) and which takes the bounce as the only sound.
 
@@ -31,6 +34,7 @@ import subprocess
 
 import numpy as np
 
+import camera_move
 import look_render
 import render
 import title_render
@@ -55,6 +59,8 @@ class Shot:
         self.first_frame, self.end_frame = first_frame, end_frame       # what's on screen
         self.decode_from, self.decode_to = first_frame, end_frame       # plus dissolve overlap
         self.covered_from, self.covered_to = first_frame, end_frame
+        self.move = None                           # the camera move (camera_move.py), or None
+        self.move_span = (first_frame, end_frame)  # the shot the move is timed over (output frames)
         self.process = None
         self.started = False
         self.last_picture = None
@@ -73,8 +79,15 @@ def plan_shots(edit, take_doc, dissolve_s):
     total = int(round((range_end - range_start) * FPS / NS))
     bounds = [int(round(cut["at_ns"] * FPS / NS)) for cut in edit["cuts"]] + [total]
     # Stories dissolve at a cut unless it's marked story_glide (user, 2026-11-24: dissolve by default).
-    shots = [Shot(cut["camera"], first, end, cut.get("story_glide") is not True)
-             for cut, first, end in zip(edit["cuts"], bounds, bounds[1:]) if end > first]
+    shots = []
+    for cut, first, end in zip(edit["cuts"], bounds, bounds[1:]):
+        if end <= first:
+            continue
+        shot = Shot(cut["camera"], first, end, cut.get("story_glide") is not True)
+        shot.move = camera_move.clean_move(cut.get("move"))
+        if shot.move and cut.get("move_span_ns"):        # the whole shot, before trimming (trimmed())
+            shot.move_span = tuple(ns * FPS / NS for ns in cut["move_span_ns"])
+        shots.append(shot)
     half = int(round(dissolve_s * FPS / 2))
     for i, shot in enumerate(shots):
         camera = cameras.get(shot.camera_id)
@@ -98,13 +111,20 @@ def trimmed(edit):
     """The edit cut down to the video's start and end (trim_ns, ns from the start of the
     range; user, 2026-11-21): the range narrowed, the cuts moved to the new start (the camera
     showing at the start becomes the first cut). The bounce and the beats follow from the
-    range; the title sequence runs from the video's start anyway. Without trim_ns, the edit as it is."""
+    range; the title sequence runs from the video's start anyway. Without trim_ns, the edit as it is.
+
+    A shot with a camera move keeps its whole length for the move ("move_span_ns", from the new
+    start): a shot cut short by the start or the end moves exactly as in the preview, which
+    times the move over the whole shot."""
     trim = edit.get("trim_ns")
     if not trim:
         return edit
     in_ns, out_ns = int(trim[0]), int(trim[1])
     range_start = edit["range_ns"][0]
     cuts = sorted(edit["cuts"], key=lambda cut: cut["at_ns"])
+    length = edit["range_ns"][1] - range_start
+    cuts = [dict(cut, move_span_ns=[cut["at_ns"] - in_ns, (cuts[i + 1]["at_ns"] if i + 1 < len(cuts) else length) - in_ns])
+            if cut.get("move") else cut for i, cut in enumerate(cuts)]
     showing = ([cut for cut in cuts if cut["at_ns"] <= in_ns] or cuts)[-1]       # the camera on at the start
     moved = [dict(showing, at_ns=0)] + [dict(cut, at_ns=cut["at_ns"] - in_ns)
                                          for cut in cuts if in_ns < cut["at_ns"] < out_ns]
@@ -155,10 +175,14 @@ def source_colour(path):
     return matrix, "pc" if full else "tv"
 
 
-def decoder_command(source, start_s, frames, lut_path, pixel_format, denoise=0, colour=("bt709", "tv")):
-    """colour: the source's (matrix, range), from source_colour(). The output is Rec. 709 limited."""
+def decoder_command(source, start_s, frames, lut_path, pixel_format, denoise=0, colour=("bt709", "tv"),
+                    move_filter=None):
+    """colour: the source's (matrix, range), from source_colour(). The output is Rec. 709 limited.
+    move_filter: the shot's camera move (camera_move.perspective_filter), or None."""
     matrix, value_range = colour
     filters = "fps=%d:round=near,scale=%d:%d" % (FPS, WIDTH, HEIGHT)
+    if move_filter:
+        filters += "," + move_filter
     if (matrix, value_range) != ("bt709", "tv") and not lut_path:
         filters += ",scale=in_color_matrix=%s:in_range=%s:out_color_matrix=bt709:out_range=tv" % (matrix, value_range)
     if denoise:
@@ -345,9 +369,14 @@ class EditRenderer:
         if count <= 0:
             return                               # the camera recorded none of this shot: black
         source = os.path.join(self.video_dir, shot.camera_id + ".mov")
+        move_filter = None
+        if shot.move:
+            move_filter = camera_move.perspective_filter(shot.move, shot.move_span[0], shot.move_span[1],
+                                                         self.dissolve_s * FPS, first, FPS)
         command = decoder_command(source,
                                   self.file_seconds(shot.camera_id, first), count, self.lut_path, self.pixel_format,
-                                  denoise=self.effects.get("denoise", 0), colour=source_colour(source))
+                                  denoise=self.effects.get("denoise", 0), colour=source_colour(source),
+                                  move_filter=move_filter)
         shot.process = self.spawn(command, stdout=subprocess.PIPE)
 
     def black_frame(self):

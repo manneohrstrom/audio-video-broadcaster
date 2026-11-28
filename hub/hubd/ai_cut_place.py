@@ -1,4 +1,4 @@
-"""Placing the AI cut's decisions on the song (docs/ai-cut-plan.md). Standard library only.
+"""Placing the AI cut's decisions on the song (docs/ai-cut-plan.md). Standard library, and the moves from editor_projects.
 
 The model gives each cut as bounce seconds, a camera and a reason. The hub turns that into
 the edit format's cuts ({"at_ns" from the song range's start, "camera", "by": "ai",
@@ -10,11 +10,16 @@ the edit format's cuts ({"at_ns" from the song range's start, "camera", "by": "a
   - a camera that has no footage for the shot is replaced: by a wide camera that has it
     (shot "wide" or showing the whole band), else the camera before; dropped frames in the
     shot are tolerated (rough sections, as everywhere) but said in the note;
+  - the model's camera move for the shot ("in", "out", "left", "right"; "none" or anything
+    else: no move) goes on the cut at the default amount (hub/ingest/camera_move.py), also
+    when the hub put another camera in;
   - a cut before the video starts (the bounce often starts earlier) opens the video: of those,
     the last one; cuts after the song's end, or less than MIN_SHOT_S after the one before,
     are left out, and the first shot starts at the song's start.
 """
 import bisect
+
+from editor_projects import DEFAULT_MOVE_AMOUNT, MOVE_KINDS
 
 NS_PER_SECOND = 1_000_000_000
 FRAME_NS = NS_PER_SECOND // 30
@@ -83,7 +88,8 @@ def place_cuts(decisions, cameras, range_ns, to_song, beats):
                 left_out.append({"time_s": None, "camera": earlier["camera"], "why": earlier["reason"],
                                  "left_out": "before the video starts, and not the last such cut"})
             at = 0
-        timed.append({"at_ns": at, "camera": decision["camera"], "reason": reason, "notes": notes})
+        timed.append({"at_ns": at, "camera": decision["camera"], "reason": reason, "notes": notes,
+                      "move": decision.get("move") if decision.get("move") in MOVE_KINDS else None})
     spaced = []
     for cut in timed:
         if spaced and cut["at_ns"] - spaced[-1]["at_ns"] < MIN_SHOT_S * NS_PER_SECOND:
@@ -111,6 +117,8 @@ def place_cuts(decisions, cameras, range_ns, to_song, beats):
         elif drops_frames(camera, a, b, range_ns[0]):
             cut["notes"].append("%s drops frames in this shot" % camera["id"])
         placed = {"at_ns": a, "camera": camera["id"], "by": "ai", "reason": cut["reason"]}
+        if cut["move"]:
+            placed["move"] = {"kind": cut["move"], "amount": DEFAULT_MOVE_AMOUNT}
         if cut["notes"]:
             placed["note"] = "; ".join(cut["notes"])[:300]
         if cuts and cuts[-1]["camera"] == placed["camera"]:

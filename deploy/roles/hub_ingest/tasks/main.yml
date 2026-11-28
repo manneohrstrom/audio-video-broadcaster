@@ -52,7 +52,7 @@
     src: "{{ playbook_dir }}/../hub/ingest/{{ item }}"
     dest: "/opt/hub-ingest/{{ item }}"
     mode: "0644"
-  loop: [edit_render.py, story_render.py, look_render.py, grade.py, title_render.py, youtube_upload.py]
+  loop: [edit_render.py, story_render.py, look_render.py, camera_move.py, grade.py, title_render.py, youtube_upload.py]
   notify: [Restart hub-ingest, Restart hub-upload]
 
 - name: hub-ingest analysis for the automatic cut (beats of each bounce, movement per camera)

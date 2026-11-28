@@ -5,6 +5,10 @@
 // waveform that moves with the bounce, over a faint copy of where it was when Sync opened.
 
 import { cutIndexAt } from "../edit-model.js";
+import { MOVE_NAMES } from "../camera-move.js";
+
+/** How a camera move shows on its shot's label on the program strip. */
+const MOVE_MARKS = { in: "in", out: "out", left: "←", right: "→" };
 
 export const RULER_HEIGHT = 18;
 export const PROGRAM_HEIGHT = 58;
@@ -280,7 +284,8 @@ export class TimelineDrawing {
       }
       context.fillStyle = colour;
       this.bar(context, x0, x1, lane.top + lane.height - BAR_HEIGHT, BAR_HEIGHT);
-      this.drawShotLabel(context, shot.camera.label, colour, x0, x1, lane.top);
+      const move = store.cuts[shot.index].move;          // a camera move shows on the label: "cam2 · in"
+      this.drawShotLabel(context, shot.camera.label + (move ? ` · ${MOVE_MARKS[move.kind]}` : ""), colour, x0, x1, lane.top);
       context.restore();
     }
     this.drawSelectionPreview(context, lane);
@@ -567,8 +572,9 @@ export function readColours(element) {
 function hoverLines(store, hover) {
   if (hover.lane.type === "program") {
     const cut = store.cuts[cutIndexAt(store.cuts, hover.seconds)];
-    if (!cut || !cut.reason) return [];
-    return [`Why: ${cut.reason}`, ...(cut.note ? [`Hub: ${cut.note}`] : []), ...(cut.by === "ai" ? [] : ["(changed by hand since)"])];
+    const move = cut && cut.move ? [`Move: ${MOVE_NAMES[cut.move.kind]}, ${Math.round(cut.move.amount * 100)} %`] : [];
+    if (!cut || !cut.reason) return move;
+    return [`Why: ${cut.reason}`, ...(cut.note ? [`Hub: ${cut.note}`] : []), ...move, ...(cut.by === "ai" ? [] : ["(changed by hand since)"])];
   }
   if (hover.lane.type === "music" && store.music) {
     const near = store.music.moments.find(moment => Math.abs(store.xOf(moment.at) - store.xOf(hover.seconds)) < 6);

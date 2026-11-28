@@ -25,7 +25,8 @@ model, its cost and the prompts themselves.
    instrument does throughout with a prominence, including when the bass or drums do
    something out of their usual role, and moments worth a camera.
 2. **Edit** (same conversation): from the listening and the camera table, the cuts:
-   `{time_s, camera, why}` in time order, and a short summary.
+   `{time_s, camera, why, move}` in time order, and a short summary. `move` is the shot's
+   camera move (`none`, `in`, `out`, `left`, `right`; 2026-11-28, `docs/camera-moves.md`).
 
 Both answers are JSON, enforced by Gemini's structured output (`responseJsonSchema`).
 The listening is reused when the bounce, the model, its settings and the listen prompt are

@@ -8,6 +8,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { html } from "./html.js";
 import { everyFrame } from "../frame-loop.js";
 import { cutIndexAt } from "../edit-model.js";
+import { cutMoveRectAt } from "../camera-move.js";
 import { formatSeconds } from "../time-format.js";
 import { fullVideoAvailable } from "../media/video-player.js";
 import { LookRenderer } from "../look/look-renderer.js";
@@ -228,20 +229,30 @@ function whatToShow(store) {
 }
 
 /** One camera's picture: the decoded frame, else the thumbnail (and note that we're waiting).
- *  shift: moved sideways by this share of the width (the story's dissolve, story.js). */
-function drawCamera(context, store, pictures, camera, seconds, canvas, shift = 0) {
+ *  shift: moved sideways by this share of the width (the story's dissolve, story.js).
+ *  move: the part of the picture to show, { left, top, width, height } as shares (the shot's
+ *  camera move, camera-move.js), or null: all of it. The canvas is scaled for it, so the
+ *  picture is sampled between pixels and a slow move doesn't step. */
+function drawCamera(context, store, pictures, camera, seconds, canvas, shift = 0, move = null) {
   if (!store.isRecording(camera, seconds)) return;
-  const x = shift * canvas.width;
+  let x = shift * canvas.width;
+  if (move) {               // the shift is of the moved picture (as the render's story), so it goes outside the scale
+    const scale = 1 / move.width;
+    context.save();
+    context.setTransform(scale, 0, 0, scale, x - move.left * canvas.width * scale, -move.top * canvas.height * scale);
+    x = 0;
+  }
   const frame = pictures.player.pictureFor(camera, seconds, pictures.now);
   if (frame) {
     context.drawImage(frame, x, 0, canvas.width, canvas.height);
-    return;
+  } else {
+    pictures.waiting = true;
+    pictures.thumbnailsByCamera.get(camera.id)?.draw(context, store.cameraFileSeconds(camera, seconds), x, 0, canvas.width, canvas.height);
   }
-  pictures.waiting = true;
-  pictures.thumbnailsByCamera.get(camera.id)?.draw(context, store.cameraFileSeconds(camera, seconds), x, 0, canvas.width, canvas.height);
+  if (move) context.restore();
 }
 
-/** The program picture, with the dissolve centred on each cut. */
+/** The program picture, with the dissolve centred on each cut, and each shot's camera move. */
 function drawProgram(context, store, pictures, seconds, canvas) {
   const cuts = store.cuts;
   const index = cutIndexAt(cuts, seconds);
@@ -255,16 +266,18 @@ function drawProgram(context, store, pictures, seconds, canvas) {
     from = cuts[index]; to = cuts[index + 1]; mix = 0.5 - (cuts[index + 1].atSeconds - seconds) / dissolve;
   }
   const camera = id => store.camerasById.get(id);
+  const moveOf = cutIndex => cutMoveRectAt(cuts, cutIndex, store.songSeconds, dissolve, seconds);
   if (!from) {
-    drawCamera(context, store, pictures, camera(cuts[index].cameraId), seconds, canvas);
+    drawCamera(context, store, pictures, camera(cuts[index].cameraId), seconds, canvas, 0, moveOf(index));
     return;
   }
-  drawCamera(context, store, pictures, camera(from.cameraId), seconds, canvas);
+  const fromIndex = cuts.indexOf(from);
+  drawCamera(context, store, pictures, camera(from.cameraId), seconds, canvas, 0, moveOf(fromIndex));
   context.globalAlpha = mix * mix * (3 - 2 * mix);
   // The Story step: at a cut where the story dissolves, the incoming picture is moved so its
   // slice lies on the outgoing one's, as in the render.
   const shift = store.step === "story" ? incomingShiftShare(from, to, store.storyFraming) : 0;
-  drawCamera(context, store, pictures, camera(to.cameraId), seconds, canvas, shift);
+  drawCamera(context, store, pictures, camera(to.cameraId), seconds, canvas, shift, moveOf(fromIndex + 1));
   context.globalAlpha = 1;
 }
 

@@ -65,6 +65,21 @@ class PlaceCutsTest(unittest.TestCase):
                          ["after the song's end", "less than 2 s after the cut before", "no such camera",
                           "the same camera as the shot before"])
 
+    def test_camera_moves_go_on_the_cuts(self):
+        cuts, _ = self.place([{"time_s": 2.0, "camera": "cam2", "why": "intro", "move": "right"},
+                              {"time_s": 12.0, "camera": "phone-a", "why": "sax solo", "move": "in"},   # cam1 stands in
+                              {"time_s": 32.0, "camera": "cam2", "why": "keys", "move": "none"},
+                              {"time_s": 42.0, "camera": "cam1", "why": "head", "move": "zoom"}])
+        self.assertEqual([c["camera"] for c in cuts], ["cam2", "cam1", "cam2", "cam1"])
+        self.assertEqual([c.get("move") for c in cuts],
+                         [{"kind": "right", "amount": 0.5}, {"kind": "in", "amount": 0.5}, None, None])
+
+    def test_the_edit_schema_asks_for_a_move(self):
+        item = ai_cut_prompts.edit_schema(["cam1"])["properties"]["cuts"]["items"]
+        self.assertEqual(item["properties"]["move"]["enum"], ["none", "in", "out", "left", "right"])
+        self.assertIn("move", item["required"])
+        self.assertIn('"in" on a player\'s close-up', ai_cut_prompts.EDIT_FIXED)
+
     def test_a_cut_before_the_video_opens_it(self):
         cuts, left_out = self.place([{"time_s": 0.0, "camera": "cam2", "why": "count-in"},     # song -2 s
                                      {"time_s": 0.6, "camera": "cam1", "why": "intro"},        # song -1.4 s

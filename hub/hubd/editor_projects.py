@@ -182,8 +182,27 @@ def validate_cuts(cuts, camera_ids, range_length_ns):
                 clean[-1][key] = cut[key].strip()[:longest]
         if cut.get("story_glide") is True:             # the story glides here instead of dissolving (story_render.py)
             clean[-1]["story_glide"] = True
+        move = clean_move(cut.get("move"))
+        if move:
+            clean[-1]["move"] = move
     clean[0]["at_ns"] = 0
     return clean
+
+
+# A shot's camera move (a slow zoom or drift made in the render; hub/ingest/camera_move.py,
+# which hubd doesn't import: the two stay in step through the tests).
+MOVE_KINDS = ("in", "out", "left", "right")
+DEFAULT_MOVE_AMOUNT = 0.5
+
+
+def clean_move(move):
+    """A cut's move as saved ({"kind", "amount" 0.05..1}), or None for none (or one that isn't valid)."""
+    if not isinstance(move, dict) or move.get("kind") not in MOVE_KINDS:
+        return None
+    amount = move.get("amount", DEFAULT_MOVE_AMOUNT)
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+        amount = DEFAULT_MOVE_AMOUNT
+    return {"kind": move["kind"], "amount": round(min(1.0, max(0.05, float(amount))), 3)}
 
 
 def rebase_cuts(cuts, old_range_ns, new_range_ns):

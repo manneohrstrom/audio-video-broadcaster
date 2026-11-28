@@ -196,6 +196,19 @@ export class EditorStore {
     this.setCuts(EditModel.cutToCameraAt(this.cuts, camera.id, at));
   }
 
+  /** Set shot `index`'s camera move (camera-move.js; null: none). Dragging the amount slider
+   *  sends many changes: those to the same shot's amount within a moment are one undo step. */
+  setShotMove(index, move) {
+    if (index < 0 || index >= this.cuts.length) return;
+    const now = performance.now();
+    const previous = this.cuts[index].move;
+    const sameDrag = this.lastMoveChange && this.lastMoveChange.index === index && now - this.lastMoveChange.at < 1500
+      && previous && move && previous.kind === move.kind;
+    if (!sameDrag) this.beginChange();
+    this.lastMoveChange = { index, at: now };
+    this.setCuts(EditModel.setShotMove(this.cuts, index, move));
+  }
+
   removeSelectedCut() {
     const index = this.selectedCutIndex;
     if (index <= 0) return;

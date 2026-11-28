@@ -69,7 +69,13 @@ The cameras all film the whole song. What each one shows:
 
 Answer in the JSON format asked for: the cuts in time order, each starting a shot that runs until the next \
 cut (the first at the start of the song, the last until its end). time_s: seconds from the start of the \
-recording, as in your listening; camera: one of the ids above; why: the musical reason in a few words. \
+recording, as in your listening; camera: one of the ids above; why: the musical reason in a few words; \
+move: a slow camera move over the shot, or "none". The cameras themselves are fixed; a move is made in the \
+edit and is subtle (at most a few percent of zoom): "in" a slow push in on the middle of the picture, "out" a \
+slow pull back from it, "left" or "right" a slow sideways drift. Whoever a close or medium shot is on is in the \
+middle of its picture, so "in" on a player's close-up is how to zoom in on that player (the soloist as the solo \
+builds); on a wide shot a drift or a slow push just brings the still picture to life. Give some shots a move, \
+not every one, so the video doesn't feel static: long shots, calm passages, a solo going somewhere. \
 Then a summary of two or three lines on how you approached the cut."""
 
 # Thinking: one setting for every model. Gemini 3 and later take a level; Gemini 2.5 a token budget.
@@ -217,6 +223,9 @@ LISTEN_SCHEMA = {
 }
 
 
+MOVES = ("none", "in", "out", "left", "right")      # a shot's camera move (hub/ingest/camera_move.py)
+
+
 def edit_schema(camera_ids):
     """The edit answer, with the camera ids as the only allowed cameras."""
     return {
@@ -224,7 +233,8 @@ def edit_schema(camera_ids):
         "properties": {
             "cuts": {"type": "array", "items": {"type": "object", "properties": {
                 "time_s": {"type": "number"}, "camera": {"type": "string", "enum": list(camera_ids)},
-                "why": {"type": "string"}}, "required": ["time_s", "camera", "why"]}},
+                "why": {"type": "string"}, "move": {"type": "string", "enum": list(MOVES)}},
+                "required": ["time_s", "camera", "why", "move"]}},
             "summary": {"type": "string"},
         },
         "required": ["cuts", "summary"],
