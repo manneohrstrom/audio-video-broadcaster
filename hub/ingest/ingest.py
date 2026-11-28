@@ -45,7 +45,7 @@ import youtube_upload  # noqa: E402
 import drive_records  # noqa: E402
 import motion  # noqa: E402
 
-VERSION = "0.36.0"
+VERSION = "0.40.0"
 FPS = 30
 TIMESCALE = 90000            # mov track and movie timescale for rewrapped (real-timing) files
 TIME_TOLERANCE_MS = 1.0      # rewrap verify: each frame's time against the manifest (editor plan E1)
@@ -681,6 +681,16 @@ class Ingest:
                 pass
             os.remove(p)
         return out
+
+    def commands_waiting(self):
+        """A request from hubd is waiting (a render, a delete, an eject …). The long rounds of
+        thumbnails, preview copies and movement stop between cameras for it, so the next
+        round reads it first: renders and deletes don't wait behind a night's preview copies
+        (user, 2026-11-28: a YouTube render waited unseen behind the older takes' copies)."""
+        try:
+            return any(not name.endswith(".tmp") for name in os.listdir(self.cmd_dir))
+        except OSError:
+            return False
 
     def eject_requested(self):
         """An Eject is waiting (checked during a render, which then gives way)."""
@@ -1337,6 +1347,8 @@ class Ingest:
             for index, (take_id, camera_id) in enumerate(pending):
                 if self.rig_busy():
                     raise Paused()
+                if self.commands_waiting():
+                    return                        # the rest next round, after the request
                 self.doing("thumbnails", take=take_id, camera=camera_id, index=index + 1, count=len(pending))
                 mov = os.path.join(self.take_folder(take_id), camera_id + ".mov")
                 out_dir = os.path.join(self.cfg["thumbs_dir"], take_id, camera_id)
@@ -1351,29 +1363,16 @@ class Ingest:
         """(take, camera) pairs of ingested takes without an editing proxy yet."""
         failed = self.state.get("proxies_failed") or {}
         out = []
-        # Only takes the editor can open (a synced song), newest first (user, 2026-11-16:
-        # only the latest take gets edited; no proxies for old takes).
+        # Every ingested take, newest first, without waiting for a bounce (user, 2026-11-28:
+        # ingest overnight makes them, so the editor is ready as soon as the bounce is synced).
         for take_id, take in sorted((self.state.get("takes") or {}).items(), reverse=True):
-            if not take.get("complete") or not self.wants_caches(take) or not self.has_synced_song(take_id):
+            if not take.get("complete") or not self.wants_caches(take):
                 continue
             for camera_id in sorted(k for k, v in take.items() if isinstance(v, dict) and "frames_cam" in v):
                 path = os.path.join(self.cfg["proxies_dir"], take_id, camera_id + ".mp4")
                 if not failed_in_this_version(failed, "%s/%s" % (take_id, camera_id)) and not os.path.exists(path):
                     out.append((take_id, camera_id))
         return out
-
-    def has_synced_song(self, take_id):
-        take_audio = os.path.join(self.cfg["audio_dir"], take_id)
-        try:
-            songs = [d for d in os.listdir(take_audio) if os.path.isdir(os.path.join(take_audio, d))]
-        except OSError:
-            return False
-        for song in songs:
-            song_dir = os.path.join(take_audio, song)
-            for version in os.listdir(song_dir):
-                if os.path.exists(os.path.join(song_dir, version, "sync.json")):
-                    return True
-        return False
 
     def make_proxies(self, pending):
         """Encode each pending proxy. The encoder is suspended while the rig is busy (a take
@@ -1384,6 +1383,8 @@ class Ingest:
             return busy
         with self.reading_drive():
             for index, (take_id, camera_id) in enumerate(pending):
+                if self.commands_waiting():
+                    return                        # the rest next round, after the request
                 source = os.path.join(self.take_folder(take_id), camera_id + ".mov")
                 destination = os.path.join(self.cfg["proxies_dir"], take_id, camera_id + ".mp4")
                 self.state["step"] = "proxy %s %s" % (take_id, camera_id)
@@ -1476,6 +1477,8 @@ class Ingest:
         for index, (take_id, camera_id) in enumerate(pending):
             if self.rig_busy():
                 raise Paused()
+            if self.commands_waiting():
+                return                            # the rest next round, after the request
             proxy = os.path.join(self.cfg["proxies_dir"], take_id, camera_id + ".mp4")
             self.state["step"] = "motion %s %s" % (take_id, camera_id)
             self.doing("motion", take=take_id, camera=camera_id, index=index + 1, count=len(pending))
@@ -1490,8 +1493,8 @@ class Ingest:
     def update_prep(self):
         """Where each camera of an ingested take stands with its thumbnails, preview copy and
         movement readings, as "prep" in its take record (the steps after Mark on camera):
-        done, failed (with the error), waiting (made when the hub is idle) or later (a preview
-        copy waits for a synced song; an adopted take's caches for the editor to open it)."""
+        done, failed (with the error), waiting (made when the hub is idle) or later (an adopted
+        take's caches wait for the editor to open it; movement waits for the preview copy)."""
         failed = {kind: self.state.get(kind + "_failed") or {} for kind in ("thumbs", "proxies", "motion")}
 
         def step(done, failures, key, ready):
@@ -1505,15 +1508,12 @@ class Ingest:
             if not take.get("complete"):
                 continue
             wanted = bool(self.wants_caches(take))
-            synced = None
             for camera_id, cs in take.items():
                 if not (isinstance(cs, dict) and "frames_cam" in cs):
                     continue
                 key = "%s/%s" % (take_id, camera_id)
-                if synced is None:
-                    synced = self.has_synced_song(take_id)
                 has_proxy = os.path.exists(os.path.join(self.cfg["proxies_dir"], take_id, camera_id + ".mp4"))
-                proxy = step(has_proxy, failed["proxies"], key, wanted and synced)
+                proxy = step(has_proxy, failed["proxies"], key, wanted)
                 cs["prep"] = {
                     "thumbnails": step(thumbnails.have_thumbnails(os.path.join(self.cfg["thumbs_dir"], take_id, camera_id)),
                                        failed["thumbs"], key, wanted),
@@ -2046,7 +2046,7 @@ class Ingest:
             self.update_drive_records()     # small files: a quiet rig and the drive are enough
         except (RuntimeError, OSError) as e:
             sys.stderr.write("drive records: %s\n" % e)
-        self.update_prep()                  # a song synced since: its preview copies are waiting now
+        self.update_prep()                  # where each camera's thumbnails, preview copy and movement stand
         ok, why = self.should_run()
         if not ok:
             self.settle_drive()

@@ -64,6 +64,7 @@ class HelpersTest(unittest.TestCase):
         self.assertTrue(cams[0]["is_sync_server"])
         self.assertEqual(cams[2]["label"], "Pixel 9a")
         self.assertEqual(cams[2]["kind"], "phone")
+        self.assertEqual([c["mount"] for c in cams], ["fixed", "fixed", "tripod"])   # no mount recorded: tripod
         self.assertEqual(cams[1]["rough_sections_ns"], [[FIRST_FRAME + 10 * SECOND, FIRST_FRAME + 11 * SECOND]])
         self.assertLessEqual(cams[0]["file_zero_ns"], cams[0]["first_frame_ns"])
 
@@ -157,7 +158,7 @@ class ProjectTest(unittest.TestCase):
         self.assertEqual((p["edit_source"], p["edit"]["made_by"]), ("automatic cut", "rules-v1"))
         cuts = p["edit"]["cuts"]
         self.assertEqual(cuts[0]["camera"], "cam1")                   # the wide camera (sync server) first
-        self.assertTrue({c["camera"] for c in cuts} <= {"cam1", "cam2"})
+        self.assertTrue({c["camera"] for c in cuts} <= {"cam1", "cam2", "pixel-9a"})   # phones take turns too
         song_start = p["range_ns"][0]
         bounce_start = p["bounce"]["start_ns"]
         beat_ns = {bounce_start + int(round(t * SECOND * (1 + 20e-6))) - song_start for t in times}

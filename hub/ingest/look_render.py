@@ -170,7 +170,19 @@ def pulse_zoom(strength, downbeats_s, audio_start_s):
     terms = ["if(between(it+%.4f,%.3f,%.3f),exp(-(it+%.4f-%.3f)/%.3f),0)"
              % (audio_start_s, d, d + PULSE_LENGTH_S, audio_start_s, d, PULSE_DECAY_S)
              for d in downbeats_s if d + PULSE_LENGTH_S >= audio_start_s]
-    return "(1+%.4f*(%s))" % (PULSE_ZOOM * strength, "+".join(terms) or "0")
+    return "(1+%.4f*(%s))" % (PULSE_ZOOM * strength, balanced_sum(terms))
+
+
+def balanced_sum(terms):
+    """terms added up as a balanced tree, "((a+b)+(c+d))": ffmpeg's expressions refuse a plain
+    chain "a+b+c+..." of more than 94 terms (2026-11-28: a 12-minute song has 302 downbeats,
+    and its render failed at the start with "Failed to configure output pad on zoompan")."""
+    if not terms:
+        return "0"
+    if len(terms) == 1:
+        return terms[0]
+    half = len(terms) // 2
+    return "(%s+%s)" % (balanced_sum(terms[:half]), balanced_sum(terms[half:]))
 
 
 def effect_filter_graph(effects, work_dir, first_extra_input, overlays_dir="/var/lib/hubd/overlays",

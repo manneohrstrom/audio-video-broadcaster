@@ -912,3 +912,22 @@ These were 60 s runs, one variant per camera, written to SD (1800 frames expecte
 - **User: "can it default to the dissolve mode?"** A cut now dissolves in the story unless marked `story_glide: true` (`storyGlide` in the editor); `story_dissolve` from earlier tonight is ignored (it meant what is now the default). Cuts panel: Dissolve first, then Glide. A move takes as long as the dissolve (footer slider, 0-0.8 s), half before the cut, half after (answered the user).
 - **Checked:** hubd 220, ingest 171 + 1 skipped (the dissolve render test now uses an unmarked cut; the framing test marks its cut as a glide), JS 29.
 - **Deployed** (`site.yml --limit hub`, rig idle, ingest only waiting): ok=51 changed=8 failed=0; hubd 0.61.0 and hub-ingest 0.36.0 running, no restarts. Pushed to GitHub with the stories work.
+
+## 2026-11-28: first proper edit (take 20261127-192905); phones in the automatic cut, preview copies without a bounce
+
+Take `20261127-192905`: 706 s, cam1–cam4 and five tripod phones. The bounce synced on its own (hub mic: music, claps agree, high confidence, −4.1 ppm). Entry in progress; filled in at the end of the session.
+
+- **Phones in the automatic cut (hubd 0.62.0, deployed).** User: the cut had no close-ups. `auto_cut.py` used the Pi cameras only ("phones once they have their own anchor"; that anchor, clap sync, was dropped at 1.0). Phones now take turns like the Pis; the wide camera is always a Pi.
+- **Phone mount recorded per take; editor notice for missing preview copies (hubd 0.63.0).** The mount set on the hub page goes into the phone's manifest at finish (`mount`). A handheld phone's movement counts as the other cameras' average for the shot. The editor shows "Preview copies: N of M ready" until they're all made.
+- **Preview copies no longer wait for a synced bounce (hub-ingest 0.37.0).** User: made right after ingest, overnight, so the editor is ready once the bounce is uploaded. The old reason, "user: only the latest take gets edited" (2026-11-16), had no source beyond that line; the user doesn't recognise it.
+- **Proposed, waiting for the user:** `docs/sd-transit-plan.md`: the hub's SD card as transit only, with thumbnails, preview copies and the rest in the take's folder on the drive.
+
+- **Requests no longer wait behind long rounds (hubd 0.64.0, hub-ingest 0.38.0).** With copies for every take, one ingest round ran 40 min and left 9 delete-take requests and a YouTube render unread. Rounds of thumbnails, preview copies and movement now stop between cameras when a request waits. Make video shows "waiting to start" for a request ingest hasn't read yet.
+- **Render failure found and fixed (hub-ingest 0.39.0, 0.40.0).** The YouTube render of `20261127-192905` stopped at frame 3 ("Broken pipe"; then, with the encoder's message reported, x264 "Invalid argument"). Cause: the beat pulse wrote one term per downbeat as a plain sum, and ffmpeg's expressions refuse a chain of more than 94 terms ("Failed to configure output pad on zoompan"). This song has 302 downbeats, so any song over ~4 minutes with pulse on failed. Now a balanced sum (`look_render.balanced_sum`; checked to 3600 downbeats). Found on the Mac by removing each effect in turn from the user's edit; test with 302 downbeats added.
+
+### To discuss with the user (user asked to keep these on the list, 2026-11-28)
+
+- **Phone picture and focus, tripod against handheld, discussed separately.** Colour calibration with the card, and how focus is set. Found today: a tripod phone locks focus only after card calibration (or a focus distance typed in, `phone.html`). Without it, it autofocuses. All five tripod phones in take `20261127-192905` recorded with `focusMode: continuous`. Phones are on automatic exposure and white balance (`hubd_phone_picture: auto`).
+- **Waiting (user: "wait with this"):** pre-loading a whole song's preview copies in the browser (~1.7 GB for this take), if the editor still shows stand-in thumbnails with every copy made.
+- **Skipped for now (user):** going through code comments citing "(user, …)" decisions that aren't in `CLAUDE.md` or the plans.
+- **For the user to look at:** `phone-xct4` (keys close-up) dropped frames in 40 places in this take.

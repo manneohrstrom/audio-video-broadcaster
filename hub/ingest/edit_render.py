@@ -440,7 +440,14 @@ class EditRenderer:
                         outgoing = self.as_array(self.read_frame(previous, frame_number))
                         mix = dissolve_mix(frame_number, shot.first_frame, self.half_dissolve)
                         picture = self.dissolve(outgoing, picture, mix, current)
-                encoder.stdin.write(picture.tobytes() if isinstance(picture, np.ndarray) else picture)
+                try:
+                    encoder.stdin.write(picture.tobytes() if isinstance(picture, np.ndarray) else picture)
+                except BrokenPipeError:
+                    # The encoder stopped taking pictures: say why (its own message), not "Broken pipe".
+                    encoder.wait()
+                    raise RuntimeError("encoder stopped at frame %d (exit %s): %s" % (
+                        frame_number, encoder.returncode,
+                        encoder.stderr.read().decode(errors="replace")[-300:] or "no message")) from None
                 # The outgoing shot's decoder is done once its overlap has been read.
                 if current > 0 and self.shots[current - 1].process is not None and frame_number + 1 >= self.shots[current - 1].decode_to:
                     self.finish_decoder(self.shots[current - 1])

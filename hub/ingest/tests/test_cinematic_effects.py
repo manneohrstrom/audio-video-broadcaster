@@ -188,6 +188,15 @@ class CinematicEffectsTest(unittest.TestCase):
         self.assertEqual(width(out[0]), width(out[23]))                 # before the beat, after the punch: no zoom
         self.assertGreater(width(out[3]), width(out[0]) + 3)            # just after the beat: zoomed in
 
+    def test_beat_pulse_in_a_long_song(self):
+        # 302 downbeats, as the 12-minute song of 2026-11-28 (ffmpeg refused a plain chain of >94).
+        frame = grey(20)
+        frame[530:550, 900:1020] = 230
+        downbeats = [0.1] + [10.0 + 2.0 * i for i in range(301)]
+        out = render([frame] * 24, {"pulse": 1.0}, self.folder, downbeats_s=downbeats, audio_start_s=0.0)
+        width = lambda f: int((f[540, :, 1] > 120).sum())
+        self.assertGreater(width(out[3]), width(out[0]) + 3)            # still zooms on the first downbeat
+
     def test_denoise_in_the_decoder(self):
         rng = np.random.default_rng(2)
         noisy = [np.clip(128 + rng.normal(0, 6, (H, W, 3)), 0, 255).astype(np.uint8) for _ in range(6)]   # high-gain-like

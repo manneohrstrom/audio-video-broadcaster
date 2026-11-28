@@ -35,7 +35,7 @@ import scratch  # noqa: E402
 import editor_projects  # noqa: E402
 import health_history  # noqa: E402
 
-VERSION = "0.61.0"
+VERSION = "0.64.0"
 SHOT_LINGER_S = 1.5         # the camera icon stays on this long after a still
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -308,6 +308,27 @@ def take_summary(take_id, manifests, errors, limit_us=1000):
                       and all(exit_ok(c) and not c["dropped_frames"] for c in cams.values())),
     }
 
+
+
+def newest_unread_render(cfg, take, song, kind="edit"):
+    """(epoch s, request) of the newest render request for this song waiting in hub-ingest's
+    commands folder (ingest reads and removes them between its steps), or None."""
+    folder = os.path.join(cfg["ingest_dir"], "commands")
+    try:
+        names = sorted(os.listdir(folder), reverse=True)
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith("-render.json"):
+            continue
+        try:
+            with open(os.path.join(folder, name)) as f:
+                request = json.load(f)
+        except (OSError, ValueError):
+            continue                          # read and removed by ingest meanwhile
+        if (request.get("take"), request.get("song"), request.get("kind") or "edit") == (take, song, kind):
+            return int(name.split("-")[0]) / 1e9, request
+    return None
 
 class Hub:
     def __init__(self, cfg, nodes=None, clock=time.time, sleep=time.sleep):
@@ -1238,8 +1259,13 @@ class Hub:
             with open(os.path.join(self.cfg["ingest_dir"], "state.json")) as f:
                 jobs = json.load(f).get("renders") or {}
         except (OSError, ValueError):
-            return {}
+            jobs = {}
         job = jobs.get("%s/%s:%s" % (take, song, "story" if kind == "story" else "edit")) or {}
+        waiting = newest_unread_render(self.cfg, take, song, kind)
+        if waiting and waiting[0] > (job.get("queued_at") or 0):
+            # Asked for, but hub-ingest hasn't read the request yet (it does between steps).
+            return {"status": "queued", "status_note": "the hub starts it after its current step",
+                    "youtube": bool(waiting[1].get("youtube")), "upload": None}
         status = {k: job.get(k) for k in ("status", "progress", "eta_s", "error", "file", "status_note", "length_s",
                                           "render_s", "version", "video_number", "youtube", "upload_error")}
         status["upload"] = self.youtube_upload(job.get("upload"))

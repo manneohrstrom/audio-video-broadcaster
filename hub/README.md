@@ -126,7 +126,7 @@ The other jobs:
 | Delete take | As soon as the rig is quiet, with the drive in if the take is on it |
 | Copy bounces and mic recordings to the drive | With ingest |
 | Thumbnails | After ingest, or at once when the editor opens a take without them |
-| Editing proxies, movement | With ingest, for takes that have a synced song |
+| Editing proxies, movement | With ingest, for every ingested take, newest first |
 | Render (**Make video**) | Queued, then run as soon as the rig is quiet, without the 30-minute wait. It needs the take on the drive. The finished file is checked and written to `takes/<take>/edits/<song>/`, never replacing an older video. |
 | YouTube upload | `hub-upload`, after the video is on the drive, whenever no take or LIVE is running |
 

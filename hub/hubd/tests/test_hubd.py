@@ -3,6 +3,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import threading
 import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -700,6 +701,8 @@ class YouTubeTest(unittest.TestCase):
         self.assertEqual([(c["kind"], c["youtube"]) for c in self.commands()], [("story", False)])
         with self.assertRaises(ValueError):
             self.hub.request_edit_render("20261117-201741", "track-1", 1, kind="reel")
+        for name in os.listdir(os.path.join(self.tmp, "ingest", "commands")):   # read and removed, as hub-ingest does
+            os.remove(os.path.join(self.tmp, "ingest", "commands", name))
         os.makedirs(os.path.join(self.tmp, "ingest"), exist_ok=True)
         with open(os.path.join(self.tmp, "ingest", "state.json"), "w") as f:
             json.dump({"renders": {"20261117-201741/track-1:edit": {"status": "done", "video_number": 4},
@@ -709,6 +712,21 @@ class YouTubeTest(unittest.TestCase):
         song = {"id": "track-1", "render": None, "videos": [{"number": 1, "format": "story"}]}
         self.hub.add_youtube("20261117-201741", song, {})
         self.assertIsNone(song["videos"][0]["youtube"])
+
+    def test_a_render_ingest_hasnt_read_yet_shows_as_waiting(self):
+        self.sign_in()
+        self.assertIsNone(self.hub.edit_render_status("20261117-201741", "track-1", 1).get("status"))
+        self.hub.request_edit_render("20261117-201741", "track-1", 1, youtube=True)
+        status = self.hub.edit_render_status("20261117-201741", "track-1", 1)
+        self.assertEqual((status["status"], status["youtube"]), ("queued", True))
+        self.assertIsNone(self.hub.edit_render_status("20261117-201741", "track-1", 1, "story").get("status"))
+        os.makedirs(os.path.join(self.tmp, "ingest"), exist_ok=True)      # ingest read it and queued the job
+        for name in os.listdir(os.path.join(self.tmp, "ingest", "commands")):
+            os.remove(os.path.join(self.tmp, "ingest", "commands", name))
+        with open(os.path.join(self.tmp, "ingest", "state.json"), "w") as f:
+            json.dump({"renders": {"20261117-201741/track-1:edit": {"status": "rendering", "progress": 0.1,
+                                                                    "queued_at": time.time()}}}, f)
+        self.assertEqual(self.hub.edit_render_status("20261117-201741", "track-1", 1)["status"], "rendering")
 
     def test_the_takes_name_goes_with_the_render(self):
         self.hub.request_edit_render("20261117-201741", "track-1", 1)

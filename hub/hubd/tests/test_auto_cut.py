@@ -10,8 +10,9 @@ SECOND = auto_cut.NS_PER_SECOND
 START = 1_794_855_249_000_000_000
 
 
-def camera(camera_id, first_s=0.0, last_s=200.0, rough=(), server=False, kind="pi"):
+def camera(camera_id, first_s=0.0, last_s=200.0, rough=(), server=False, kind="pi", mount=None):
     return {"id": camera_id, "kind": kind, "is_sync_server": server,
+            "mount": mount or ("fixed" if kind == "pi" else "tripod"),
             "file_zero_ns": START, "first_frame_ns": START + int(first_s * SECOND),
             "last_frame_ns": START + int(last_s * SECOND),
             "rough_sections_ns": [[START + int(a * SECOND), START + int(b * SECOND)] for a, b in rough]}
@@ -124,9 +125,30 @@ class Rules(unittest.TestCase):
         cuts = self.cut(beats={"beats_s": []})
         self.assertGreater(len(cuts), 10)
 
-    def test_phones_left_out(self):
-        self.cameras.append(camera("pixel-9a", kind="phone"))
-        self.assertNotIn("pixel-9a", {c["camera"] for c in self.cut()})
+    def test_phones_take_turns_but_never_as_the_wide_camera(self):
+        self.cameras.append(camera("phone-k7q2", kind="phone"))
+        cuts = self.cut()
+        self.assertIn("phone-k7q2", {c["camera"] for c in cuts})
+        self.assertEqual(cuts[0]["camera"], "cam1")
+
+    def test_a_handheld_phones_shake_doesnt_win_it_the_shots(self):
+        self.cameras.append(camera("phone-hand", kind="phone", mount="handheld"))
+        shaking = {"phone-hand": movement([(0, 200, 3.0)])}             # all shake, the whole song
+        shown = [c["camera"] for c in self.cut(motion=shaking)]
+        self.assertIn("phone-hand", shown)
+        self.assertLess(shown.count("phone-hand"), len(shown) / 3)      # takes turns, doesn't take over
+        tripod = dict(self.cameras[-1], mount="tripod")                 # the same reading on a tripod wins more
+        self.cameras[-1] = tripod
+        self.assertGreater([c["camera"] for c in self.cut(motion=shaking)].count("phone-hand"),
+                           shown.count("phone-hand"))
+
+    def test_a_phone_is_left_out_where_it_has_a_rough_section(self):
+        self.cameras.append(camera("phone-k7q2", kind="phone", rough=[(0, 200)]))
+        self.assertNotIn("phone-k7q2", {c["camera"] for c in self.cut()})
+
+    def test_the_wide_camera_is_a_pi_even_when_phones_come_first(self):
+        self.cameras.insert(0, camera("phone-k7q2", kind="phone"))
+        self.assertEqual(self.cut()[0]["camera"], "cam1")
 
     def test_a_short_song_is_one_shot_on_the_wide_camera(self):
         cuts = auto_cut.rules_cut(self.cameras, [START, START + 8 * SECOND], beats_document(), START)

@@ -140,6 +140,7 @@ def assemble(d, meta, delay_table):
     model = (meta.get("info") or {}).get("model")
     man = {"schema": 1, "camera": meta.get("phone"), "label": meta.get("label"), "take_id": meta.get("take_id"), "source": "phone",
            "phone_model": model, "complete": not missing, "chunks": len(seqs), "missing_chunks": missing,
+           "mount": meta.get("mount"),     # tripod | handheld, as set on the hub page when the phone finished
            "settings": meta.get("settings"), "encoder": meta.get("encoder"), "phone": meta.get("info"),
            "page_stats": meta.get("stats"), "finished_at": time.time()}
     if missing:
@@ -488,7 +489,8 @@ class Phones:
             busy = d in self.joining
         if busy:                                   # a retry while it joins: the pieces are all here
             return dict(quick_summary(d, missing_chunks(d, {})[0]), complete=True, joining=True)
-        meta = dict(meta, phone=phone, take_id=take_id)
+        device = re.sub(r"-part\d{1,2}$", "", phone)
+        meta = dict(meta, phone=phone, take_id=take_id, mount=self.mounts.get(device, "tripod"))
         write_json(os.path.join(d, "finish.json"), meta)
         seqs, missing = missing_chunks(d, meta)
         if missing or not self.join_in_background:

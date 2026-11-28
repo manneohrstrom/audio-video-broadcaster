@@ -57,7 +57,7 @@ function IngestChips({ camera, paused, phone }) {
   });
 }
 
-const PREP_LATER = { proxy: "after a song is synced", motion: "after the preview copy" };
+const PREP_LATER = { motion: "after the preview copy" };
 
 /** The steps after Mark on camera: thumbnails, preview copy and movement for the editor. */
 function PrepChips({ prep, adopted, paused }) {

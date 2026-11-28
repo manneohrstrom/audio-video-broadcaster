@@ -75,6 +75,9 @@ def describe_cameras(take_document):
             "id": camera_id,
             "label": manifest.get("label") or camera_id,
             "kind": "phone" if is_phone else "pi",
+            # Pis are fixed on the wall; phones as set on the hub page (takes before 2026-11-28
+            # didn't record it: tripod, the hub's default).
+            "mount": (manifest.get("mount") or "tripod") if is_phone else "fixed",
             "is_sync_server": manifest.get("sync_role") == "server",
             "file_zero_ns": grid_origin_ns(first_frame_ns),
             "first_frame_ns": first_frame_ns,

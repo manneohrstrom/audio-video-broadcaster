@@ -29,6 +29,14 @@
 .steps button:hover:not([aria-current]) { color: var(--color-text); }
 .steps button[aria-current] { background: var(--color-cream); color: var(--color-well); box-shadow: var(--key-depth); }
 .steps button:disabled { opacity: 0.5; }
+/* the preview copies aren't all made yet (PreviewNotice.js): a second row across the header */
+.preview-notice {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-3);
+  padding: 6px 12px; border-radius: var(--radius-key); background: var(--color-well);
+  color: var(--color-text-muted); font-size: var(--font-size-small);
+}
+.preview-notice::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--color-warning); box-shadow: 0 0 6px var(--color-warning); }
+.preview-notice.done::before { background: var(--color-good); box-shadow: 0 0 6px var(--color-good); }
 .header-actions { display: flex; gap: var(--space-2); justify-content: flex-end; align-items: center; }
 .save-state { color: var(--color-text-muted); font-size: var(--font-size-small); display: inline-flex; align-items: center; gap: 6px; }
 .save-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--color-good); box-shadow: 0 0 6px var(--color-good); }

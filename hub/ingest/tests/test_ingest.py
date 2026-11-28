@@ -1123,10 +1123,37 @@ class ThumbnailStepTest(Base):
 
 
 class ProxyStepTest(Base):
-    def test_no_proxies_for_takes_without_a_synced_song(self):
+    def test_a_waiting_request_stops_the_round_between_cameras(self):
+        self.ing.cfg["proxies_dir"] = os.path.join(self.tmp, "proxies")
+        made = []
+
+        def fake_make(source, destination, **kw):
+            made.append(os.path.basename(destination))
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            open(destination, "w").close()
+            if len(made) == 1:
+                self.command("render")                       # asked for while the first copy is made
+        orig = ingest.proxies.make_proxy
+        ingest.proxies.make_proxy = fake_make
+        try:
+            self.ing.make_proxies([(TAKE, "cam1"), (TAKE, "cam2"), (TAKE, "cam3")])
+        finally:
+            ingest.proxies.make_proxy = orig
+        self.assertEqual(made, ["cam1.mp4"])                 # cam2 and cam3 next round, after the request
+        self.assertTrue(self.ing.commands_waiting())
+
+    def test_proxies_dont_wait_for_a_bounce(self):
         self.ing.cfg["audio_dir"] = os.path.join(self.tmp, "no-audio")
+        self.ing.cfg["proxies_dir"] = os.path.join(self.tmp, "proxies")
         self.ing.state["takes"] = {TAKE: {"complete": True, "cam1": {"frames_cam": 10}}}
-        self.assertEqual(self.ing.proxies_pending(), [])
+        self.assertEqual(self.ing.proxies_pending(), [(TAKE, "cam1")])
+
+    def test_newest_take_first_and_none_for_takes_still_ingesting(self):
+        self.ing.cfg["proxies_dir"] = os.path.join(self.tmp, "proxies")
+        self.ing.state["takes"] = {"20261101-120000": {"complete": True, "cam1": {"frames_cam": 10}},
+                                   "20261102-120000": {"complete": True, "cam1": {"frames_cam": 10}},
+                                   "20261103-120000": {"cam1": {"frames_cam": 10}}}
+        self.assertEqual(self.ing.proxies_pending(), [("20261102-120000", "cam1"), ("20261101-120000", "cam1")])
 
     def test_ingested_takes_get_proxies(self):
         self.ing.cfg["thumbs_dir"] = os.path.join(self.tmp, "thumbs")
@@ -1180,12 +1207,9 @@ class PrepStateTest(Base):
         self.ing.update_prep()
         return {step: value["state"] for step, value in self.ing.state["takes"][take][camera]["prep"].items()}
 
-    def test_preview_copies_wait_for_a_synced_song(self):
-        self.assertEqual(self.prep("cam1"), {"thumbnails": "waiting", "proxy": "later", "motion": "later"})
-        self.assertNotIn("prep", self.ing.state["takes"]["20261101-120000"]["cam1"])
-        os.makedirs(os.path.join(self.tmp, "audio", TAKE, "song", "v1"))
-        open(os.path.join(self.tmp, "audio", TAKE, "song", "v1", "sync.json"), "w").close()
+    def test_preview_copies_are_made_without_a_bounce(self):
         self.assertEqual(self.prep("cam1"), {"thumbnails": "waiting", "proxy": "waiting", "motion": "waiting"})
+        self.assertNotIn("prep", self.ing.state["takes"]["20261101-120000"]["cam1"])
 
     def test_done_and_failed(self):
         os.makedirs(os.path.join(self.tmp, "audio", TAKE, "song", "v1"))

@@ -19,6 +19,7 @@ import { TitlePanel } from "./TitlePanel.js";
 import { StoryPanel } from "./StoryPanel.js";
 import { MakeVideo } from "./MakeVideo.js";
 import { SyncBar } from "./SyncBar.js";
+import { PreviewNotice } from "./PreviewNotice.js";
 import { Icon } from "shared/icons.js";
 import { formatSeconds } from "../time-format.js";
 
@@ -118,6 +119,7 @@ function Editor({ project }) {
                   title=${`Check or fix where the bounce sits (sync: ${project.bounce.sync.anchor || "by hand"}${project.bounce.sync.confidence ? ", confidence " + project.bounce.sync.confidence : ""})`}><${Icon} name="tuningFork" size=${16} />Sync</button>
           ${store.step === "story" ? html`<${MakeVideo} key="story" store=${store} kind="story" />` : html`<${MakeVideo} key="video" store=${store} />`}
         </div>
+        <${PreviewNotice} store=${store} project=${project} />
       </header>`}
       <div class="video-area">
         <div class="video-column">

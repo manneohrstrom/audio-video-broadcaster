@@ -80,6 +80,14 @@ class PhonesTest(unittest.TestCase):
         # finishing again (a retry from the phone) returns the same result
         self.assertEqual(self.ph.finish("20261116-100000", "phone1", {})["frames"], 180)
         self.assertTrue(self.ph.have("20261116-100000", "phone1")["complete"])
+        self.assertEqual(man["mount"], "tripod")                            # the hub's default
+
+    def test_the_manifest_records_the_mount_set_on_the_hub_page(self):
+        self.ph.set_mount("phone-k7q2", "handheld")
+        for part in ("phone-k7q2", "phone-k7q2-part2"):                    # a second part after a reload too
+            chunks(self.ph, "20261116-100000", part)
+            man = self.ph.finish("20261116-100000", part, {"clock": clock_samples(), "chunks": 3})
+            self.assertEqual(man["mount"], "handheld")
 
     def test_finish_answers_at_once_and_joins_in_the_background(self):
         # user, 2026-11-21: the phone is done as soon as every piece is on the hub

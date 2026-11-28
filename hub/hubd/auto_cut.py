@@ -22,11 +22,15 @@ Rules, in order of weight:
      Movement counts on a fixed scale (motion.py's readings: under 0.15 is sensor noise,
      1.5 clearly someone moving; from the clap-test take, 2026-11-16), so in a still room
      the noise doesn't decide and the cameras simply take turns. The wide camera is only
-     chosen when it's due (rule 4), or when no other camera can be shown.
+     chosen when it's due (rule 4), or when no other camera can be shown. A handheld phone's
+     movement is mostly its own shake, so it counts as the other cameras' average for the
+     shot: neither favoured nor passed over (user, 2026-11-28: the edit should know tripod
+     from handheld).
 
 Deterministic: the same inputs give the same cut (ties go to the camera shown longest ago,
-then by id), so opening a song twice doesn't surprise the user. Pi cameras only, as the
-quick mix (decision 6 of docs/phase4-plan.md: phones once they have their own anchor).
+then by id), so opening a song twice doesn't surprise the user. Phones take part like the Pi
+cameras (user, 2026-11-28: the close-ups are phones), placed by their capture-delay
+correction; the wide camera is always a Pi.
 
 All times are hub-clock nanoseconds; the cuts come back as the edit format's
 [{"at_ns" (from the song range's start), "camera", "by": "auto"}].
@@ -140,6 +144,21 @@ def coverage(camera, a, b):
     return min(b, camera["last_frame_ns"]) - max(a, camera["first_frame_ns"])
 
 
+def shot_movement(candidates, movement, a, b, settings):
+    """{camera id: how much is moving in its picture during the shot, 0 still .. 1 clearly}.
+    A handheld phone gets the other cameras' average: its own reading is mostly shake."""
+    noise, full = settings["movement_noise"], settings["movement_full"]
+    out = {}
+    for camera in candidates:
+        if camera.get("mount") != "handheld":
+            reading = mean_movement(movement.get(camera["id"], ([], [])), a, b)
+            out[camera["id"]] = min(1.0, max(0.0, (reading - noise) / (full - noise)))
+    average = sum(out.values()) / len(out) if out else 0.0
+    for camera in candidates:
+        out.setdefault(camera["id"], average)
+    return out
+
+
 def choose_cameras(cameras, boundaries, movement, wide_id, settings):
     """One camera id per shot."""
     wide_every = settings["wide_every_s"] * NS_PER_SECOND
@@ -161,15 +180,13 @@ def choose_cameras(cameras, boundaries, movement, wide_id, settings):
             else:
                 others = ([c for c in fit if c["id"] not in (current, wide_id)]
                           or [c for c in fit if c["id"] != current] or fit)
-                noise, full = settings["movement_noise"], settings["movement_full"]
+                moving = shot_movement(others, movement, a, b, settings)
 
                 def value(camera):
                     """(score, then the camera on longest ago, then the first by id): higher wins."""
-                    reading = mean_movement(movement.get(camera["id"], ([], [])), a, b)
-                    moving = min(1.0, max(0.0, (reading - noise) / (full - noise)))
                     shown = last_on.get(camera["id"], -100)
                     fresh = min(index - shown, 4) / 4.0
-                    score = settings["movement_weight"] * moving + settings["freshness_weight"] * fresh
+                    score = settings["movement_weight"] * moving[camera["id"]] + settings["freshness_weight"] * fresh
                     return (round(score, 9), -shown, -order[camera["id"]])
                 pick = max(others, key=value)
         if chosen and chosen[-1] == wide_id and pick["id"] != wide_id:
@@ -187,15 +204,15 @@ def rules_cut(cameras, range_ns, beats, bounce_start_ns, drift_ppm=0.0, motion=N
     bounce's beats.json; motion: {camera id: motion.json} (missing cameras count as still);
     wide_id: the wide camera (default: the sync server, else the first Pi camera)."""
     settings = dict(DEFAULTS, **(settings or {}))
-    pis = [c for c in cameras if c["kind"] == "pi"] or list(cameras)
-    if not pis:
+    if not cameras:
         return []
+    pis = [c for c in cameras if c["kind"] == "pi"] or list(cameras)
     if wide_id not in [c["id"] for c in pis]:
         wide_id = next((c["id"] for c in pis if c["is_sync_server"]), pis[0]["id"])
     movement = {c["id"]: movement_series(motion[c["id"]], c["file_zero_ns"])
-                for c in pis if motion and c["id"] in motion}
+                for c in cameras if motion and c["id"] in motion}
     boundaries = cut_points(range_ns, beat_points(beats, bounce_start_ns, drift_ppm, settings), settings)
-    chosen = choose_cameras(pis, boundaries, movement, wide_id, settings)
+    chosen = choose_cameras(list(cameras), boundaries, movement, wide_id, settings)
     cuts = []
     for at, camera_id in zip(boundaries, chosen):
         if not cuts or cuts[-1]["camera"] != camera_id:
